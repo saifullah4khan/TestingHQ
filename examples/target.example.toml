@@ -1,0 +1,23 @@
+# Example TestingHQ target configuration.
+#
+# Copy this file (e.g. to target.toml, gitignored by default patterns you
+# add), point `url` at an intake endpoint you own or have explicit
+# permission to test, and pass it to `testinghq blast fire --target <name>`.
+#
+# Only targets declared in a config file like this one may be fired at:
+# testinghq.core.guardrails.require_configured_target refuses any target
+# name that isn't present here. Dry-run (the default) doesn't need a
+# config at all; a target is only required once you pass --send.
+#
+# Shape: this mirrors testinghq.core.config.Config, a table of named
+# targets, each with a `name` and a `url`. The TOML loader that reads a
+# file like this into that Config is not wired up yet (M1 backlog, Lane A);
+# this file documents the intended shape ahead of it landing.
+
+[targets.local]
+name = "local"
+url = "http://127.0.0.1:8000/intake"
+
+[targets.staging]
+name = "staging"
+url = "https://staging.example.com/intake/testinghq"
