@@ -9,7 +9,7 @@ thing Nox reads.
 | Agent | Role | Model | Schedule (local, tunable) | Lane / notes |
 |---|---|---|---|---|
 | planner | Weekly goal + backlog top-up + request triage + drift flag | Opus | Mon and Thu 7:00am | Light at this size; folds strategist and dispatch |
-| coder-a | Engine/core coder | Sonnet | 1:15pm | Lane A: `testinghq/**`, `tests/unit/**`. Push branch, never merge |
+| coder-a | Engine/core coder | Sonnet | 1:15pm | Lane A: `testinghq/core/{config,transport,ratelimit,report}.py`, `testinghq/blast/**`, `testinghq/cli.py`, `tests/unit/**`. NOT `core/guardrails.py`. Push branch, never merge |
 | coder-b | UI + integration + examples coder | Sonnet | 2:15pm | Lane B: `web/**`, `examples/**`, `tests/integration/**`. Push branch, never merge |
 | reviewer | Quality gate, opens PRs | Sonnet | 3:15pm | Reviews both coder branches in-window; never merges |
 | integrator | Single merge point | Sonnet | 4:40am | Merges green only, one flake-retry, never resolves conflicts |
@@ -34,3 +34,10 @@ clusters in the cheap early morning, ahead of the planner. Roughly two agents pe
 - Prove the CI gate can go red before trusting green (done: PR #1). Zero
   quarantine list; if a skip is ever needed, track it and only ever shrink it.
 - Never fix a test to match the code. Broken-first reporting. No em-dashes.
+- `core/guardrails.py` is the security lane's and no coder's. A coder imports it
+  and never edits it. The lane with a motive to weaken a check so a test passes
+  must not be the lane able to edit the check. Lane A read as owning
+  `testinghq/**` until 2026-07-16, which handed it the guardrails by accident.
+- A lane may not import another lane's unmerged module. See the collision rule in
+  GOALS.md. Sharing no files is not the same as having no dependency, and the
+  difference is a branch that cannot go green on its own.
