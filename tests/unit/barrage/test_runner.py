@@ -353,6 +353,153 @@ def test_pacing_never_requests_a_degenerate_sleep():
     assert all(s >= 1e-9 for s in sleeper.calls if s > 0)
 
 
+# ---------------------------------------------------------------------------
+# Regression: the collapsing ramp.
+#
+# A stage used to end the instant its last request was dispatched, which is
+# up to one interval early and collapses completely when rounding gives a
+# stage a budget of 1: a 0.3s stage at 2 req/s fired its single request at
+# stage_start and returned immediately. The ramp then took almost no wall
+# time and dumped every warmup request at once, so the achieved rate
+# overshot the target and the warmup ramp slammed a cold endpoint instead of
+# easing into it, which is the precise opposite of its purpose.
+#
+# Caught by a real run against a local sink: the first second of a 10 req/s
+# run reported 15 req/s achieved. These tests pin it under an injected clock.
+# ---------------------------------------------------------------------------
+
+
+def test_warmup_ramp_occupies_its_full_configured_duration():
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(
+        mode="open",
+        rate=10.0,
+        concurrency=1,
+        warmup_seconds=3.0,
+        hold_seconds=5.0,
+        ramp_step_count=10,
+    )
+
+    run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    # The whole run must take warmup + hold of simulated time, not collapse
+    # into a burst. Before the fix this finished in well under the 8s.
+    assert clock.time == pytest.approx(8.0, abs=0.05)
+
+
+def test_ramp_stage_with_a_single_request_still_occupies_its_stage():
+    # The exact collapse case: 0.3s stages at low rates round to a budget of
+    # 1, so the stage used to take zero simulated time.
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(
+        mode="open",
+        rate=10.0,
+        concurrency=1,
+        warmup_seconds=3.0,
+        hold_seconds=1.0,
+        ramp_step_count=10,
+    )
+
+    run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    assert clock.time == pytest.approx(4.0, abs=0.05)
+
+
+def test_open_loop_achieved_rate_never_overshoots_the_target_in_any_second():
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(
+        mode="open",
+        rate=10.0,
+        concurrency=1,
+        warmup_seconds=3.0,
+        hold_seconds=5.0,
+        ramp_step_count=10,
+    )
+
+    records = run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    # Bucket dispatches into 1 second windows. A window may straddle a stage
+    # boundary and pick up one extra, so allow exactly one; the bug this
+    # pins was a 50% overshoot (15 in a 10/s window), which this still
+    # catches decisively.
+    per_second = {}
+    origin = records[0].dispatch_time
+    for record in records:
+        bucket = int(record.dispatch_time - origin)
+        per_second[bucket] = per_second.get(bucket, 0) + 1
+    assert per_second, "expected some dispatches"
+    assert max(per_second.values()) <= 11, (
+        f"a one second window overshot the 10/s target: {per_second}"
+    )
+
+
+def test_steady_state_dispatches_are_never_spaced_tighter_than_the_target_rate():
+    # The rigorous form of "never faster than the target rate", free of any
+    # bucket-boundary artifact: inside the steady-state hold, consecutive
+    # dispatches must be at least one interval apart.
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(mode="open", rate=10.0, concurrency=1, warmup_seconds=0.0, hold_seconds=5.0)
+
+    records = run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    gaps = [b.dispatch_time - a.dispatch_time for a, b in zip(records, records[1:])]
+    assert gaps
+    assert min(gaps) >= 0.1 - 1e-9, f"dispatched faster than 10/s: min gap {min(gaps)}"
+
+
+def test_steady_state_dispatch_count_is_exactly_rate_times_duration():
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(mode="open", rate=10.0, concurrency=1, warmup_seconds=0.0, hold_seconds=5.0)
+
+    records = run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    assert len(records) == 50
+
+
+def test_ramp_dispatches_fewer_requests_early_than_late():
+    # The ramp must actually be a ramp: the first second of a run should
+    # carry less load than the steady state, not the same or more.
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(
+        mode="open",
+        rate=10.0,
+        concurrency=1,
+        warmup_seconds=4.0,
+        hold_seconds=4.0,
+        ramp_step_count=8,
+    )
+
+    records = run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    origin = records[0].dispatch_time
+    first_second = sum(1 for r in records if r.dispatch_time - origin < 1.0)
+    last_second = sum(1 for r in records if r.dispatch_time - origin >= 7.0)
+    assert first_second < last_second
+
+
+def test_closed_loop_ramp_also_occupies_its_full_duration():
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(
+        mode="closed",
+        rate=10.0,
+        concurrency=2,
+        warmup_seconds=3.0,
+        hold_seconds=3.0,
+        ramp_step_count=10,
+    )
+
+    run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    assert clock.time == pytest.approx(6.0, abs=0.05)
+
+
 def test_run_plan_rejects_invalid_fields():
     with pytest.raises(ValueError):
         RunPlan(mode="sideways", rate=1.0, concurrency=1, warmup_seconds=0.0, hold_seconds=1.0)

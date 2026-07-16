@@ -195,6 +195,31 @@ def _sleep_until(deadline: float, clock: Callable[[], float], sleep: Callable[[f
         sleep(deadline - now)
 
 
+def _hold_until_stage_end(
+    stage: RampStage,
+    stage_start: float,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> None:
+    """Occupy the rest of the stage's nominal duration after its budget is
+    spent.
+
+    Without this, a stage ends the moment its last request is dispatched,
+    which is up to one full interval early, and collapses entirely when
+    rounding gives a stage a budget of 1 (a 0.3s stage at 2 req/s fires its
+    single request at stage_start and returns immediately). The ramp then
+    takes almost no wall time and dumps every warmup request at once: the
+    achieved rate overshoots the target, and the warmup ramp does the exact
+    opposite of its job, slamming a cold endpoint instead of easing into
+    it. Caught by a real run against a local sink, where the first second
+    of a 10 req/s run reported 15 req/s achieved.
+
+    Holding to the stage boundary is what makes a stage's rate mean what it
+    says, and is why the ramp actually occupies warmup_seconds.
+    """
+    _sleep_until(stage_start + stage.duration, clock, sleep)
+
+
 def _pace_and_gate(bucket: TokenBucket) -> float:
     """Take one token from the rate-gate bucket and return seconds waited.
 
@@ -239,29 +264,34 @@ def _run_open_loop_stages(
     records: List[DispatchRecord] = []
     index = 0
     for stage in stages:
-        count = _stage_dispatch_count(stage)
-        if count <= 0:
+        if stage.duration <= 0:
             continue
-        bucket = TokenBucket(
-            rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
-        )
         stage_start = clock()
-        interval = 1.0 / stage.rate
-        for step in range(count):
-            _sleep_until(stage_start + step * interval, clock, sleep)
-            waited = _pace_and_gate(bucket)
-            dispatch_time = clock()
-            result, _service_seconds = send_fn(index)
-            records.append(
-                DispatchRecord(
-                    index=index,
-                    target_rate=stage.rate,
-                    dispatch_time=dispatch_time,
-                    waited=waited,
-                    result=result,
-                )
+        # A stage whose budget rounds to 0 (an early, low-rate ramp step
+        # too short to earn a whole request) still occupies its window.
+        # Skipping it outright would silently shorten the ramp.
+        count = _stage_dispatch_count(stage)
+        if count > 0:
+            bucket = TokenBucket(
+                rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
             )
-            index += 1
+            interval = 1.0 / stage.rate
+            for step in range(count):
+                _sleep_until(stage_start + step * interval, clock, sleep)
+                waited = _pace_and_gate(bucket)
+                dispatch_time = clock()
+                result, _service_seconds = send_fn(index)
+                records.append(
+                    DispatchRecord(
+                        index=index,
+                        target_rate=stage.rate,
+                        dispatch_time=dispatch_time,
+                        waited=waited,
+                        result=result,
+                    )
+                )
+                index += 1
+        _hold_until_stage_end(stage, stage_start, clock, sleep)
     return records
 
 
@@ -287,13 +317,15 @@ def _run_closed_loop_stages(
     records: List[DispatchRecord] = []
     index = 0
     for stage in stages:
-        budget = _stage_dispatch_count(stage)
-        if budget <= 0 or stage.duration <= 0:
+        if stage.duration <= 0:
             continue
+        stage_start = clock()
+        # As in the open-loop path: a zero-budget ramp step still occupies
+        # its window rather than being skipped, so the ramp keeps its shape.
+        budget = _stage_dispatch_count(stage)
         bucket = TokenBucket(
             rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
         )
-        stage_start = clock()
         interval = 1.0 / stage.rate
         free_at = [stage_start] * concurrency
         dispatched = 0
@@ -320,6 +352,7 @@ def _run_closed_loop_stages(
             )
             index += 1
             dispatched += 1
+        _hold_until_stage_end(stage, stage_start, clock, sleep)
     return records
 
 
