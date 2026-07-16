@@ -29,6 +29,13 @@ match the code.
   posted payload and records it intact.
 - [ ] [B][S] Wire `examples/demo.py`: generate a clean corpus and dry-run it end
   to end against the fake sink.
+- [ ] [B][M] Happy-path integration test in `tests/integration/`: fixed-seed clean
+  corpus, dry-run post each payload to the fake sink, assert every payload arrives
+  and decoded fields match per-payload ground truth (intended from, subject, body
+  core).
+- [ ] [B][S] Sample target config plus `examples/README.md`: a documented
+  `examples/target.example.toml` and a README showing dry-run versus live `demo.py`
+  invocation. New files only; does not touch `examples/demo.py`.
 - [ ] [A][S] Determinism test: same seed plus config yields byte-identical output.
 
 ## M2 - chaos (next)
