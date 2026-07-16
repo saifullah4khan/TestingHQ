@@ -166,6 +166,51 @@ def test_build_artifact_matches_sample_run_with_failures():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# format_summary: the human-readable CLI report
+# ---------------------------------------------------------------------------
+
+
+def test_format_summary_contains_counts_and_look_here_list():
+    fixture = _load_fixture("sample_run_with_failures.json")
+    artifact = report.build_artifact(
+        fixture["seed"], fixture["config"], fixture["records"]
+    )
+    text = report.format_summary(artifact)
+    assert "seed=7" in text
+    assert "6 payload(s)" in text
+    assert "2xx: 1" in text
+    assert "5xx: 2" in text
+    assert "timeout: 1" in text
+    assert "degenerate: 3" in text
+    assert "Look here (3):" in text
+    assert "clean payload clean-7-0001 did not 2xx" in text
+    assert "degenerate degenerate-7-0000 returned 500" in text
+    assert "degenerate degenerate-7-0001 timed out" in text
+
+
+def test_format_summary_no_flags_says_so():
+    fixture = _load_fixture("sample_run_clean.json")
+    artifact = report.build_artifact(
+        fixture["seed"], fixture["config"], fixture["records"]
+    )
+    text = report.format_summary(artifact)
+    assert "Look here: nothing flagged." in text
+    assert "Look here (" not in text
+
+
+def test_format_summary_all_500_vs_all_200_read_differently():
+    records_500 = [_record(report.DEGENERATE, 500, rid=f"d-{i}") for i in range(3)]
+    records_200 = [_record(report.CLEAN, 200, rid=f"c-{i}") for i in range(3)]
+    artifact_500 = report.build_artifact(1, {}, records_500)
+    artifact_200 = report.build_artifact(1, {}, records_200)
+    text_500 = report.format_summary(artifact_500)
+    text_200 = report.format_summary(artifact_200)
+    assert text_500 != text_200
+    assert "Look here (3):" in text_500
+    assert "Look here: nothing flagged." in text_200
+
+
 def test_agrees_with_web_expectations_on_both_fixtures():
     from web import expectations as web_expectations
 

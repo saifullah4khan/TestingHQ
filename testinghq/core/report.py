@@ -181,3 +181,50 @@ def build_artifact(
         "summary": compute_summary(records, seed, config),
         "records": list(records),
     }
+
+
+# ---------------------------------------------------------------------------
+# Human summary: the CLI-facing report. Counts by response class, counts by
+# category, and the category-versus-outcome "look here" list, so a run where
+# everything 500s and a run where everything 200s read as visibly different
+# reports, not just different numbers buried in JSON.
+# ---------------------------------------------------------------------------
+
+_STATUS_CLASS_ORDER = ("2xx", "4xx", "5xx", "timeout")
+
+
+def format_summary(artifact: Dict[str, Any]) -> str:
+    """Render an artifact's summary as human-readable text.
+
+    Pure formatting, no I/O: the caller decides whether to print it, write
+    it to a file, or both. Deterministic given a deterministic artifact
+    (category order follows CATEGORIES, status class order follows
+    _STATUS_CLASS_ORDER, flags follow record order, so output is stable
+    across runs of the same seed and config).
+    """
+    seed = artifact.get("seed")
+    summary = artifact.get("summary") or {}
+    by_status_class = summary.get("by_status_class") or {}
+    by_category = summary.get("by_category") or {}
+    flags = summary.get("flags") or []
+    total = len(artifact.get("records") or [])
+
+    lines: List[str] = []
+    lines.append(f"Blast run seed={seed}, {total} payload(s)")
+    lines.append("")
+    lines.append("By response class:")
+    for status_class in _STATUS_CLASS_ORDER:
+        lines.append(f"  {status_class}: {by_status_class.get(status_class, 0)}")
+    lines.append("")
+    lines.append("By category:")
+    for category in CATEGORIES:
+        lines.append(f"  {category}: {by_category.get(category, 0)}")
+    lines.append("")
+    if flags:
+        lines.append(f"Look here ({len(flags)}):")
+        for flag in flags:
+            lines.append(f"  - {flag}")
+    else:
+        lines.append("Look here: nothing flagged.")
+
+    return "\n".join(lines)
