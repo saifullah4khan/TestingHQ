@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from testinghq.blast.generate import generate_corpus
 from testinghq.core import report
 
 FIXTURES_DIR = (
@@ -209,6 +210,142 @@ def test_format_summary_all_500_vs_all_200_read_differently():
     assert text_500 != text_200
     assert "Look here (3):" in text_500
     assert "Look here: nothing flagged." in text_200
+
+
+# ---------------------------------------------------------------------------
+# The assertion hook: MatchResult, Matcher protocol, StatusOnlyMatcher,
+# build_record, payload_sha256
+# ---------------------------------------------------------------------------
+
+
+def test_status_only_matcher_passes_on_2xx_and_4xx():
+    matcher = report.StatusOnlyMatcher()
+    for status in (200, 201, 400, 404, 422):
+        result = matcher.match({}, {"status": status}, readback=None)
+        assert result.passed is True
+        assert result.mismatches == []
+
+
+def test_status_only_matcher_fails_on_5xx():
+    matcher = report.StatusOnlyMatcher()
+    result = matcher.match({}, {"status": 500}, readback=None)
+    assert result.passed is False
+    assert result.mismatches == ["response returned 500"]
+
+
+def test_status_only_matcher_fails_on_timeout():
+    matcher = report.StatusOnlyMatcher()
+    result = matcher.match({}, {"status": None}, readback=None)
+    assert result.passed is False
+    assert result.mismatches == ["response timed out"]
+
+
+def test_status_only_matcher_ignores_readback_and_intended():
+    matcher = report.StatusOnlyMatcher()
+    record = {"intended": {"from": "a@example.com", "subject": "x", "body_core": "y", "attachments": 0}}
+    result = matcher.match(record, {"status": 200}, readback={"anything": "at all"})
+    assert result.passed is True
+
+
+def test_build_record_id_and_intended_shape():
+    corpus = generate_corpus(seed=5, count=1)
+    email = corpus[0]
+    record = report.build_record(
+        email, report.CLEAN, seed=5, index=0, response={"status": 200, "latency_ms": 10.0, "body_snippet": "ok"}
+    )
+    assert record["id"] == "clean-5-0000"
+    assert record["category"] == "clean"
+    assert record["intended"] == {
+        "from": email.ground_truth.from_addr,
+        "subject": email.ground_truth.subject,
+        "body_core": email.ground_truth.body_core,
+        "attachments": 0,
+    }
+    assert record["response"] == {"status": 200, "latency_ms": 10.0, "body_snippet": "ok"}
+    assert record["assertion"] == {"passed": True, "mismatches": []}
+
+
+def test_build_record_clean_failure_overrides_matcher_with_category_flag():
+    corpus = generate_corpus(seed=5, count=1)
+    email = corpus[0]
+    record = report.build_record(
+        email, report.CLEAN, seed=5, index=0, response={"status": 500, "latency_ms": 10.0, "body_snippet": "err"}
+    )
+    assert record["assertion"]["passed"] is False
+    assert record["assertion"]["mismatches"] == ["clean payload clean-5-0000 did not 2xx"]
+
+
+def test_build_record_degenerate_5xx_overrides_matcher_with_category_flag():
+    corpus = generate_corpus(seed=5, count=1)
+    email = corpus[0]
+    record = report.build_record(
+        email, report.DEGENERATE, seed=5, index=2, response={"status": 500, "latency_ms": 10.0, "body_snippet": "err"}
+    )
+    assert record["id"] == "degenerate-5-0002"
+    assert record["assertion"]["passed"] is False
+    assert record["assertion"]["mismatches"] == ["degenerate degenerate-5-0002 returned 500"]
+
+
+def test_build_record_degenerate_4xx_is_pass():
+    corpus = generate_corpus(seed=5, count=1)
+    email = corpus[0]
+    record = report.build_record(
+        email, report.DEGENERATE, seed=5, index=0, response={"status": 400, "latency_ms": 10.0, "body_snippet": "rejected"}
+    )
+    assert record["assertion"] == {"passed": True, "mismatches": []}
+
+
+def test_build_record_non_clean_degenerate_category_uses_matcher_verdict_directly():
+    corpus = generate_corpus(seed=5, count=1)
+    email = corpus[0]
+    record = report.build_record(
+        email, report.MESSY_BUT_VALID, seed=5, index=0,
+        response={"status": 500, "latency_ms": 10.0, "body_snippet": "err"},
+    )
+    # No clean/degenerate override applies to messy-but-valid, so the
+    # matcher's own generic verdict stands, and classify_record reports it
+    # as ASSERTION_FAILED (no flag, unlike CLEAN_FAILED/DEGENERATE_FAILED).
+    assert record["assertion"] == {"passed": False, "mismatches": ["response returned 500"]}
+    assert report.classify_record(record) == report.ASSERTION_FAILED
+    assert report.flag_for_record(record) is None
+
+
+def test_build_record_with_custom_matcher_compares_ground_truth():
+    class ExactSubjectMatcher:
+        def match(self, record, response, readback):
+            intended_subject = record["intended"]["subject"]
+            readback_subject = (readback or {}).get("subject")
+            if readback_subject == intended_subject:
+                return report.MatchResult(passed=True, mismatches=[])
+            return report.MatchResult(
+                passed=False,
+                mismatches=[f"subject mismatch: intended={intended_subject!r} got={readback_subject!r}"],
+            )
+
+    corpus = generate_corpus(seed=9, count=1)
+    email = corpus[0]
+    record = report.build_record(
+        email,
+        report.MESSY_BUT_VALID,
+        seed=9,
+        index=0,
+        response={"status": 200, "latency_ms": 10.0, "body_snippet": "ok"},
+        matcher=ExactSubjectMatcher(),
+        readback={"subject": "totally different subject"},
+    )
+    assert record["assertion"]["passed"] is False
+    assert "subject mismatch" in record["assertion"]["mismatches"][0]
+    assert report.classify_record(record) == report.ASSERTION_FAILED
+
+
+def test_payload_sha256_deterministic_and_content_sensitive():
+    corpus = generate_corpus(seed=3, count=2)
+    hash_a = report.payload_sha256(corpus[0])
+    hash_a_again = report.payload_sha256(corpus[0])
+    hash_b = report.payload_sha256(corpus[1])
+    assert hash_a == hash_a_again
+    assert hash_a != hash_b
+    assert len(hash_a) == 64
 
 
 def test_agrees_with_web_expectations_on_both_fixtures():

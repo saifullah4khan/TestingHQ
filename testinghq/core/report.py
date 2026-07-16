@@ -26,7 +26,9 @@ artifact dict.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import hashlib
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 CLEAN = "clean"
 MESSY_BUT_VALID = "messy-but-valid"
@@ -228,3 +230,154 @@ def format_summary(artifact: Dict[str, Any]) -> str:
         lines.append("Look here: nothing flagged.")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# The assertion hook: a generic Matcher a caller can use to compare intended
+# ground truth against what a parser actually extracted. Nothing here knows
+# about any particular business domain; a Matcher only ever sees the three
+# generic inputs below.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MatchResult:
+    """The outcome of comparing a record's intended ground truth against
+    what actually came back. `mismatches` is a list of short human-readable
+    strings, empty when `passed` is True."""
+
+    passed: bool
+    mismatches: List[str] = field(default_factory=list)
+
+
+@runtime_checkable
+class Matcher(Protocol):
+    """Interface a caller implements to grade a record.
+
+    `record` is a dict with at least "id", "category", and "intended" (the
+    ground-truth fields: from, subject, body_core, attachments). `response`
+    is a dict with "status", "latency_ms", "body_snippet". `readback` is
+    whatever the caller has that represents what the endpoint under test
+    actually parsed out of the payload; its shape is entirely up to the
+    caller (this hook does not require or interpret any particular shape),
+    which is what keeps this module generic: nothing business-specific ever
+    lives here.
+    """
+
+    def match(self, record: Dict[str, Any], response: Dict[str, Any], readback: Any) -> MatchResult:
+        ...
+
+
+class StatusOnlyMatcher:
+    """The default Matcher. Ignores `record["intended"]` and `readback`
+    entirely (there may be no readback wired up at all yet, e.g. in a dry
+    run) and grades purely on whether the transport itself succeeded: a
+    real, non-5xx response counts as a pass, a 5xx or a timeout (null
+    status) counts as a fail. This is deliberately the same "did the
+    endpoint respond without crashing or hanging" signal used elsewhere in
+    this module, so a caller with no readback wiring yet does not get
+    spurious per-record assertion failures layered on top of the
+    category-based flags build_record already applies.
+    """
+
+    def match(self, record: Dict[str, Any], response: Dict[str, Any], readback: Any = None) -> MatchResult:
+        status = (response or {}).get("status")
+        if _is_timeout(status):
+            return MatchResult(passed=False, mismatches=["response timed out"])
+        if _is_5xx(status):
+            return MatchResult(passed=False, mismatches=[f"response returned {status}"])
+        return MatchResult(passed=True, mismatches=[])
+
+
+DEFAULT_MATCHER = StatusOnlyMatcher()
+
+
+def payload_sha256(email) -> str:
+    """A deterministic sha256 of an InboundEmail's serialized wire form.
+
+    Built from blast/serialize.py's ordered multipart parts, so the same
+    email always hashes to the same digest, and any change to the payload's
+    actual on-the-wire content (not just its Python repr) changes the hash.
+    Imports blast.serialize lazily to avoid a hard import-order dependency
+    for callers of report.py that never touch payload hashing (e.g. a
+    caller replaying an artifact that already has payload_sha256 values
+    baked in).
+    """
+    from ..blast import serialize as serialize_module
+
+    parts = serialize_module.to_multipart_parts(email)
+    hasher = hashlib.sha256()
+    for part in parts:
+        hasher.update(part.name.encode("utf-8"))
+        hasher.update(b"\x00")
+        if hasattr(part, "value"):
+            hasher.update(part.value.encode("utf-8"))
+        else:
+            hasher.update(part.filename.encode("utf-8"))
+            hasher.update(b"\x00")
+            hasher.update(part.content_type.encode("utf-8"))
+            hasher.update(b"\x00")
+            hasher.update(part.content)
+        hasher.update(b"\x01")
+    return hasher.hexdigest()
+
+
+def build_record(
+    email,
+    category: str,
+    seed: int,
+    index: int,
+    response: Dict[str, Any],
+    matcher: Optional[Matcher] = None,
+    readback: Any = None,
+) -> Dict[str, Any]:
+    """Build one schema-shaped record from a generated email, its category,
+    and the response an endpoint gave back for it.
+
+    `category` should already be the schema's hyphenated label (see
+    category_label() to translate from blast/corrupt.py's internal
+    underscored recipe names). `id` follows the shipped fixtures' pattern:
+    "{category}-{seed}-{index:04d}".
+
+    The record's "assertion" is the combination of two independent checks:
+    1. `matcher.match(...)` (default StatusOnlyMatcher) grades transport
+       success and/or ground-truth-vs-readback correctness, generically.
+    2. The category-specific expectation rules (clean must 2xx, degenerate
+       must not 5xx/timeout) computed via classify_record/flag_for_record.
+
+    When rule 2 fires (CLEAN_FAILED or DEGENERATE_FAILED), it overrides the
+    matcher's verdict: the record fails with exactly that rule's flag text
+    as its sole mismatch, matching the shipped fixtures byte for byte.
+    Otherwise the matcher's own verdict stands. This keeps category rules
+    and content matching as two independently swappable layers: replacing
+    the matcher never changes how clean/degenerate status expectations are
+    enforced, and vice versa.
+    """
+    active_matcher = matcher if matcher is not None else DEFAULT_MATCHER
+
+    record: Dict[str, Any] = {
+        "id": f"{category}-{seed}-{index:04d}",
+        "category": category,
+        "payload_sha256": payload_sha256(email),
+        "intended": {
+            "from": email.ground_truth.from_addr,
+            "subject": email.ground_truth.subject,
+            "body_core": email.ground_truth.body_core,
+            "attachments": len(email.attachments),
+        },
+        "response": dict(response),
+        "assertion": {"passed": True, "mismatches": []},
+    }
+
+    match_result = active_matcher.match(record, record["response"], readback)
+    record["assertion"] = {
+        "passed": match_result.passed,
+        "mismatches": list(match_result.mismatches),
+    }
+
+    outcome = classify_record(record)
+    if outcome in (CLEAN_FAILED, DEGENERATE_FAILED):
+        flag = flag_for_record(record)
+        record["assertion"] = {"passed": False, "mismatches": [flag] if flag else []}
+
+    return record
