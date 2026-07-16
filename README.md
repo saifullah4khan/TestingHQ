@@ -46,8 +46,15 @@ testinghq blast generate --count 100 --seed 1 --out corpus
 # dry run by default: shows what it would send, makes no network calls
 testinghq blast fire --target local
 
-# actually fire at a configured target (explicit and rate limited)
-testinghq blast fire --target local --send
+# actually fire at a configured target (explicit, rate limited, and paced)
+testinghq blast fire --target local --send --rate 5 --out run.json
+
+# --config points at your target TOML (see examples/target.example.toml);
+# defaults to ./target.toml
+testinghq blast fire --target local --send --config target.toml
+
+# re-fire the exact same corpus from a saved run, byte-identically
+testinghq blast replay run.json --send
 ```
 
 ## Responsible use
