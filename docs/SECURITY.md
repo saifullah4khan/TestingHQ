@@ -74,6 +74,30 @@ Attack scenarios this project defends against:
    generated addresses (`is_synthetic_address`,
    `require_synthetic_content`), and the explicit non-goal of
    implementing sender-authentication bypass.
+
+   `require_synthetic_content` accepts the address forms the generator
+   actually emits: a bare address, an RFC 5322 display-name form
+   (`Ivan Jones <ivan@example.edu>`), and a comma-separated
+   multi-recipient header. It extracts **every** address from each value
+   with `email.utils.getaddresses` and refuses if **any** one of them is
+   non-synthetic.
+
+   It must never be rewritten to use `email.utils.parseaddr`. parseaddr
+   returns at most one address, so a header like
+   `Good <a@example.com>, Evil <b@real-domain.com>` would be approved on
+   the strength of its first recipient while the second went unchecked.
+   That is a live bypass of this guardrail on any Python older than
+   3.9.19 / 3.10.14 / 3.11.9 / 3.12.4, all of which this project's
+   `requires-python = ">=3.9"` permits. On newer interpreters parseaddr
+   is not safe either, just differently wrong: it returns an empty result
+   for multi-recipient headers, which fails this guard closed on
+   perfectly valid input. `getaddresses` is correct on every supported
+   version. Both failure modes are pinned by tests in
+   `tests/security/test_synthetic_content.py`.
+
+   `is_synthetic_address` itself remains strict and bare-address-only. It
+   is a primitive, and widening it to swallow header forms would weaken
+   every caller.
 3. **Runaway or abusive firing volume.** A bug, a bad loop, or a hostile
    input causes Blast to fire far faster or far more than intended,
    overwhelming the operator's own endpoint or, if guardrails were
@@ -105,6 +129,9 @@ If you find a security issue in TestingHQ, including but not limited to:
 - a way to make a dry run perform a real network call,
 - a way to fire at a target outside the configured allow-list,
 - a way to make generated content use a real or non-reserved domain,
+- a way to smuggle a non-reserved address past
+  `require_synthetic_content`, for example in an address header form
+  whose addresses are not all extracted and checked,
 - a way to bypass or defeat the rate limiter,
 
 please report it privately rather than opening a public issue. Email

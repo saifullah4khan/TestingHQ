@@ -1,0 +1,71 @@
+{
+  "seed": 1,
+  "config": {
+    "mix": ["clean", "messy-but-valid", "degenerate"],
+    "count": 6,
+    "seed": 1,
+    "dry_run": true,
+    "target": null
+  },
+  "summary": {
+    "by_status_class": {"2xx": 4, "4xx": 2, "5xx": 0, "timeout": 0},
+    "by_category": {
+      "clean": 2,
+      "messy-but-valid": 2,
+      "multilingual-gibberish": 0,
+      "structurally-malformed": 0,
+      "degenerate": 2
+    },
+    "flags": []
+  },
+  "records": [
+    {
+      "id": "clean-1-0000",
+      "category": "clean",
+      "payload_sha256": "aaaa000000000000000000000000000000000000000000000000000000aa",
+      "intended": {"from": "sender0@example.com", "subject": "Clean subject 0", "body_core": "Clean body 0", "attachments": 0},
+      "response": {"status": 200, "latency_ms": 42.0, "body_snippet": "ok"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "clean-1-0001",
+      "category": "clean",
+      "payload_sha256": "aaaa000000000000000000000000000000000000000000000000000000ab",
+      "intended": {"from": "sender1@example.com", "subject": "Clean subject 1", "body_core": "Clean body 1", "attachments": 1},
+      "response": {"status": 200, "latency_ms": 55.0, "body_snippet": "ok"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "messy-but-valid-1-0000",
+      "category": "messy-but-valid",
+      "payload_sha256": "bbbb000000000000000000000000000000000000000000000000000000ba",
+      "intended": {"from": "sender2@example.net", "subject": "typo-ridden subjeckt", "body_core": "messy body core", "attachments": 0},
+      "response": {"status": 200, "latency_ms": 61.0, "body_snippet": "ok"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "messy-but-valid-1-0001",
+      "category": "messy-but-valid",
+      "payload_sha256": "bbbb000000000000000000000000000000000000000000000000000000bb",
+      "intended": {"from": "sender3@example.org", "subject": "another messy one", "body_core": "messy body core 2", "attachments": 2},
+      "response": {"status": 200, "latency_ms": 39.0, "body_snippet": "ok"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "degenerate-1-0000",
+      "category": "degenerate",
+      "payload_sha256": "cccc000000000000000000000000000000000000000000000000000000ca",
+      "intended": {"from": "sender4@example.edu", "subject": "", "body_core": "", "attachments": 0},
+      "response": {"status": 400, "latency_ms": 12.0, "body_snippet": "rejected: HTTP 400"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "degenerate-1-0001",
+      "category": "degenerate",
+      "payload_sha256": "cccc000000000000000000000000000000000000000000000000000000cb",
+      "intended": {"from": "sender5@invalid.example", "subject": "", "body_core": "", "attachments": 0},
+      "response": {"status": 422, "latency_ms": 9.0, "body_snippet": "rejected: HTTP 422"},
+      "assertion": {"passed": true, "mismatches": []}
+    }
+  ]
+}
