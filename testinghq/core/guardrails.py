@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass
-from typing import Iterable, Protocol, runtime_checkable
+from email.utils import getaddresses
+from typing import Iterable, List, Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 
@@ -152,30 +153,81 @@ def is_synthetic_address(address: str) -> bool:
     return tld in RESERVED_TLDS
 
 
+def _extract_addresses(values: Iterable[str]) -> List[str]:
+    """Extract EVERY bare address from a sequence of address-header values.
+
+    Accepts what the engine actually emits: a bare address
+    ("a@example.com"), an RFC 5322 display-name form
+    ("Ivan Jones <a@example.edu>"), or a header carrying several
+    comma-separated recipients ("A <a@example.com>, B <b@example.net>").
+
+    Uses email.utils.getaddresses, NEVER email.utils.parseaddr. parseaddr
+    returns at most ONE address, so a guard built on it would check only
+    the first recipient of a multi-recipient header and let every
+    subsequent address through unchecked. For a safety check whose whole
+    job is "refuse if ANY address is non-synthetic", that is a bypass, not
+    an inconvenience. getaddresses returns all of them. See
+    tests/security/test_synthetic_content.py, which demonstrates that
+    bypass against a parseaddr-based extractor and pins this one against
+    it.
+
+    Note: `strict=` is deliberately not passed to getaddresses. It only
+    exists on Python 3.13+ and on recent 3.9-3.12 patch releases, and this
+    project supports Python >= 3.9. The default behavior extracts every
+    address on all supported versions, which is what this guard needs.
+    """
+    fieldvalues = []
+    for value in values:
+        if not isinstance(value, str):
+            # Never coerce. A non-string address-bearing field is not
+            # something this guard can verify, so refuse via the
+            # fail-closed path below rather than str()-ing it into
+            # something that might parse.
+            return []
+        fieldvalues.append(value)
+    return [address for _name, address in getaddresses(fieldvalues)]
+
+
 def require_synthetic_content(emails: Iterable[str]) -> None:
     """Refuse to fire if generated content does not look synthetic.
 
-    `emails` is an iterable of email address strings pulled from generated
-    payloads (envelope from/to, headers, body-embedded addresses, etc.).
-    Raises GuardrailError on the first address that is not on a reserved
-    domain/TLD, and on empty input (no content means nothing was verified
-    as synthetic, so this fails closed rather than passing vacuously).
+    `emails` is an iterable of address-header values pulled from generated
+    payloads (InboundEmail.to, InboundEmail.from_addr, envelope addresses,
+    address headers, etc.). Each value may be a bare address, a display-name
+    form, or a comma-separated multi-recipient header; a single string is
+    accepted as a convenience for one value.
+
+    EVERY address extracted from EVERY value must be synthetic. Raises
+    GuardrailError if any one of them is not.
+
+    Fails closed. Refuses when no addresses could be extracted at all
+    (empty input, an unparseable header, an empty group like
+    "undisclosed-recipients:;") and when any extracted address is empty.
+    Nothing verified means nothing is trusted: an unparseable header must
+    refuse, not pass vacuously.
     """
     if isinstance(emails, (str, bytes)):
         emails = [emails]
-    saw_any = False
-    for address in emails:
-        saw_any = True
+
+    addresses = _extract_addresses(emails)
+
+    if not addresses:
+        raise GuardrailError(
+            "refusing to fire: no addresses could be extracted to verify as "
+            "synthetic (empty or unparseable address content)"
+        )
+
+    for address in addresses:
+        if not address:
+            raise GuardrailError(
+                "refusing to fire: an address-bearing field yielded an empty "
+                "address, so it could not be verified as synthetic"
+            )
         if not is_synthetic_address(address):
             raise GuardrailError(
                 "refusing to fire: generated content is not synthetic - "
                 f"{address!r} is not on a reserved domain or TLD"
             )
-    if not saw_any:
-        raise GuardrailError(
-            "refusing to fire: no addresses were supplied to verify as "
-            "synthetic"
-        )
 
 
 # ---------------------------------------------------------------------------
