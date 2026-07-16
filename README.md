@@ -17,13 +17,18 @@ SendGrid Inbound Parse-shaped payloads to a configured endpoint and reports wher
 the parser choked. Blast is about variety and correctness: finding the inputs
 that break extraction, reproducibly.
 
-**Barrage (next).** Volume and throughput. Where Blast proves your parser is
-correct under messy input, Barrage will prove your pipeline holds under load.
+**Barrage (v1).** Volume and throughput. Where Blast proves your parser is correct
+under messy input, Barrage proves your pipeline holds under load. It is a load
+generator: it fires clean, provider-shaped payloads at an endpoint you control, at
+a high but controlled rate, and reports throughput achieved versus targeted,
+latency percentiles (p50/p90/p99), error rate over time, and the knee where your
+endpoint starts shedding or slowing. Barrage is a load tester against your own
+infrastructure. It is not an email sender, not a flooding tool, and not for
+endpoints you do not own.
 
 The suite ships as one installable package, `testinghq`, with subcommands
-(`testinghq blast ...`, later `testinghq barrage ...`). Blast and Barrage share a
-common core: the firing transport, target configuration, guardrails, and rate
-limiting.
+(`testinghq blast ...`, `testinghq barrage ...`). Blast and Barrage share a common
+core: the firing transport, target configuration, guardrails, and rate limiting.
 
 ## Status
 
@@ -57,6 +62,24 @@ testinghq blast fire --target local --send --config target.toml
 testinghq blast replay run.json --send
 ```
 
+Barrage, for load rather than variety:
+
+```
+# dry run by default: previews the load plan, makes no network calls
+testinghq barrage fire --target local --rate 20 --duration 60
+
+# actually run the load test against a configured target
+testinghq barrage fire --target local --rate 20 --duration 60 --concurrency 8 --send
+
+# open-loop (fixed arrival rate, finds the breaking point) is the default;
+# closed-loop holds concurrency fixed and lets offered load self-limit
+testinghq barrage fire --target local --mode closed --concurrency 8 --send
+
+# write the run artifact, then re-run it later from its seed and config
+testinghq barrage fire --target local --send --out load.json
+testinghq barrage replay load.json --send
+```
+
 ## Responsible use
 
 Blast is a fuzzer and self-testing tool for endpoints you control. It POSTs
@@ -67,6 +90,26 @@ generated content is synthetic and uses reserved example domains.
 
 Dry-run is the default. Firing requires an explicit `--send` flag and a target
 you have declared in configuration. Rate limiting is on by default.
+
+The same applies to Barrage, with one addition. Barrage is a load tester against
+your own infrastructure: it is not a flooding tool, and it must not be pointed at
+an endpoint you do not own. Three controls are what keep it a load tester rather
+than a weapon, and none of them are cosmetic:
+
+- **Dry-run is the default.** A dry run makes zero network calls. It never
+  resolves a target and never builds a request. `--send` is required to put
+  anything on the wire.
+- **Configured targets only.** Both the target name and the URL it resolves to are
+  checked against the canonical guardrails, so a real public host cannot hide
+  behind a friendly name.
+- **A hard rate and duration ceiling** (50 requests/second, 300 seconds) that
+  requires an explicit `--allow-high-rate` to raise. This exists so that a typo in
+  `--rate` or `--duration` cannot become a self-inflicted denial of service. Pass
+  it deliberately, and only against infrastructure you own.
+
+Barrage fires clean, valid payloads only. It reuses Blast's seeded generator for
+realistic bodies and deliberately never garbles them: Barrage is about volume, not
+malformed input. That is Blast's job.
 
 ## License
 

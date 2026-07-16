@@ -5,6 +5,15 @@ blast fire: dry-run by default; sending requires both a configured --target
 and an explicit --send. Rate limited, guardrails first-class.
 blast replay: re-fires the exact corpus from a saved run artifact's seed and
 config, byte-identically, using the same guardrail path as fire.
+
+barrage fire: load-tests a configured target by firing clean,
+provider-shaped payloads at a high but controlled rate, then reports
+throughput, latency percentiles, error rate over time, and the knee.
+Barrage is a load tester against infrastructure the operator controls. It
+is NOT an email sender, NOT a flooding tool, and NOT for endpoints you do
+not own. Dry-run by default, configured targets only, and a hard
+rate-and-duration ceiling that requires --allow-high-rate to raise.
+barrage replay: re-runs a saved barrage run from its seed and config.
 """
 from __future__ import annotations
 
@@ -15,6 +24,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from .barrage import fire as barrage_fire
+from .barrage.runner import RateCeilingError
 from .blast.corrupt import DEFAULT_MIX, corrupt_corpus
 from .blast.generate import generate_corpus
 from .blast.payload import InboundEmail
@@ -74,7 +85,82 @@ def build_parser():
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
 
+    _add_barrage_parser(sub)
+
     return parser
+
+
+def _add_barrage_parser(sub) -> None:
+    """The `barrage` subcommand: load-test a configured target.
+
+    Barrage fires clean, provider-shaped payloads at an endpoint the
+    operator controls, at a high but controlled rate, and reports how the
+    pipeline held. It is NOT an email sender, NOT a flooding tool, and NOT
+    for endpoints you do not own. Dry-run is the default here exactly as it
+    is for blast: --send is required to put anything on the wire.
+    """
+    barrage = sub.add_parser(
+        "barrage",
+        help="load-test a configured target with clean payloads at a controlled rate",
+    )
+    barrage_sub = barrage.add_subparsers(dest="command", required=True)
+
+    b_fire = barrage_sub.add_parser("fire", help="run a load test against a configured target")
+    b_fire.add_argument("--target")
+    b_fire.add_argument("--seed", type=int, default=barrage_fire.DEFAULT_SEED)
+    b_fire.add_argument(
+        "--rate", type=float, default=barrage_fire.DEFAULT_RATE,
+        help="target requests per second",
+    )
+    b_fire.add_argument(
+        "--duration", type=float, default=barrage_fire.DEFAULT_DURATION,
+        help="total run duration in seconds, including the warmup ramp",
+    )
+    b_fire.add_argument(
+        "--concurrency", type=int, default=barrage_fire.DEFAULT_CONCURRENCY,
+        help="closed-loop worker count, or open-loop max outstanding requests",
+    )
+    b_fire.add_argument(
+        "--mode", choices=["open", "closed"], default=barrage_fire.DEFAULT_MODE,
+        help="open-loop (fixed arrival rate) or closed-loop (fixed concurrency)",
+    )
+    b_fire.add_argument(
+        "--warmup", type=float, default=barrage_fire.DEFAULT_WARMUP,
+        help="seconds of ramp before steady state, taken out of --duration",
+    )
+    b_fire.add_argument(
+        "--pool-size", type=int, default=barrage_fire.DEFAULT_POOL_SIZE,
+        help="how many distinct seeded payloads to cycle through",
+    )
+    b_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    b_fire.add_argument(
+        "--allow-high-rate", action="store_true",
+        help=(
+            "raise the hard safety ceiling on rate and duration. This exists "
+            "so a mistake cannot become a self-inflicted denial of service; "
+            "pass it only deliberately, for a target you own"
+        ),
+    )
+    b_fire.add_argument("--out", help="path to write the run artifact JSON")
+    b_fire.add_argument(
+        "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
+    )
+
+    b_replay = barrage_sub.add_parser("replay", help="re-run a saved barrage run")
+    b_replay.add_argument("run", help="path to a previously written barrage artifact JSON")
+    b_replay.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    b_replay.add_argument(
+        "--allow-high-rate", action="store_true",
+        help="raise the hard safety ceiling on rate and duration",
+    )
+    b_replay.add_argument("--out", help="path to write the run artifact JSON")
+    b_replay.add_argument(
+        "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
+    )
 
 
 def _not_yet(command):
@@ -382,6 +468,106 @@ def _cmd_replay(args) -> int:
     return _run_fire(pairs, seed, count, target_name, args.rate, args.out, args.config)
 
 
+# ---------------------------------------------------------------------------
+# barrage fire / barrage replay
+#
+# These stay thin on purpose: the orchestration, the guardrail wiring, and
+# the ceiling all live in testinghq/barrage/fire.py, so the CLI is only an
+# argparse surface over it. Nothing safety-relevant is decided here.
+# ---------------------------------------------------------------------------
+
+
+def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optional[str]) -> int:
+    """Run the barrage send path, translating every refusal into an exit
+    code rather than a traceback."""
+    try:
+        return barrage_fire.execute(
+            plan,
+            seed,
+            pool_size,
+            target_name,
+            args.config,
+            args.out,
+            allow_high_rate=args.allow_high_rate,
+        )
+    except (
+        guardrails.GuardrailError,
+        ConfigError,
+        RateCeilingError,
+        barrage_fire.BarrageError,
+    ) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return barrage_fire.EXIT_REFUSED
+
+
+def _cmd_barrage_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+    print(f"barrage fire: {decision.reason}")
+
+    try:
+        plan = barrage_fire.build_plan(
+            args.mode, args.rate, args.duration, args.concurrency, args.warmup
+        )
+        # The ceiling is checked here too, not only inside run(), so a
+        # dry run reports an over-limit plan as refused instead of
+        # cheerfully previewing a run that would never be allowed.
+        barrage_fire.check_rate_ceiling(
+            args.rate, args.duration, allow_high_rate=args.allow_high_rate
+        )
+    except (RateCeilingError, barrage_fire.BarrageError, ValueError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return barrage_fire.EXIT_REFUSED
+
+    if not decision.will_send:
+        print(barrage_fire.format_dry_run_preview(plan, args.seed, args.pool_size))
+        return barrage_fire.EXIT_DRY_RUN
+
+    return _barrage_execute(args, plan, args.seed, args.pool_size, args.target)
+
+
+def _cmd_barrage_replay(args) -> int:
+    try:
+        data = json.loads(Path(args.run).read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"barrage replay: could not read {args.run!r}: {exc}", file=sys.stderr)
+        return barrage_fire.EXIT_REFUSED
+    except json.JSONDecodeError as exc:
+        print(f"barrage replay: {args.run!r} is not valid JSON: {exc}", file=sys.stderr)
+        return barrage_fire.EXIT_REFUSED
+
+    seed = data.get("seed")
+    config = data.get("config") or {}
+    required = ("mode", "rate", "duration", "warmup", "concurrency", "pool_size")
+    if seed is None or any(config.get(key) is None for key in required):
+        print(
+            f"barrage replay: {args.run!r} is missing seed or config "
+            f"{required}, cannot reproduce the run",
+            file=sys.stderr,
+        )
+        return barrage_fire.EXIT_REFUSED
+
+    try:
+        plan = barrage_fire.build_plan(
+            config["mode"],
+            config["rate"],
+            config["duration"],
+            config["concurrency"],
+            config["warmup"],
+        )
+    except (barrage_fire.BarrageError, ValueError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return barrage_fire.EXIT_REFUSED
+
+    decision = guardrails.evaluate_send(args.send)
+    print(f"barrage replay: {decision.reason}")
+
+    if not decision.will_send:
+        print(barrage_fire.format_dry_run_preview(plan, seed, config["pool_size"]))
+        return barrage_fire.EXIT_DRY_RUN
+
+    return _barrage_execute(args, plan, seed, config["pool_size"], config.get("target"))
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -393,6 +579,12 @@ def main(argv=None):
             return _cmd_fire(args)
         if args.command == "replay":
             return _cmd_replay(args)
+        return _not_yet(args.command)
+    if args.tool == "barrage":
+        if args.command == "fire":
+            return _cmd_barrage_fire(args)
+        if args.command == "replay":
+            return _cmd_barrage_replay(args)
         return _not_yet(args.command)
     return _not_yet(args.tool)
 

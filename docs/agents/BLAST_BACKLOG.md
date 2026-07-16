@@ -45,14 +45,23 @@ A backlog encodes state that `main` already knows. Hand-syncing it will always
 rot, and a rotted backlog is worse than an empty one: a coder reads "do not claim
 this" and improvises instead.
 
-So an item that will become false when some file appears declares that inline:
+So an item that will become false when some file appears declares that inline, as
+an HTML comment of this shape (spelled here with the marker word split, so this
+example does not arm itself):
 
-    <!-- stale-if-exists: testinghq/barrage/runner.py -->
+    < !-- stale-if-exists: testinghq/some/future_module.py -- >
+
+Write it as a normal HTML comment with no spaces after the angle brackets, and
+name a path that does not exist yet.
 
 `tests/test_backlog_freshness.py` fails the build if that path exists. The claim
 above it is then provably stale and someone has to update this file. It makes a
 claim falsifiable, which is the whole point: a claim that cannot be proven wrong
 is exactly the kind that quietly misleads the next agent.
+
+The first version of this example named a real in-flight path and armed itself the
+moment that file landed, which turned the guard into a false alarm about its own
+documentation. An example of a tripwire must not be a tripwire.
 
 Add a marker to any item you write that a future merge will invalidate. If you
 cannot express the condition as a path, say plainly in the item what would make it
@@ -115,25 +124,52 @@ Blast v1 is complete. Landed #16.
   Keep `web/generator.py` and the fixtures; `tests/web` uses them and they are
   what let this lane ship without the engine.
 
-## Next milestone: Barrage v1, Lane A, UNBLOCKED
+## Barrage v1: DONE
 
 Full spec in the assignment pack (05 spec, 06 handoff). The prerequisite was Blast
 v1, meaning M3 merged so `transport`, `config`, `guardrails`, `ratelimit`, and
-`report` are stable. That happened in #16. Barrage is defined entirely as reuse of
-those five, and all five now exist.
+`report` are stable. That happened in #16.
 
-IN PROGRESS (Nox, feat/barrage) as of 2026-07-16 17:10. Do not claim these until
-that branch lands or is abandoned.
-<!-- stale-if-exists: testinghq/barrage/runner.py -->
+This section is being updated in the same PR that lands the code, because
+`tests/test_backlog_freshness.py` turned the build red the moment
+`testinghq/barrage/runner.py` appeared. That is the guard working as designed on
+its first live run, and it is what "keep docs current in the same PR as the code"
+looks like when it is enforced rather than requested.
 
-- [ ] [A] `barrage/runner.py`. Concurrency and rate control,
-  closed-loop fixed-concurrency and open-loop fixed-arrival-rate, a warmup ramp, a
-  steady-state hold, and a hard rate-and-duration ceiling that needs an explicit
-  flag to raise.
-- [ ] [A] Barrage reporting. Throughput achieved versus target,
-  latency p50/p90/p99, error rate over time, and the knee where the endpoint
-  degrades. JSON artifact plus a human summary.
-- [ ] [A] `testinghq barrage fire` CLI, dry-run default, plus replay.
+- [x] [A] `barrage/runner.py`. Concurrency and rate control, closed-loop
+  fixed-concurrency and open-loop fixed-arrival-rate, a warmup ramp, a steady-state
+  hold, and a hard rate-and-duration ceiling that needs an explicit flag to raise.
+- [x] [A] Barrage reporting in `barrage/report.py`. Throughput achieved versus
+  target, latency p50/p90/p99, error rate over time, and the knee where the
+  endpoint degrades. JSON artifact plus a human summary.
+- [x] [A] `testinghq barrage fire` CLI in `barrage/fire.py`, dry-run default, plus
+  replay.
+
+### Known bug found by this lane, NOT fixed here, owner is Lane A
+
+`core/ratelimit.py`'s `TokenBucket.acquire()` can spin forever under a purely
+additive injected clock when the rate's reciprocal is not exactly representable in
+binary. It computes `wait_for = deficit / rate`, advances by exactly that, then
+refills by `wait_for * rate`, which rounds to just under `deficit`. The residual is
+about 1e-16, the next `wait_for` about 1e-17, and adding 1e-17 to a clock reading
+around 0.67 is a no-op at float precision: elapsed becomes 0, no refill happens,
+and the loop never exits.
+
+Rates 2 and 4 are exactly representable and never trip it, which is why every
+existing test passes. Rate 10 hangs. Under a real monotonic clock it self-heals,
+because the clock advances regardless, so this is invisible in production and fatal
+under the injected clocks this repo mandates for hermetic tests. Note the
+implication: `tests/security/test_rate_limit_gate_contract.py` currently passes
+because it happened to choose a representable rate, not because the code is right.
+
+Barrage worked around it inside its own lane rather than editing `core/`. The root
+cause is still on `main`.
+
+- [ ] [A][M] Fix `TokenBucket` so it tolerates float residue: advance to a computed
+  deadline rather than accumulating increments, or clamp a sub-epsilon deficit to
+  zero. Add a regression parameterised over non-representable rates (3, 7, 10) with
+  an injected clock, and parameterise the security lane's gate contract test the
+  same way so it cannot pass by luck again.
 
 Barrage reuses `blast/generate` for clean payloads. It does not re-garble: Blast
 proves the parser is correct under messy input, Barrage proves the pipeline holds
