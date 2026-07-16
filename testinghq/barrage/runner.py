@@ -163,25 +163,65 @@ class DispatchRecord:
     result: object
 
 
-def _stage_dispatch_count(stage: RampStage) -> int:
-    """How many requests a stage should dispatch: rate * duration, rounded
-    to the nearest whole request.
+# Headroom for the gate bucket. See _pace_and_gate below: the bucket is the
+# rate authority, but it is asked for a token only once the absolute
+# schedule says the token is already earned, so a capacity of 2 leaves it
+# comfortably in credit and it never has to enter its own internal wait
+# loop. Do not lower this to 1.0: that puts the bucket exactly on the
+# knife-edge where float rounding makes it spin (see _pace_and_gate).
+_GATE_CAPACITY = 2.0
 
-    Deliberately NOT computed by looping `while clock() - stage_start <
-    stage.duration`: driving that comparison off an injected fake clock
-    that advances by whatever fractional amount `TokenBucket.acquire()`
-    computes can, under floating-point rounding, get stuck asymptotically
-    approaching the boundary in ever-smaller increments that never quite
-    close the gap (a real wall clock always ticks forward regardless; a
-    clock advanced only by adding computed floats does not have that
-    guarantee). That failure mode was caught directly by this module's own
-    hermetic tests: a fake clock plus a tight time-boundary loop produced
-    runs of vanishingly small sleeps that never terminated. Computing the
-    stage's dispatch count up front makes every loop below bounded by a
-    plain integer comparison, so it always terminates in exactly that many
-    iterations no matter what the injected clock or sleep do.
+
+def _stage_dispatch_count(stage: RampStage) -> int:
+    """How many requests a stage is budgeted: rate * duration, rounded to
+    the nearest whole request.
+
+    Deliberately computed up front rather than by looping on
+    `while clock() - stage_start < stage.duration`. Every dispatch loop
+    below is bounded by this plain integer, so a stage always terminates in
+    exactly that many iterations no matter what the injected clock or sleep
+    do at the boundary. This is also the ceiling's per-stage budget: it is
+    what makes aggregate throughput bounded by the configured rate even
+    when concurrency is high and the target responds instantly.
     """
     return max(0, round(stage.rate * stage.duration))
+
+
+def _sleep_until(deadline: float, clock: Callable[[], float], sleep: Callable[[float], None]) -> None:
+    """Sleep, via the injected sleep, until the clock reads `deadline`.
+    A no-op if the deadline has already passed."""
+    now = clock()
+    if deadline > now:
+        sleep(deadline - now)
+
+
+def _pace_and_gate(bucket: TokenBucket) -> float:
+    """Take one token from the rate-gate bucket and return seconds waited.
+
+    Pacing is done by the caller sleeping to an absolute deadline derived
+    from the stage's rate (see the dispatch loops); this bucket is the
+    independent authority that the configured rate is not exceeded. Because
+    the caller only arrives here once the schedule says a token is earned,
+    the bucket is already in credit and this returns ~0 without waiting.
+
+    Why the schedule paces instead of just calling `bucket.acquire()` and
+    letting it block: TokenBucket.acquire() cannot be driven to completion
+    by an injected, purely additive clock for a rate whose reciprocal is
+    not exactly representable in binary (5, 6, 10 req/s, and most real
+    rates; 2 and 4 are fine). It computes `wait_for = deficit / rate`,
+    sleeps exactly that, then refills by `wait_for * rate`, which rounds to
+    just under `deficit`. The residual deficit is ~1e-16, so the next
+    `wait_for` is ~1e-17, and adding 1e-17 to a clock reading ~0.67 is a
+    no-op at float precision: elapsed becomes 0, no refill happens, and the
+    loop spins forever. A real wall clock ticks forward on its own and
+    masks this; an injected one does not. That is a latent defect in
+    core/ratelimit.py (which this lane must not edit, and whose own tests
+    only exercise rates 1 and 2, both exactly representable). Barrage
+    therefore never asks the bucket to wait: it arrives with the token
+    already earned. Do not "simplify" this back into a bare blocking
+    acquire() on the hot path.
+    """
+    return bucket.acquire()
 
 
 def _run_open_loop_stages(
@@ -190,12 +230,11 @@ def _run_open_loop_stages(
     clock: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> List[DispatchRecord]:
-    """Serial open-loop dispatch: for each stage, pace strictly by a
-    TokenBucket at that stage's rate and dispatch on schedule. Never waits
-    on `service_seconds`; arrivals happen on the bucket's schedule
-    regardless of how long a prior call took. Bucket capacity is 1: no
-    burst allowance, so the arrival rate is exactly the stage's rate, not a
-    rate-plus-an-initial-burst.
+    """Serial open-loop dispatch: for each stage, dispatch on an absolute
+    schedule of `1 / rate` second arrivals from the stage's start, gated by
+    a TokenBucket at that stage's rate. Never waits on `service_seconds`;
+    arrivals happen on schedule regardless of how long a prior call took,
+    which is what actually reveals a target's breaking point.
     """
     records: List[DispatchRecord] = []
     index = 0
@@ -203,9 +242,14 @@ def _run_open_loop_stages(
         count = _stage_dispatch_count(stage)
         if count <= 0:
             continue
-        bucket = TokenBucket(rate_per_sec=stage.rate, capacity=1.0, clock=clock, sleep=sleep)
-        for _ in range(count):
-            waited = bucket.acquire()
+        bucket = TokenBucket(
+            rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
+        )
+        stage_start = clock()
+        interval = 1.0 / stage.rate
+        for step in range(count):
+            _sleep_until(stage_start + step * interval, clock, sleep)
+            waited = _pace_and_gate(bucket)
             dispatch_time = clock()
             result, _service_seconds = send_fn(index)
             records.append(
@@ -229,23 +273,16 @@ def _run_closed_loop_stages(
     sleep: Callable[[float], None],
 ) -> List[DispatchRecord]:
     """Serial simulation of `concurrency` fixed workers, single-threaded so
-    it stays deterministic and hermetically testable. Each of `concurrency`
-    worker slots tracks the time it next becomes free
-    (dispatch_time + service_seconds); a new request is only dispatched
-    once a slot is free, AND a token is available in that stage's shared
-    TokenBucket (capacity 1, no burst). The bucket is the safety ceiling:
-    it caps aggregate throughput across all workers at the stage's rate no
-    matter how much concurrency is configured or how fast the target
-    responds.
+    it stays deterministic and hermetically testable. Each worker slot
+    tracks when it next becomes free (dispatch_time + service_seconds); a
+    request is dispatched only once a slot is free AND the stage's rate
+    schedule allows it, so offered load self-limits against a slow target
+    (the closed-loop property) while still never exceeding the configured
+    rate (the ceiling).
 
-    Bounded by `_stage_dispatch_count(stage)` (the ceiling's own budget for
-    the stage), same as the open-loop path and for the same reason: a plain
-    integer bound that always terminates, regardless of what the injected
-    clock or sleep do at a stage boundary. A slow target simply may not use
-    its whole budget before `stage.duration` elapses, which is correct
-    closed-loop behaviour (offered load self-limits); the elapsed-time
-    check below stops a stage as soon as its nominal duration is used, even
-    if dispatch budget remains.
+    Bounded by `_stage_dispatch_count(stage)`, the stage's rate budget, so
+    the loop always terminates; a slow target simply may not use its whole
+    budget before `stage.duration` elapses, which is correct.
     """
     records: List[DispatchRecord] = []
     index = 0
@@ -253,19 +290,23 @@ def _run_closed_loop_stages(
         budget = _stage_dispatch_count(stage)
         if budget <= 0 or stage.duration <= 0:
             continue
-        bucket = TokenBucket(rate_per_sec=stage.rate, capacity=1.0, clock=clock, sleep=sleep)
+        bucket = TokenBucket(
+            rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
+        )
         stage_start = clock()
+        interval = 1.0 / stage.rate
         free_at = [stage_start] * concurrency
         dispatched = 0
         while dispatched < budget:
             slot = free_at.index(min(free_at))
-            now = clock()
-            if free_at[slot] > now:
-                sleep(free_at[slot] - now)
-            waited = bucket.acquire()
-            dispatch_time = clock()
-            if dispatch_time - stage_start >= stage.duration:
+            # The next request waits for whichever comes later: the rate
+            # schedule, or the worker slot freeing up.
+            deadline = max(stage_start + dispatched * interval, free_at[slot])
+            _sleep_until(deadline, clock, sleep)
+            if clock() - stage_start >= stage.duration:
                 break
+            waited = _pace_and_gate(bucket)
+            dispatch_time = clock()
             result, service_seconds = send_fn(index)
             free_at[slot] = dispatch_time + max(service_seconds, 0.0)
             records.append(

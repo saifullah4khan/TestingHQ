@@ -252,6 +252,107 @@ def test_run_with_real_clock_and_sleep_defaults_raises_on_over_ceiling_before_di
     assert calls == []
 
 
+# ---------------------------------------------------------------------------
+# Regression: the ramp hang.
+#
+# TokenBucket.acquire() cannot be driven to completion by an injected,
+# purely additive clock when the rate's reciprocal is not exactly
+# representable in binary: the refill rounds to just under the deficit, the
+# next computed wait is ~1e-17, and adding that to a clock reading ~0.67 is
+# a no-op at float precision, so the bucket's internal wait loop spins
+# forever. Rates 2 and 4 are exactly representable and never trip it, which
+# is why the steady-state tests above pass; a ramp to 10 in 5 steps produces
+# rates 2, 4, 6, 8, 10 and rate 6 hangs the whole run.
+#
+# These tests pin the ramp path against that. A load generator whose rate
+# ramp can block forever is a real defect: this is the module whose entire
+# safety story is that it paces predictably and stops when told.
+# ---------------------------------------------------------------------------
+
+
+class BoundedSleeper(FakeSleeper):
+    """A FakeSleeper that fails loudly instead of spinning. A degenerate
+    sub-nanosecond sleep, or an implausible number of sleeps, means pacing
+    is stuck making no forward progress rather than pacing."""
+
+    def __init__(self, clock: FakeClock, max_calls: int = 5000):
+        super().__init__(clock)
+        self.max_calls = max_calls
+
+    def __call__(self, seconds: float) -> None:
+        if len(self.calls) >= self.max_calls:
+            raise AssertionError(
+                f"pacing made {self.max_calls} sleep calls without finishing; "
+                "the rate loop is spinning, not pacing"
+            )
+        if 0 < seconds < 1e-9:
+            raise AssertionError(
+                f"pacing requested a degenerate sleep of {seconds!r}s; the "
+                "rate loop is making no forward progress"
+            )
+        super().__call__(seconds)
+
+
+@pytest.mark.parametrize("rate", [5.0, 6.0, 10.0, 7.0, 3.0])
+def test_open_loop_terminates_for_rates_whose_reciprocal_is_not_binary_exact(rate):
+    clock = FakeClock()
+    sleeper = BoundedSleeper(clock)
+    plan = RunPlan(mode="open", rate=rate, concurrency=1, warmup_seconds=0.0, hold_seconds=2.0)
+
+    records = run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    assert len(records) == round(rate * 2.0)
+
+
+def test_ramp_through_non_binary_exact_rates_terminates():
+    # The exact plan that hung: ramp 0 to 10 over 5s in 5 steps produces
+    # stage rates 2, 4, 6, 8, 10, and rate 6 spun forever.
+    clock = FakeClock()
+    sleeper = BoundedSleeper(clock)
+    plan = RunPlan(
+        mode="open",
+        rate=10.0,
+        concurrency=1,
+        warmup_seconds=5.0,
+        hold_seconds=1.0,
+        ramp_step_count=5,
+    )
+
+    records = run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    # 2+4+6+8+10 across the ramp, plus 10 in the hold.
+    assert len(records) == 40
+
+
+def test_closed_loop_ramp_through_non_binary_exact_rates_terminates():
+    clock = FakeClock()
+    sleeper = BoundedSleeper(clock)
+    plan = RunPlan(
+        mode="closed",
+        rate=10.0,
+        concurrency=2,
+        warmup_seconds=5.0,
+        hold_seconds=1.0,
+        ramp_step_count=5,
+    )
+
+    records = run(plan, lambda index: (index, 0.05), clock=clock.now, sleep=sleeper)
+
+    assert records
+    assert all(r.dispatch_time >= 0 for r in records)
+
+
+def test_pacing_never_requests_a_degenerate_sleep():
+    clock = FakeClock()
+    sleeper = BoundedSleeper(clock)
+    plan = RunPlan(mode="open", rate=6.0, concurrency=1, warmup_seconds=0.0, hold_seconds=3.0)
+
+    run(plan, lambda index: (index, 0.0), clock=clock.now, sleep=sleeper)
+
+    assert sleeper.calls, "expected the run to pace itself via sleep"
+    assert all(s >= 1e-9 for s in sleeper.calls if s > 0)
+
+
 def test_run_plan_rejects_invalid_fields():
     with pytest.raises(ValueError):
         RunPlan(mode="sideways", rate=1.0, concurrency=1, warmup_seconds=0.0, hold_seconds=1.0)
