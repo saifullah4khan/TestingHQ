@@ -1,0 +1,16 @@
+{
+  "targets": [
+    {
+      "name": "local-dry-sink",
+      "url": "http://localhost:8000/inbound"
+    },
+    {
+      "name": "staging-example",
+      "url": "https://staging.example.test/inbound"
+    },
+    {
+      "name": "qa-example",
+      "url": "https://qa.example.invalid/inbound"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "seed": 7,
+  "config": {
+    "mix": ["clean", "structurally-malformed", "degenerate"],
+    "count": 6,
+    "seed": 7,
+    "dry_run": false,
+    "target": "staging-example"
+  },
+  "summary": {
+    "by_status_class": {"2xx": 1, "4xx": 2, "5xx": 1, "timeout": 1},
+    "by_category": {
+      "clean": 2,
+      "messy-but-valid": 0,
+      "multilingual-gibberish": 0,
+      "structurally-malformed": 1,
+      "degenerate": 3
+    },
+    "flags": [
+      "clean payload clean-7-0001 did not 2xx",
+      "degenerate degenerate-7-0000 returned 500",
+      "degenerate degenerate-7-0001 timed out"
+    ]
+  },
+  "records": [
+    {
+      "id": "clean-7-0000",
+      "category": "clean",
+      "payload_sha256": "dddd000000000000000000000000000000000000000000000000000000da",
+      "intended": {"from": "sender0@example.com", "subject": "Clean subject 0", "body_core": "Clean body 0", "attachments": 0},
+      "response": {"status": 200, "latency_ms": 48.0, "body_snippet": "ok"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "clean-7-0001",
+      "category": "clean",
+      "payload_sha256": "dddd000000000000000000000000000000000000000000000000000000db",
+      "intended": {"from": "sender1@example.com", "subject": "Clean subject 1", "body_core": "Clean body 1", "attachments": 1},
+      "response": {"status": 500, "latency_ms": 210.0, "body_snippet": "error: HTTP 500"},
+      "assertion": {"passed": false, "mismatches": ["clean payload clean-7-0001 did not 2xx"]}
+    },
+    {
+      "id": "structurally-malformed-7-0000",
+      "category": "structurally-malformed",
+      "payload_sha256": "eeee000000000000000000000000000000000000000000000000000000ea",
+      "intended": {"from": "sender2@example.net", "subject": "broken headers", "body_core": "malformed body", "attachments": 0},
+      "response": {"status": 400, "latency_ms": 15.0, "body_snippet": "rejected: HTTP 400"},
+      "assertion": {"passed": true, "mismatches": []}
+    },
+    {
+      "id": "degenerate-7-0000",
+      "category": "degenerate",
+      "payload_sha256": "ffff000000000000000000000000000000000000000000000000000000fa",
+      "intended": {"from": "sender3@example.edu", "subject": "", "body_core": "", "attachments": 0},
+      "response": {"status": 500, "latency_ms": 340.0, "body_snippet": "error: HTTP 500"},
+      "assertion": {"passed": false, "mismatches": ["degenerate degenerate-7-0000 returned 500"]}
+    },
+    {
+      "id": "degenerate-7-0001",
+      "category": "degenerate",
+      "payload_sha256": "ffff000000000000000000000000000000000000000000000000000000fb",
+      "intended": {"from": "sender4@qa.example.invalid", "subject": "", "body_core": "", "attachments": 0},
+      "response": {"status": null, "latency_ms": 5000.0, "body_snippet": ""},
+      "assertion": {"passed": false, "mismatches": ["degenerate degenerate-7-0001 timed out"]}
+    },
+    {
+      "id": "degenerate-7-0002",
+      "category": "degenerate",
+      "payload_sha256": "ffff000000000000000000000000000000000000000000000000000000fc",
+      "intended": {"from": "sender5@example.org", "subject": "", "body_core": "", "attachments": 0},
+      "response": {"status": 400, "latency_ms": 11.0, "body_snippet": "rejected: HTTP 400"},
+      "assertion": {"passed": true, "mismatches": []}
+    }
+  ]
+}

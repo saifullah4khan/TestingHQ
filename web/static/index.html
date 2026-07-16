@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestingHQ - Blast</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">TH</span>
+    <div class="brand-text">
+      <span class="brand-name">TestingHQ</span>
+      <span class="brand-tool">Blast</span>
+    </div>
+  </div>
+  <p class="tagline">Seeded inbound-email payloads, fired at an endpoint you control, read by expectation not by status code.</p>
+</header>
+
+<main>
+  <section class="panel controls" aria-label="Run controls">
+    <h2>Run configuration</h2>
+    <form id="run-form">
+      <fieldset class="mix-fieldset">
+        <legend>Mix</legend>
+        <div id="mix-options" class="mix-options">
+          <!-- populated from /api/config -->
+        </div>
+      </fieldset>
+
+      <div class="field-row">
+        <label for="count">Count</label>
+        <input type="number" id="count" name="count" min="1" max="500" value="20" required>
+      </div>
+
+      <div class="field-row">
+        <label for="seed">Seed</label>
+        <input type="number" id="seed" name="seed" min="0" value="1" required>
+      </div>
+
+      <div class="field-row">
+        <label for="target">Target (fire only)</label>
+        <select id="target" name="target">
+          <option value="">Select a configured target...</option>
+        </select>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="dry-run-btn" class="btn btn-primary">Dry run</button>
+        <button type="button" id="fire-btn" class="btn btn-danger">Fire...</button>
+      </div>
+    </form>
+
+    <div id="fire-confirm" class="fire-confirm hidden" role="dialog" aria-label="Confirm fire">
+      <p>
+        This will send <strong id="fire-confirm-count">-</strong> synthetic payloads to
+        <strong id="fire-confirm-target">-</strong>. Dry-run does not send; this does.
+      </p>
+      <div class="actions">
+        <button type="button" id="fire-confirm-yes" class="btn btn-danger">Yes, fire</button>
+        <button type="button" id="fire-confirm-no" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <p id="run-error" class="error hidden" role="alert"></p>
+  </section>
+
+  <section class="panel summary" aria-label="Category versus outcome">
+    <h2>Category vs. outcome</h2>
+    <p class="hint">
+      This is expectation-based, not a status dump. A degenerate payload getting a clean 4xx is a
+      PASS. A clean payload not getting 2xx, or a degenerate payload getting a 500 or hanging, is a FAIL.
+    </p>
+
+    <div id="summary-empty" class="empty-state">Run a dry-run to see results.</div>
+
+    <div id="summary-content" class="hidden">
+      <div class="highlight-row">
+        <div class="highlight-card highlight-clean-failed">
+          <span class="highlight-count" id="count-clean-failed">0</span>
+          <span class="highlight-label">clean payloads that did NOT 2xx</span>
+        </div>
+        <div class="highlight-card highlight-degenerate-failed">
+          <span class="highlight-count" id="count-degenerate-failed">0</span>
+          <span class="highlight-label">degenerate payloads that 500'd or hung</span>
+        </div>
+      </div>
+
+      <div class="summary-grids">
+        <div>
+          <h3>By status class</h3>
+          <table id="status-class-table" class="mini-table"></table>
+        </div>
+        <div>
+          <h3>By category</h3>
+          <table id="category-table" class="mini-table"></table>
+        </div>
+      </div>
+
+      <div id="flags-section">
+        <h3>Flags</h3>
+        <ul id="flags-list" class="flags-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel results" aria-label="Results">
+    <h2>Records</h2>
+    <div id="results-empty" class="empty-state">No run yet.</div>
+    <div id="results-table-wrap" class="hidden">
+      <table id="results-table">
+        <thead>
+          <tr>
+            <th>id</th>
+            <th>category</th>
+            <th>status</th>
+            <th>latency (ms)</th>
+            <th>outcome</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p>TestingHQ is a self-testing tool for endpoints you control. Dry-run is the default. All demo content is synthetic and uses reserved domains only.</p>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
