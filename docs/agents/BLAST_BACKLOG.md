@@ -33,6 +33,31 @@ is more permissive than the gate manufactures false green.
   files is not the same as having no dependency. See the collision rule in
   GOALS.md.
 
+## Staleness markers, and why this file has them
+
+This file has gone stale twice in one day. The 07:00 planner note said M1 was not
+yet started while 1,235 lines of it sat on a branch. It was hand-corrected at
+15:50, and by 17:07 it was lying again: it still said M3 was IN PROGRESS and
+Barrage was BLOCKED, 40 minutes after M3 merged and unblocked Barrage. Both times
+the file was true when written. Both times nothing was watching it.
+
+A backlog encodes state that `main` already knows. Hand-syncing it will always
+rot, and a rotted backlog is worse than an empty one: a coder reads "do not claim
+this" and improvises instead.
+
+So an item that will become false when some file appears declares that inline:
+
+    <!-- stale-if-exists: testinghq/barrage/runner.py -->
+
+`tests/test_backlog_freshness.py` fails the build if that path exists. The claim
+above it is then provably stale and someone has to update this file. It makes a
+claim falsifiable, which is the whole point: a claim that cannot be proven wrong
+is exactly the kind that quietly misleads the next agent.
+
+Add a marker to any item you write that a future merge will invalidate. If you
+cannot express the condition as a path, say plainly in the item what would make it
+false, so a human can check in one glance.
+
 ## M1 - clean path end to end: DONE
 
 - [x] [A][M] InboundEmail model in `blast/payload.py`. Landed #3.
@@ -62,18 +87,18 @@ is more permissive than the gate manufactures false green.
   the fake sink, asserting the sink receives every category intact and that the
   mix ratios hold end to end.
 
-## M3 - reporting and reproducibility: IN PROGRESS, DO NOT CLAIM [A] ITEMS
+## M3 - reporting and reproducibility: DONE
 
-Nox is building all three [A] items right now on `feat/engine-m3`. They will be
-on `main` before the next build window. Claiming them means writing a competing
-implementation of code that is hours from landing.
+Blast v1 is complete. Landed #16.
 
-- [ ] [A] IN PROGRESS (Nox, feat/engine-m3): run artifact and replay.
-- [ ] [A] IN PROGRESS (Nox, feat/engine-m3): category-versus-outcome summary.
-- [ ] [A] IN PROGRESS (Nox, feat/engine-m3): generic assertion hook and
-  StatusOnlyMatcher.
-- [ ] [B][M] BLOCKED on the three items above: reporting and replay integration
-  tests. Unblocks the moment `core/report.py` is on `main`.
+- [x] [A] Run artifact and replay. Replay verifies byte-identical payload hashes
+  before touching the network and refuses on mismatch.
+- [x] [A] Category-versus-outcome summary, expectation-based. A degenerate input
+  returning a clean 4xx is a PASS; a 5xx or a timeout is a FAIL; a clean input not
+  returning 2xx is a FAIL. The summary points at bugs, not statuses.
+- [x] [A] Matcher protocol and StatusOnlyMatcher.
+- [ ] [B][M] Reporting and replay integration tests. NOT DONE and NO LONGER
+  BLOCKED: `core/report.py` is on main. Claim freely.
 
 ## UI v1: DONE, with one real follow-up
 
@@ -90,23 +115,25 @@ implementation of code that is hours from landing.
   Keep `web/generator.py` and the fixtures; `tests/web` uses them and they are
   what let this lane ship without the engine.
 
-## Next milestone: Barrage v1, Lane A, BLOCKED until M3 lands
+## Next milestone: Barrage v1, Lane A, UNBLOCKED
 
-Full spec in the assignment pack (05 spec, 06 handoff). Prerequisite is Blast v1,
-meaning M3 merged, so `transport`, `config`, `guardrails`, `ratelimit`, and
-`report` are stable. Barrage is defined entirely as reuse of those five. Four
-existed only as stubs this morning. Do not start it before `core/report.py` is on
-`main`: you would be inventing the interfaces you are supposed to consume, then
-rewriting them.
+Full spec in the assignment pack (05 spec, 06 handoff). The prerequisite was Blast
+v1, meaning M3 merged so `transport`, `config`, `guardrails`, `ratelimit`, and
+`report` are stable. That happened in #16. Barrage is defined entirely as reuse of
+those five, and all five now exist.
 
-- [ ] [A] BLOCKED on M3: `barrage/runner.py`. Concurrency and rate control,
+IN PROGRESS (Nox, feat/barrage) as of 2026-07-16 17:10. Do not claim these until
+that branch lands or is abandoned.
+<!-- stale-if-exists: testinghq/barrage/runner.py -->
+
+- [ ] [A] `barrage/runner.py`. Concurrency and rate control,
   closed-loop fixed-concurrency and open-loop fixed-arrival-rate, a warmup ramp, a
   steady-state hold, and a hard rate-and-duration ceiling that needs an explicit
   flag to raise.
-- [ ] [A] BLOCKED on M3: Barrage reporting. Throughput achieved versus target,
+- [ ] [A] Barrage reporting. Throughput achieved versus target,
   latency p50/p90/p99, error rate over time, and the knee where the endpoint
   degrades. JSON artifact plus a human summary.
-- [ ] [A] BLOCKED on M3: `testinghq barrage fire` CLI, dry-run default, plus replay.
+- [ ] [A] `testinghq barrage fire` CLI, dry-run default, plus replay.
 
 Barrage reuses `blast/generate` for clean payloads. It does not re-garble: Blast
 proves the parser is correct under messy input, Barrage proves the pipeline holds
