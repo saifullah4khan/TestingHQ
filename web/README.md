@@ -44,14 +44,33 @@ different port, `--host` to bind elsewhere.
 - `web/adapter.py` - the single seam between the UI and the engine.
   `dry_run()` and `fire()` are the only two functions the rest of the app
   calls to get a run artifact; when the real engine lands, only this file
-  needs to change. It also owns the fire guardrails (configured target
-  required, explicit `confirm=True` required) independent of
-  `testinghq/core/guardrails.py`, so this lane builds and tests without
-  depending on code owned by the parallel engine lane.
-- `web/config.py` / `web/targets.json` - the target allow-list. Every
-  target must resolve to a reserved demo domain
-  (example.com/.net/.org/.edu, or a .test/.invalid/.example/.localhost
-  host) - loading fails loudly otherwise.
+  needs to change.
+- `web/config.py` / `web/targets.json` - the target allow-list that
+  populates the dropdown. Loading fails loudly if a target is malformed,
+  is not http(s), or names a host the canonical guardrail refuses.
+
+## Guardrails: one definition, imported not copied
+
+The web UI owns **no** guardrail rules of its own. `web/adapter.py` and
+`web/config.py` import `testinghq.core.guardrails` and delegate to it, so
+there is exactly one definition in the codebase of "may we send" and "is
+this a host we are willing to fire at", and the UI inherits any future
+hardening of it automatically. That module is imported, never edited here.
+
+Two things sit on top, both additive and strictly narrowing:
+
+- **Explicit confirm.** The canonical gate is "sending requires an
+  explicit flag". The UI additionally requires that flag to be an
+  unambiguous boolean `True`, so a stray truthy value in a JSON body
+  (`"false"` is truthy in Python) can never read as consent.
+- **Name-to-URL resolution.** The dropdown submits a configured target
+  *name*, but the canonical public-host check parses a *host* out of its
+  argument. A bare single-label name has no dot, so the guard would
+  classify it as an internal host and pass it unconditionally. The adapter
+  therefore also passes the resolved **URL** through the canonical guard,
+  which is what makes the public-host check actually bite on the real
+  destination. `tests/web/test_adapter.py` pins this wiring so it cannot
+  silently regress.
 - `web/server.py` - the stdlib HTTP server: serves `web/static/` and
   exposes `POST /api/dry-run` and `POST /api/fire`.
 - `web/static/` - the actual page (`index.html`, `style.css`, `app.js`).
@@ -77,4 +96,7 @@ background thread; no external network is used anywhere in the suite.
 All demo content is synthetic and lives on reserved domains only. Dry-run
 is the default. Firing is only possible at a target the operator has
 explicitly configured in `web/targets.json`, and only after an explicit
-confirm step both in the UI and on the server.
+confirm step both in the UI and on the server. A configured target that
+points at a real, publicly routable host is refused by the canonical
+guardrail even though it is in the allow-list; the UI never passes
+`allow_public_hosts=True` to override that.

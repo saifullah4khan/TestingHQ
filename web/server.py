@@ -28,6 +28,8 @@ if __package__ in (None, ""):  # allows `python web/server.py` directly
 else:
     from . import adapter, config as config_module, generator
 
+from testinghq.core import guardrails
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _STATIC_FILES = {
@@ -148,8 +150,13 @@ class Handler(BaseHTTPRequestHandler):
         confirm = body.get("confirm", False)
         try:
             artifact = adapter.fire(target, mix, count, seed, confirm)
-        except adapter.AdapterGuardrailError as exc:
+        except guardrails.GuardrailError as exc:
+            # Canonical guardrail refusal: unconfigured target, unsafe public
+            # host, or no explicit confirm. All are a refusal, not a bug.
             self._send_json(403, {"error": str(exc)})
+            return
+        except config_module.ConfigError as exc:
+            self._send_json(500, {"error": str(exc)})
             return
         except generator.GeneratorError as exc:
             self._send_json(400, {"error": str(exc)})

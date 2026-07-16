@@ -151,6 +151,42 @@ def test_fire_at_unconfigured_target_is_refused(running_server):
     assert "error" in payload
 
 
+def test_fire_refusal_surfaces_the_canonical_guardrail_message(running_server):
+    """End to end over real HTTP: an unconfigured target is refused by the
+    canonical guardrail and its refusal reaches the client as a 403. This is
+    the anti-un-wiring check at the transport layer - if the adapter ever
+    stops delegating, the canonical wording disappears and this fails.
+    """
+    status, payload = _post_json(
+        running_server,
+        "/api/fire",
+        {"target": "totally-made-up", "mix": ["clean"], "count": 3, "seed": 0, "confirm": True},
+    )
+    assert status == 403
+    assert "not in the configured target list" in payload["error"]
+
+
+def test_fire_with_truthy_string_confirm_is_refused(running_server):
+    """A JSON body is attacker-shaped input: "false" is truthy in Python.
+    The UI-layer explicit-confirm narrowing must reject it over HTTP too.
+    """
+    real_targets = config.load_targets()
+    some_target = next(iter(real_targets))
+    status, payload = _post_json(
+        running_server,
+        "/api/fire",
+        {
+            "target": some_target,
+            "mix": ["clean"],
+            "count": 3,
+            "seed": 0,
+            "confirm": "false",
+        },
+    )
+    assert status == 403
+    assert "error" in payload
+
+
 def test_fire_with_configured_target_and_confirm_succeeds(running_server):
     real_targets = config.load_targets()
     some_target = next(iter(real_targets))

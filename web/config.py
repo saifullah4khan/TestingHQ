@@ -3,15 +3,19 @@
 Targets are an explicit allow-list loaded from `web/targets.json`. The UI
 never accepts a free-text target: every place that needs a target renders a
 dropdown built from this list, and the server re-validates against it before
-honoring a fire request. This is the same guardrail shape as
-`testinghq/core/guardrails.require_configured_target`, kept independent here
-because this lane cannot import from `testinghq/**` yet.
+honoring a fire request.
 
-Defense in depth: target URLs are also required to live on a reserved,
-non-routable-for-real-mail domain (example.com/.net/.org/.edu, or a
-.test/.invalid/.example/.localhost TLD), same as the rest of the synthetic
-content this tool generates. A malformed targets.json fails loudly rather
-than silently allowing an unreserved host.
+Host safety is NOT decided here. It is delegated to the canonical guardrail
+`testinghq.core.guardrails.require_configured_target`, which is imported and
+never reimplemented, so there is exactly one definition of "a host we are
+willing to fire at" in the codebase and this loader inherits any future
+hardening of it for free. Loading fails loudly rather than silently
+admitting a host the canonical guardrail would refuse.
+
+The one check that genuinely belongs here is the URL scheme: the canonical
+guardrail reasons about hosts, not schemes, and a config file is the right
+place to reject a non-http(s) URL outright. That is additive, not a
+duplicate of anything canonical.
 """
 from __future__ import annotations
 
@@ -21,23 +25,9 @@ from pathlib import Path
 from typing import Dict, Tuple
 from urllib.parse import urlparse
 
-DEFAULT_TARGETS_PATH = Path(__file__).resolve().parent / "targets.json"
+from testinghq.core import guardrails
 
-_RESERVED_DOMAIN_SUFFIXES = (
-    ".example.com",
-    ".example.net",
-    ".example.org",
-    ".example.edu",
-    "example.com",
-    "example.net",
-    "example.org",
-    "example.edu",
-    ".test",
-    ".invalid",
-    ".example",
-    ".localhost",
-    "localhost",
-)
+DEFAULT_TARGETS_PATH = Path(__file__).resolve().parent / "targets.json"
 
 
 class ConfigError(ValueError):
@@ -50,16 +40,6 @@ class Target:
     url: str
 
 
-def _is_reserved_host(host):
-    if host is None:
-        return False
-    host = host.lower()
-    return any(
-        host == suffix.lstrip(".") or host.endswith(suffix)
-        for suffix in _RESERVED_DOMAIN_SUFFIXES
-    )
-
-
 def _validate_target(name, url):
     if not name or not isinstance(name, str):
         raise ConfigError(f"target entry has an invalid name: {name!r}")
@@ -68,11 +48,16 @@ def _validate_target(name, url):
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ConfigError(f"target {name!r} url must be http(s): {url!r}")
-    if not _is_reserved_host(parsed.hostname):
+    # Delegate host safety to the canonical guardrail. The singleton
+    # allow-list makes the membership half of the check trivially true so
+    # that the public-host half is what is actually being asked here.
+    try:
+        guardrails.require_configured_target(url, (url,))
+    except guardrails.GuardrailError as exc:
         raise ConfigError(
-            f"target {name!r} url {url!r} is not on a reserved demo domain "
-            "(example.com/.net/.org/.edu, or .test/.invalid/.example/.localhost)"
-        )
+            f"target {name!r} url {url!r} was refused by the canonical target "
+            f"guardrail: {exc}"
+        ) from exc
     return Target(name=name, url=url)
 
 
