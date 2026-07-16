@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestingHQ - self-testing tools for intake pipelines</title>
+<meta name="description" content="TestingHQ builds Blast, a fuzzer that fires a spectrum of realistic-to-garbled inbound-email payloads at an endpoint you control, so you can find where your parser breaks.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+
+<header class="site-nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="#top">Testing<span>HQ</span></a>
+    <ul class="nav-links">
+      <li><a href="#what-is-blast">What is Blast</a></li>
+      <li><a href="#spectrum">Messiness spectrum</a></li>
+      <li><a href="#responsible-use">Responsible use</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#roadmap">Roadmap</a></li>
+      <li><a href="https://github.com/saifullah4khan/TestingHQ">GitHub</a></li>
+    </ul>
+  </div>
+</header>
+
+<main id="main-content">
+
+  <section class="hero" id="top">
+    <span class="eyebrow">Early build, in public</span>
+    <h1>Self-testing tools for intake pipelines.</h1>
+    <p class="lead">
+      TestingHQ is a small suite of tools for stress-testing the systems that
+      ingest messy real-world input. The first tool, Blast, generates a
+      spectrum of realistic-to-garbled inbound-email payloads and fires them
+      at an intake endpoint you control, so you can see how your parser
+      behaves under real-world nonsense instead of hand-typed happy-path
+      samples.
+    </p>
+    <div class="status-card">
+      <strong>Where this stands today:</strong> the M0 skeleton is in place.
+      The package installs, the CLI surface and safety guardrails exist and
+      are tested, and CI runs on every change. The generator, transport,
+      reporting, and web UI are being actively built right now. Commands
+      documented below are the real CLI surface, but some paths still print a
+      "not implemented yet" placeholder until that work lands.
+    </div>
+  </section>
+
+  <section id="what-is-blast">
+    <h2>What Blast does</h2>
+    <p>
+      Blast generates inbound-email payloads across a spectrum of messiness,
+      from clean and well-formed through typo-ridden, multilingual, and
+      half-gibberish, up to structurally malformed and degenerate. It POSTs
+      them as SendGrid Inbound Parse-shaped payloads to a target endpoint you
+      configure, and reports where the parser choked.
+    </p>
+    <p>
+      Blast is about variety and correctness: finding the inputs that break
+      extraction, reproducibly. Every run is seeded, so the same seed and
+      configuration produce the same corpus every time, which makes a failure
+      something you can hand to an engineer instead of something that only
+      happened once.
+    </p>
+    <p>
+      The suite ships as a single installable package, <code>testinghq</code>,
+      with subcommands for each tool: <code>testinghq blast ...</code> today,
+      and <code>testinghq barrage ...</code> once that tool exists.
+    </p>
+  </section>
+
+  <section id="spectrum">
+    <h2>The messiness spectrum</h2>
+    <p>
+      Real inboxes do not send you clean test fixtures. Blast is designed to
+      generate payloads across five categories, from a well-formed happy path
+      down to input that barely resembles an email at all.
+    </p>
+    <div class="spectrum-bar" aria-hidden="true"></div>
+    <div class="spectrum">
+      <div class="spectrum-step">
+        <div class="step-index">01</div>
+        <h4>Clean</h4>
+        <p>Well-formed, valid email. Correct headers, sensible body, nothing surprising. The happy path.</p>
+      </div>
+      <div class="spectrum-step">
+        <div class="step-index">02</div>
+        <h4>Messy-but-valid</h4>
+        <p>Typos, odd formatting, unusual but legal structure. Still technically valid input a parser should handle without complaint.</p>
+      </div>
+      <div class="spectrum-step">
+        <div class="step-index">03</div>
+        <h4>Multilingual / gibberish</h4>
+        <p>Non-English content, mixed scripts, encoding oddities, and text that degrades toward noise.</p>
+      </div>
+      <div class="spectrum-step">
+        <div class="step-index">04</div>
+        <h4>Structurally malformed</h4>
+        <p>Payloads that break the expected shape: missing fields, malformed multipart structure, inconsistent metadata.</p>
+      </div>
+      <div class="spectrum-step">
+        <div class="step-index">05</div>
+        <h4>Degenerate</h4>
+        <p>Edge-of-void cases: empty bodies, oversized fields, extreme or missing attachments.</p>
+      </div>
+    </div>
+    <p style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.92rem;">
+      This spectrum describes what Blast is built to generate. As noted
+      above, the generator that produces every level of the spectrum is still
+      being built; today the CLI surface and guardrails exist, and the
+      messier levels land in upcoming milestones.
+    </p>
+  </section>
+
+  <section id="responsible-use">
+    <div class="responsible-use">
+      <h2>Responsible use</h2>
+      <p>
+        Blast is a fuzzer and self-testing tool for endpoints you control. It
+        POSTs provider-shaped payloads at your own ingest.
+      </p>
+      <p><strong>It is not an email sender.</strong></p>
+      <ul>
+        <li>It does not deliver mail to arbitrary inboxes.</li>
+        <li>It does not use SMTP or any real mail delivery path.</li>
+        <li>It does not try to defeat spam filters.</li>
+        <li>It does not forge sender authentication to fool real recipients.</li>
+        <li>All generated content is synthetic and uses reserved example domains (such as <code>example.com</code>).</li>
+      </ul>
+      <p>
+        Dry-run is the default. Firing requires an explicit <code>--send</code>
+        flag and a target you have declared in configuration. Rate limiting is
+        on by default. Blast will refuse to fire at a target that is not
+        explicitly configured.
+      </p>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>Install and quick start</h2>
+    <p>Install the package in editable mode with the dev extras:</p>
+    <pre><code>pip install -e ".[dev]"</code></pre>
+
+    <p>Then generate a corpus and try a dry run:</p>
+    <pre><code><span class="cmd-comment"># generate a corpus to disk, no network</span>
+testinghq blast generate --count 100 --seed 1 --out corpus
+
+<span class="cmd-comment"># dry run by default: shows what it would send, makes no network calls</span>
+testinghq blast fire --target local
+
+<span class="cmd-comment"># actually fire at a configured target (explicit and rate limited)</span>
+testinghq blast fire --target local --send</code></pre>
+
+    <h3>What is real right now</h3>
+    <p>
+      The commands above are the actual argument surface defined in the CLI
+      today: <code>testinghq blast generate</code>, <code>testinghq blast
+      fire</code> (with <code>--target</code>, <code>--seed</code>,
+      <code>--count</code>, and <code>--send</code>), and <code>testinghq
+      blast replay &lt;run&gt;</code>. The dry-run-by-default guardrail is
+      real and tested: <code>fire</code> without <code>--send</code> always
+      reports a dry run and never touches the network. The generator,
+      transport, and reporting behind these commands are still being built,
+      so running them today prints a placeholder message rather than
+      producing output.
+    </p>
+  </section>
+
+  <section id="roadmap">
+    <h2>Roadmap</h2>
+    <p>
+      TestingHQ ships as one package with subcommands, built one tool at a
+      time.
+    </p>
+    <div class="roadmap-grid">
+      <div class="roadmap-card">
+        <span class="tag tag-progress">In progress</span>
+        <h3>Blast</h3>
+        <p>
+          Variety and correctness: proving a parser handles the full
+          spectrum of inbound-email messiness. The CLI, configuration, and
+          safety guardrails are in place and tested. The generator,
+          transport, and reporting are being built now, alongside a web UI
+          over the same engine.
+        </p>
+      </div>
+      <div class="roadmap-card">
+        <span class="tag tag-next">Next, not available</span>
+        <h3>Barrage</h3>
+        <p>
+          Volume and throughput. Where Blast proves a parser is correct under
+          messy input, Barrage is planned to prove a pipeline holds under
+          load. Barrage has not been built yet: no code exists for it today,
+          and it is currently design-stage only.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <div>
+      <p>Released under the MIT License.</p>
+      <p>&copy; 2026 Saifullah Khan.</p>
+    </div>
+    <ul class="footer-links">
+      <li><a href="https://github.com/saifullah4khan/TestingHQ/blob/main/LICENSE">LICENSE</a></li>
+      <li><a href="https://github.com/saifullah4khan/TestingHQ">Source on GitHub</a></li>
+      <li><a href="mailto:saifullah4khan@gmail.com">saifullah4khan@gmail.com</a></li>
+    </ul>
+  </div>
+</footer>
+
+</body>
+</html>
