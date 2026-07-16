@@ -22,3 +22,11 @@ include = ["testinghq*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the repo root on sys.path for the whole suite. Without this, `pytest -q`
+# (what ci.yml runs) and `python -m pytest -q` disagree: the -m form inserts the
+# working directory and the bare form does not, so anything importing a
+# non-installed top-level package from the root, such as `web`, passes locally
+# and dies in CI. Only `testinghq*` is an installed package; `web` is served
+# from the tree. Do not remove without making `pytest -q` green from a clean
+# clone first.
+pythonpath = ["."]
