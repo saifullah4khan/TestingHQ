@@ -34,4 +34,8 @@ Collision rule: the lanes must never touch the same files.
 
 ## Progress / drift
 
-(filled by the planner each run)
+- 2026-07-16 (Thu): M1 on-track, not yet started. M0 scaffold is done and on
+  main. No PRs merged toward M1 yet; PR #1 (prove-red gate) served its purpose
+  and was closed unmerged as designed. Backlog seeded: Lane A 5 not-done items,
+  Lane B topped up from 2 to 4. First afternoon build window still ahead. No
+  blockers, no open requests, no open issues.
