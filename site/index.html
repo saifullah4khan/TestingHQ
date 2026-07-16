@@ -38,12 +38,19 @@
       samples.
     </p>
     <div class="status-card">
-      <strong>Where this stands today:</strong> the M0 skeleton is in place.
-      The package installs, the CLI surface and safety guardrails exist and
-      are tested, and CI runs on every change. The generator, transport,
-      reporting, and web UI are being actively built right now. Commands
-      documented below are the real CLI surface, but some paths still print a
-      "not implemented yet" placeholder until that work lands.
+      <strong>Where this stands today:</strong> the Blast engine core is
+      built and tested: deterministic corpus generation, the six composable
+      mutators behind every messiness level, seeded attachments, a 20-case
+      named edge-case catalog, SendGrid Inbound Parse-shaped serialization,
+      an injectable HTTP transport, target configuration, rate limiting, and
+      the safety guardrails, backed by a dedicated security test suite. The
+      CLI's argument surface matches that engine, but
+      <code>testinghq blast generate</code>, <code>fire</code>, and
+      <code>replay</code> are not wired up yet and each still prints a "not
+      implemented yet" placeholder. Reporting, the run artifact, replay, and
+      pass/fail assertions, has not been built yet either. See
+      <a href="#install">Install and quick start</a> for exactly what runs
+      today.
     </div>
   </section>
 
@@ -52,16 +59,66 @@
     <p>
       Blast generates inbound-email payloads across a spectrum of messiness,
       from clean and well-formed through typo-ridden, multilingual, and
-      half-gibberish, up to structurally malformed and degenerate. It POSTs
+      half-gibberish, up to structurally malformed and degenerate, and POSTs
       them as SendGrid Inbound Parse-shaped payloads to a target endpoint you
-      configure, and reports where the parser choked.
+      configure. Blast is about variety and correctness: finding the inputs
+      that break extraction, reproducibly.
     </p>
     <p>
-      Blast is about variety and correctness: finding the inputs that break
-      extraction, reproducibly. Every run is seeded, so the same seed and
-      configuration produce the same corpus every time, which makes a failure
-      something you can hand to an engineer instead of something that only
-      happened once.
+      Every generated payload is an <code>InboundEmail</code> in memory
+      (subject, text, html, headers, envelope, charsets, attachments, and a
+      ground-truth record of what it was built to say), serialized into the
+      same named multipart fields a real SendGrid Inbound Parse webhook sends
+      in parsed mode: <code>headers</code>, <code>to</code>, <code>from</code>,
+      <code>subject</code>, <code>text</code>, <code>html</code>,
+      <code>envelope</code>, <code>charsets</code>, an attachment count, and
+      one file part per attachment.
+    </p>
+    <ul>
+      <li>
+        <strong>Deterministic generation.</strong> A seeded generator builds
+        well-formed clean payloads. The same seed and count produce
+        byte-identical output every time; nothing reads the wall clock or
+        unseeded randomness.
+      </li>
+      <li>
+        <strong>Six composable mutators.</strong> Typo/transposition,
+        homoglyph and mojibake substitution, script mixing, word salad,
+        structural noise (quoted reply chains, forwarded-message headers,
+        broken HTML, signature blocks, and occasional blanking or
+        truncation), and encoding sabotage (a declared charset that does not
+        match how the content was actually encoded). Every messiness level
+        below is a weighted recipe over this one mutator set, not a separate
+        code path.
+      </li>
+      <li>
+        <strong>Seeded attachments.</strong> Ordinary files with correct
+        magic bytes, zero-byte files, oversized files, and deliberately
+        awkward ones (empty, path-traversal-shaped, or reserved-device-name
+        filenames; mismatched or nonsense content types), all reproducible
+        from the same seed.
+      </li>
+      <li>
+        <strong>A named edge-case catalog.</strong> 20 individually named,
+        generic payload shapes you can build on demand, independent of the
+        random messiness pipeline: empty subjects, reply-to mismatches,
+        plus-addressing, a header-injection attempt, mixed line endings,
+        many-recipient envelopes, zero-length envelopes, and more.
+      </li>
+    </ul>
+    <p>
+      Firing is built on an injectable HTTP transport with an enforced
+      timeout, target configuration loaded from TOML with environment
+      overrides, a client-side token-bucket rate limiter, and the guardrails
+      described below.
+    </p>
+    <p>
+      There is also a small local web UI (plain HTML/CSS/JS over Python's
+      stdlib <code>http.server</code>, nothing to build or install) that
+      previews the dry-run and fire flow and an expectation-based results
+      view. Today it runs on a deterministic fixture stand-in rather than the
+      real engine described above; the two are expected to be wired together
+      as the engine and reporting work lands.
     </p>
     <p>
       The suite ships as a single installable package, <code>testinghq</code>,
@@ -73,43 +130,47 @@
   <section id="spectrum">
     <h2>The messiness spectrum</h2>
     <p>
-      Real inboxes do not send you clean test fixtures. Blast is designed to
-      generate payloads across five categories, from a well-formed happy path
-      down to input that barely resembles an email at all.
+      Real inboxes do not send you clean test fixtures. Blast generates
+      payloads across five categories, from a well-formed happy path down to
+      input that barely resembles an email at all. Every category past
+      "clean" is a weighted recipe of how many times to apply the six
+      mutators described above, not a separately written generator, so the
+      levels compose instead of drifting apart. Percentages below are the
+      default mix Blast draws from unless you override it.
     </p>
     <div class="spectrum-bar" aria-hidden="true"></div>
     <div class="spectrum">
       <div class="spectrum-step">
-        <div class="step-index">01</div>
+        <div class="step-index">01 &middot; 20%</div>
         <h4>Clean</h4>
-        <p>Well-formed, valid email. Correct headers, sensible body, nothing surprising. The happy path.</p>
+        <p>Well-formed, valid email. Correct headers, sensible body, nothing surprising. The happy path, no mutators applied.</p>
       </div>
       <div class="spectrum-step">
-        <div class="step-index">02</div>
+        <div class="step-index">02 &middot; 40%</div>
         <h4>Messy-but-valid</h4>
-        <p>Typos, odd formatting, unusual but legal structure. Still technically valid input a parser should handle without complaint.</p>
+        <p>One to three typo passes, plus an optional structural pass (a signature block, a quote chain). Still technically valid input a parser should handle without complaint.</p>
       </div>
       <div class="spectrum-step">
-        <div class="step-index">03</div>
+        <div class="step-index">03 &middot; 20%</div>
         <h4>Multilingual / gibberish</h4>
-        <p>Non-English content, mixed scripts, encoding oddities, and text that degrades toward noise.</p>
+        <p>One or two passes each of script mixing and homoglyph/mojibake substitution: foreign-script words spliced in, look-alike characters, wrong-encoding round trips.</p>
       </div>
       <div class="spectrum-step">
-        <div class="step-index">04</div>
+        <div class="step-index">04 &middot; 15%</div>
         <h4>Structurally malformed</h4>
-        <p>Payloads that break the expected shape: missing fields, malformed multipart structure, inconsistent metadata.</p>
+        <p>One to three structural-noise passes, plus optional encoding sabotage and word salad: broken HTML, mismatched charsets, missing or truncated fields.</p>
       </div>
       <div class="spectrum-step">
-        <div class="step-index">05</div>
+        <div class="step-index">05 &middot; 5%</div>
         <h4>Degenerate</h4>
-        <p>Edge-of-void cases: empty bodies, oversized fields, extreme or missing attachments.</p>
+        <p>Three to five structural-noise passes stacked with word salad and optional encoding sabotage. Edge-of-void cases: blanked or truncated fields, compounding corruption.</p>
       </div>
     </div>
     <p style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.92rem;">
-      This spectrum describes what Blast is built to generate. As noted
-      above, the generator that produces every level of the spectrum is still
-      being built; today the CLI surface and guardrails exist, and the
-      messier levels land in upcoming milestones.
+      Address fields (to, from, envelope) are never touched by any mutator at
+      any level, including degenerate: corruption is confined to subject,
+      text, html, and charsets, so every generated payload stays on a
+      reserved domain regardless of how garbled the rest of it gets.
     </p>
   </section>
 
@@ -130,9 +191,21 @@
       </ul>
       <p>
         Dry-run is the default. Firing requires an explicit <code>--send</code>
-        flag and a target you have declared in configuration. Rate limiting is
-        on by default. Blast will refuse to fire at a target that is not
-        explicitly configured.
+        flag and a target you have declared in configuration. Blast refuses to
+        fire at a target that is not explicitly configured, and separately
+        refuses any target that looks like a real, publicly routable host
+        (rather than a reserved domain, localhost, or a private address) even
+        if it is present in configuration. Every address a payload generates
+        is checked against the reserved-domain contract before firing. Rate
+        limiting is on by default.
+      </p>
+      <p>
+        These guardrails are first-class, not a README promise: they are
+        implemented in one canonical module that both the CLI and the web UI
+        import rather than reimplement, and they are backed by a dedicated
+        security test suite. See
+        <a href="https://github.com/saifullah4khan/TestingHQ/blob/main/docs/SECURITY.md">docs/SECURITY.md</a>
+        in the repository for the full policy.
       </p>
     </div>
   </section>
@@ -158,12 +231,23 @@ testinghq blast fire --target local --send</code></pre>
       today: <code>testinghq blast generate</code>, <code>testinghq blast
       fire</code> (with <code>--target</code>, <code>--seed</code>,
       <code>--count</code>, and <code>--send</code>), and <code>testinghq
-      blast replay &lt;run&gt;</code>. The dry-run-by-default guardrail is
-      real and tested: <code>fire</code> without <code>--send</code> always
-      reports a dry run and never touches the network. The generator,
-      transport, and reporting behind these commands are still being built,
-      so running them today prints a placeholder message rather than
-      producing output.
+      blast replay &lt;run&gt;</code>. Running any of them today prints a "not
+      implemented yet" placeholder and exits non-zero: the CLI is not yet
+      wired to the engine underneath it. The one exception is the dry-run
+      decision inside <code>fire</code>, which really runs before the
+      placeholder: it evaluates and prints whether the run would send, based
+      on whether you passed <code>--send</code>, and that decision is
+      tested.
+    </p>
+    <p>
+      The engine those commands will eventually call is built and tested on
+      its own: deterministic generation, the six mutators and five messiness
+      recipes, seeded attachments, the 20-case catalog, SendGrid-shaped
+      serialization, the HTTP transport, target configuration, and rate
+      limiting. Reporting, the run artifact that would give <code>generate</code>,
+      <code>fire</code>, and <code>replay</code> something to actually produce,
+      has not been built yet. Wiring the CLI to the engine and landing
+      reporting are the next milestones; see <a href="#roadmap">Roadmap</a>.
     </p>
   </section>
 
@@ -179,10 +263,15 @@ testinghq blast fire --target local --send</code></pre>
         <h3>Blast</h3>
         <p>
           Variety and correctness: proving a parser handles the full
-          spectrum of inbound-email messiness. The CLI, configuration, and
-          safety guardrails are in place and tested. The generator,
-          transport, and reporting are being built now, alongside a web UI
-          over the same engine.
+          spectrum of inbound-email messiness. Generation, the six mutators
+          and five messiness recipes, attachments, the named catalog,
+          serialization, transport, configuration, rate limiting, and
+          guardrails are built and tested. Reporting, the run artifact,
+          replay, and a pass/fail assertion hook, is landing next; wiring the
+          CLI's <code>generate</code>/<code>fire</code>/<code>replay</code>
+          commands to the engine follows that. A local web UI already
+          previews the intended dry-run and results flow on a fixture
+          stand-in, ahead of that wiring.
         </p>
       </div>
       <div class="roadmap-card">
