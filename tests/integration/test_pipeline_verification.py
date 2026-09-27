@@ -36,6 +36,8 @@ from pipeline_under_test import PipelineUnderTest
 from testinghq.core import report
 from testinghq.pipeline import expectations
 from testinghq.pipeline import ledger as ledger_tool
+from testinghq.pipeline import redeliver as redeliver_tool
+from testinghq.pipeline import ledger as ledger_tool
 from testinghq.pipeline import verify as verify_tool
 from testinghq.pipeline.adapters import ReadbackConfig
 from testinghq.pipeline.common import EXIT_MISMATCH, EXIT_OK
@@ -116,6 +118,30 @@ def _readback() -> ReadbackConfig:
     exercises adapter loading as a user would."""
     return ReadbackConfig(kind="python", spec=SPEC)
 
+
+
+def _run_redeliver(pipeline, config_path, tmp_path, name="redeliver.json", **kwargs):
+    lines: list = []
+    code = redeliver_tool.execute(
+        SEED,
+        3,
+        TARGET,
+        config_path,
+        str(tmp_path / name),
+        readback=_readback(),
+        client=pipeline,
+        readback_client=pipeline,
+        sleep=_VIRTUAL.sleep,
+        clock=_VIRTUAL,
+        printer=lines.append,
+        **kwargs,
+    )
+    text = "\n".join(lines)
+    try:
+        artifact = _artifact(tmp_path, name)
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}\n--- run output ---\n{text}") from None
+    return code, artifact, text
 
 def _artifact(tmp_path, name: str) -> dict:
     path = tmp_path / name
@@ -727,6 +753,164 @@ class _LateDuplicatePipeline:
 # ---------------------------------------------------------------------------
 # Threading defects, which only the redelivery scenarios can reach
 # ---------------------------------------------------------------------------
+
+class _LateDuplicatePipeline:
+    """A pipeline that creates a second ticket, a few polls after the first.
+
+    Wraps the real one rather than reimplementing it, so the multipart parse
+    and the ticket model stay the ones under test everywhere else and only the
+    timing is new.
+    """
+
+    def __init__(self, delay_polls: int = 2) -> None:
+        self.inner = PipelineUnderTest(duplicate_on_redelivery=True)
+        self.delay_polls = delay_polls
+        self._fetches = 0
+        self.send = self.inner.send
+
+    def fetch(self, probe):
+        self._fetches += 1
+        found = self.inner.fetch(probe)
+        if self._fetches > self.delay_polls and len(found) == 1:
+            # The late second copy. Same Message-ID, so a correct pipeline should
+            # never have produced it, which is the whole finding.
+            return found + [self._second_copy(found[0])]
+        return found
+
+    @staticmethod
+    def _second_copy(record: Readback) -> Readback:
+        """The late duplicate: the same message, on a second ticket, carrying
+        every field the first copy did. A pipeline that produced only this one
+        would look perfectly correct to any check that looked once."""
+        return Readback(
+            exists=True,
+            ticket_id=f"{record.ticket_id}-late",
+            from_addr=record.from_addr,
+            subject=record.subject,
+            body=record.body,
+            attachment_names=record.attachment_names,
+            route=record.route,
+            message_id=record.message_id,
+            in_reply_to=record.in_reply_to,
+            references=record.references,
+            tag=record.tag,
+            fields=record.fields,
+        )
+
+    def list_all(self):
+        return self.inner.list_all()
+
+    def close(self):
+        return self.inner.close()
+
+
+# ---------------------------------------------------------------------------
+# Threading defects, which only the redelivery scenarios can reach
+# ---------------------------------------------------------------------------
+
+def test_a_correct_pipeline_is_delivery_safe(target_config, tmp_path, with_pipeline):
+    """The baseline for the redelivery scenarios. Without it, a tool that
+    reported DELIVERY-BUGS for everything would keep the rest of this file
+    green."""
+    pipeline = with_pipeline()
+    code, artifact, text = _run_redeliver(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_OK, text
+    assert artifact["summary"]["verdict"] == "DELIVERY-SAFE"
+    assert artifact["summary"]["failed"] == 0
+    assert [s["scenario"] for s in artifact["scenarios"]] == list(
+        redeliver_tool.SCENARIOS
+    )
+
+
+def test_a_pipeline_that_splits_a_thread_onto_separate_tickets_is_caught(
+    target_config, tmp_path, with_pipeline
+):
+    """Correct In-Reply-To and References, but the reply is filed as its own
+    conversation. It is the outcome that makes an agent open a duplicate ticket
+    a fortnight later, and the only reason to check the headers separately is
+    that a pipeline can get them right and still do this."""
+    pipeline = with_pipeline(split_thread=True)
+    code, artifact, text = _run_redeliver(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_MISMATCH
+    assert artifact["summary"]["verdict"] == "DELIVERY-BUGS"
+    assert "its original is on" in text
+    # The headers were right, so the link check passed and only the together
+    # check failed. That is the distinction that makes the report actionable.
+    assert "In-Reply-To is" not in text
+
+def test_a_pipeline_that_drops_threading_headers_is_caught(
+    target_config, tmp_path, with_pipeline
+):
+    pipeline = with_pipeline(drop_threading_headers=True)
+    code, _artifact, text = _run_redeliver(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_MISMATCH
+    assert "In-Reply-To is None" in text
+
+def test_a_correct_pipeline_threads_a_reply_that_arrived_first(
+    target_config, tmp_path, with_pipeline
+):
+    """The positive control for the above two, and the reason reply-first is
+    worth a scenario. A pipeline that opens a new conversation for a reply it
+    has not yet seen a parent for is the common failure; a pipeline that
+    re-files the reply when the parent lands is the correct behaviour, and this
+    asserts the tool sees the difference.
+
+    All three messages on one ticket, which is what "threaded" means. Asserted
+    on the ticket ids rather than on the verdict, because the verdict is
+    already asserted by test_a_correct_pipeline_is_delivery_safe and a
+    duplicated assertion would catch nothing extra."""
+    pipeline = with_pipeline()
+    _code, artifact, _text = _run_redeliver(pipeline, target_config, tmp_path)
+
+    threaded = next(
+        s for s in artifact["scenarios"]
+        if s["scenario"] == redeliver_tool.SCENARIO_REPLY_FIRST
+    )
+    tickets_by_tag = {m["tag"]: m["tickets"] for m in threaded["messages"]}
+    assert len(tickets_by_tag) == 3
+    distinct = {t for tickets in tickets_by_tag.values() for t in tickets}
+    assert len(distinct) == 1, (
+        f"a correct pipeline put one three-message thread on {len(distinct)} "
+        f"tickets: {tickets_by_tag}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The helpers themselves stay honest
+# ---------------------------------------------------------------------------
+
+def test_the_pipeline_under_test_answers_200_for_a_defective_parse():
+    """The premise the whole file rests on. If a broken pipeline started
+    returning 5xx, every test here would be passing for the wrong reason: a
+    status-code tool would have caught the bug, and these tools would look
+    redundant rather than necessary."""
+    from testinghq.core.transport import post
+
+    pipeline = PipelineUnderTest(drop_attachments=True, mangle_sender=True)
+    email, _tag, _rid = verify_tool.build_tagged_corpus(SEED, 1)[0]
+
+    result = post(email, TARGET_URL, client=pipeline)
+    assert result.status == 200
+    assert pipeline.tickets, "the pipeline created no ticket at all"
+    assert pipeline.tickets[0].from_addr != email.ground_truth.from_addr
+
+def test_the_pipeline_under_test_deduplicates_by_message_id_by_default():
+    """The other half of the premise. A correct pipeline recognises a
+    redelivery by Message-ID, and the duplicate scenarios are worthless if the
+    double is not a bug to begin with."""
+    from testinghq.core.transport import post
+
+    pipeline = PipelineUnderTest()
+    email, _tag, _rid = verify_tool.build_tagged_corpus(SEED, 1)[0]
+
+    post(email, TARGET_URL, client=pipeline)
+    post(email, TARGET_URL, client=pipeline)
+
+    assert len(pipeline.tickets) == 1
+    assert pipeline.tickets[0].deliveries == 2
 
 # ---------------------------------------------------------------------------
 # The helpers themselves stay honest

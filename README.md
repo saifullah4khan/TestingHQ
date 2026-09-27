@@ -29,10 +29,10 @@ endpoints you do not own.
 
 The suite ships as one installable package, `testinghq`, with subcommands
 (`testinghq blast ...`, `testinghq barrage ...`, `testinghq verify ...`,
-`testinghq ledger ...`). They share a common core: the firing transport, target configuration,
+`testinghq ledger ...`, `testinghq redeliver ...`). They share a common core: the firing transport, target configuration,
 guardrails, and rate limiting.
 A readback seam is built on that core, described below, and `verify` and
-`ledger` are the tools on it so far.
+`ledger` and `redeliver` are the tools on it.
 
 **Verify.** What the pipeline actually produced. Every tool above judges a run by
 the HTTP status, and a 200 only means the endpoint accepted the POST. It does
@@ -50,6 +50,14 @@ other run could produce, then counts what the pipeline made of them: missing
 duplicated (two tickets for one email). Point it at a system under Barrage load,
 or with a dependency failing, and it answers the question every intake owner
 asks and nothing else answers: did we lose anything?
+
+**Redeliver.** Delivery semantics. Webhook providers retry, deliver the same
+message twice, and deliver out of order. Redeliver does all three: the same
+Message-ID sent twice, re-sent after a delay the way a provider's retry would
+be, and a reply delivered before the message it answers. It then checks for no
+duplicate tickets and for correct threading, separately, so a report that says
+"the headers were right but the reply went to its own ticket" says something
+different from one that says the headers were wrong.
 
 ### The readback seam
 
@@ -105,7 +113,7 @@ readback is a ticket store or a mail sink that may hold other people's data.
 
 ## Status
 
-All four shipped tools work end to end. The suite is 1084 tests, green on every push, and
+All five tools work end to end. The suite is 1080 tests, green on every push, and
 CI runs on every change.
 
 **Blast** ships: seeded deterministic generation, six mutators behind five
@@ -128,6 +136,10 @@ response time rather than by the rate you asked for. Tracked in
 **The web UI** ships: a dependency-free single-page app that runs the same
 engine, with dry-run as the default action and a configured-target allow-list
 plus an explicit confirm step before anything is sent.
+
+**Redeliver** ships: four scenarios, a per-scenario tag and Message-ID scope so
+one scenario's deduplication cannot absorb another's deliveries, and threading
+checked as two things rather than one.
 
 **Ledger** ships: per-message tagging, an accounting that keeps missing,
 duplicated, misparsed and extra apart, and a verdict plus an exit code that is
@@ -229,6 +241,24 @@ testinghq ledger fire --target local --send --count 50
 testinghq ledger fire --target local --send --tag-prefix spike-2026-09
 ```
 
+
+Redeliver, for what your pipeline does when the provider misbehaves:
+
+```
+# four scenarios: duplicate, slow-retry, reply-first, references
+testinghq redeliver fire --target local --send
+
+# just one of them, and with a longer retry gap than the default 120s
+testinghq redeliver fire --target local --send --scenario slow-retry --retry-after 30
+```
+
+The slow-retry scenario is the duplicate half of a provider retry, not a
+failure-driven one: it re-sends a message whose first delivery SUCCEEDED, which
+is what a correct pipeline should deduplicate by Message-ID. It cannot tell you
+how a pipeline behaves when the failure that caused a real retry is also
+present, and a pipeline that deduplicates only on a failure signal rather than on
+Message-ID will pass this and still duplicate a real retry.
+
 Every `testinghq` command in this file is executed as a dry run by
 `tests/unit/test_readme_examples.py`, so an example cannot rot into a command
 that exits non-zero without the suite noticing. The three pipeline commands are
@@ -269,6 +299,10 @@ malformed input. That is Blast's job.
 Verify also fires clean payloads only, for the same structural reason and a
 different one: verify grades results, and a deliberately mangled payload has no
 correct parse to grade against. Blast owns messy input.
+
+All three pipeline tools are correctness tools rather than load tools, so none
+of them carries `--allow-high-rate`: the thing that needs a hard ceiling is
+sustained load, and that is Barrage's job with the ceiling already in place.
 
 
 ## License

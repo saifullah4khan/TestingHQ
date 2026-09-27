@@ -266,7 +266,7 @@ under load. The rate ceiling, the configured-target rule, and the dry-run defaul
 are what keep it a load tester against your own infrastructure and not a flooding
 tool. That framing goes in every prompt, README, and doc.
 
-## M4 - the readback seam: DONE, tools landing on top
+## M4 - the readback seam and the three tools: DONE
 
 The blind spot the three finished tools share. Blast and Barrage both judge a run
 by the HTTP status, and a 200 only means the endpoint accepted the POST. It does
@@ -275,8 +275,8 @@ arrived whole, that the attachments came through, or that the message was routed
 anywhere useful. This milestone adds the seam those tools are built on: a way to ask a system
 what it produced, and the ground truth to check the answer against. It is the
 first work in this repository that could fail a pipeline which was answering
-200 the whole time. `verify` and `ledger` are built on it here; `redeliver` follows in its own
-pull request.
+200 the whole time. The three tools that need it land in the pull requests
+above, one per concern, each branched from the one before it.
 
 This section is being written in the same PR that lands the code, which is the
 house rule and not an accident: the file encodes state `main` already knows, and
@@ -342,6 +342,18 @@ hand-syncing it has rotted twice already.
   different fix and reported separately. `strays_searched` is null rather than
   false when the adapter cannot enumerate, and an unsearched stray hunt does not
   count as balanced, so a lookup-only adapter cannot pass a CI gate by accident.
+
+- [x] [A] `redeliver` in `pipeline/redeliver.py`. Four scenarios: duplicate,
+  slow-retry, reply-first, references. Threading is two checks, `thread_link` for
+  the headers and `thread_together` for whether the reply ended up on its
+  parent's ticket, because correct headers on two separate tickets is a real and
+  common outcome and the two have different fixes. Each scenario carries its own
+  tag and Message-ID prefix, so shared payload bytes do not mean shared identity.
+- [x] [A][M] `examples/pipeline_demo.py` runs in the e2e job, and
+  `tests/unit/test_suite_network_block.py` gained the guard that keeps it there.
+  It is the only thing in CI that drives the real transport, the real serializer
+  and the real readback client against a real server, and it is not a test
+  module, so every other guard in that file stays green without it.
 
 - [x] [A][M] Tests. `tests/integration/pipeline_under_test.py` is a configurable
   intake pipeline, correct by default and breakable one defect at a time, and

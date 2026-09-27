@@ -46,6 +46,7 @@ from .pipeline import adapters as pipeline_adapters
 from .pipeline import common
 from .pipeline import ledger as pipeline_ledger
 from .pipeline import messages as pipeline_messages
+from .pipeline import redeliver as pipeline_redeliver
 from .pipeline import verify as pipeline_verify
 from .pipeline.adapters import AdapterError
 from .pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
@@ -103,6 +104,7 @@ def build_parser():
     _add_barrage_parser(sub)
     _add_verify_parser(sub)
     _add_ledger_parser(sub)
+    _add_redeliver_parser(sub)
 
     return parser
 
@@ -206,6 +208,50 @@ def _add_ledger_parser(sub) -> None:
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
+
+def _add_redeliver_parser(sub) -> None:
+    """The `redeliver` subcommand.
+
+    Not an email sender and not a way to hammer an endpoint: it sends a couple
+    of dozen payloads, paced, at infrastructure the operator owns, to find out
+    what the pipeline does when a provider misbehaves.
+    """
+    redeliver = sub.add_parser(
+        "redeliver",
+        help="test delivery semantics: retries, duplicates, and out-of-order replies",
+    )
+    redeliver_sub = redeliver.add_subparsers(dest="command", required=True)
+
+    r_fire = redeliver_sub.add_parser(
+        "fire", help="run the redelivery scenarios and check for duplicate tickets"
+    )
+    r_fire.add_argument("--target")
+    r_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    r_fire.add_argument(
+        "--count", type=int, default=pipeline_redeliver.DEFAULT_MESSAGES,
+        help="how many messages the duplicate scenarios redeliver",
+    )
+    r_fire.add_argument(
+        "--scenario", action="append", choices=list(pipeline_redeliver.SCENARIOS),
+        help="run only this scenario; repeatable. Default is all of them",
+    )
+    r_fire.add_argument(
+        "--retry-after", type=float, default=pipeline_redeliver.DEFAULT_RETRY_AFTER,
+        help=(
+            "seconds before the slow-retry redelivery. A pipeline with a short "
+            "deduplication cache survives an immediate duplicate and fails the "
+            "same duplicate minutes later"
+        ),
+    )
+    r_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    r_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    r_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
+    r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(r_fire)
+    _add_readback_poll_args(r_fire)
 
 def _resolve_readback(args):
     """Build the ReadbackConfig for whichever pipeline command is running.
@@ -1047,6 +1093,46 @@ def _cmd_ledger_fire(args) -> int:
     )
 
 
+
+def _cmd_redeliver_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    try:
+        scenarios = pipeline_redeliver.build_scenarios(
+            args.seed, args.count, args.tag_prefix, args.retry_after, args.scenario
+        )
+    except pipeline_redeliver.ScenarioError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    print(f"redeliver fire: {decision.reason}")
+    if not decision.will_send:
+        print(pipeline_redeliver.format_dry_run(scenarios, readback, args.tag_prefix))
+        return EXIT_DRY_RUN
+
+    return pipeline_redeliver.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        scenarios=args.scenario,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        retry_after=args.retry_after,
+        quiet_window=args.quiet_window,
+        max_wait=args.max_wait,
+        poll_interval=args.poll_interval,
+    )
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1067,6 +1153,10 @@ def main(argv=None):
         return _not_yet(args.command)
     if args.tool == "compare":
         return _cmd_compare(args)
+    if args.tool == "redeliver":
+        if args.command == "fire":
+            return _cmd_redeliver_fire(args)
+        return _not_yet(args.command)
     if args.tool == "ledger":
         if args.command == "fire":
             return _cmd_ledger_fire(args)
