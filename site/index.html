@@ -274,12 +274,16 @@ testinghq blast fire --target local --send</code></pre>
         <h3>Barrage</h3>
         <p>
           Volume and throughput. Where Blast proves a parser is correct under
-          messy input, Barrage proves a pipeline holds under load. Both
-          firing modes are built: open-loop holds a fixed arrival rate and
-          finds the breaking point, closed-loop holds concurrency fixed and
-          lets offered load self-limit. Reports throughput against target,
-          p50/p90/p99 latency, and error rate over time, and writes a run
-          artifact that can be replayed later from its seed and config.
+          messy input, Barrage drives load at a controlled rate. Both firing
+          modes are built, and both modes are
+          <strong>serial</strong>: there is no executor yet, so requests are
+          dispatched one at a time and a target slower than the arrival
+          interval will cap the achieved rate below the rate you asked for.
+          Neither mode currently finds a breaking point, because the run
+          throttles itself before the target does. Reports throughput against
+          target, p50/p90/p99 latency, and error rate over time, and writes a
+          run artifact that can be replayed later from its seed and config.
+          <a href="https://github.com/saifullah4khan/TestingHQ/issues/38">Tracked in issue #38</a>.
         </p>
       </div>
     </div>
