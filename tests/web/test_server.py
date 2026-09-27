@@ -57,8 +57,24 @@ def fake_transport(monkeypatch):
 
 @pytest.fixture()
 def running_server():
+    """A real stdlib HTTP server on an OS-assigned loopback port, in a thread.
+
+    `poll_interval` is the whole reason this fixture is worth reading.
+    `socketserver.BaseServer.serve_forever` defaults to 0.5 seconds, and
+    `shutdown()` only takes effect the next time that select returns. So every
+    teardown waited out most of half a second whether it needed to or not:
+    0.50s per test, 12 tests, about six seconds of a twelve-second suite spent
+    asleep in a `finally` block.
+
+    0.01s cuts that to about twenty milliseconds and changes nothing else.
+    `poll_interval` controls only how often the loop checks whether it has been
+    asked to stop; it has no effect on request handling, and the assertion below
+    confirms the thread still shuts down cleanly rather than being abandoned.
+    """
     httpd = server.make_server(host="127.0.0.1", port=0)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     port = httpd.server_address[1]
     try:
@@ -67,6 +83,11 @@ def running_server():
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)
+        assert not thread.is_alive(), (
+            "the server thread outlived its teardown. A shorter poll_interval "
+            "must not have broken shutdown, and a silently timed-out join here "
+            "would show up as a five-second stall per test with no error."
+        )
 
 
 def _get(base_url, path):
