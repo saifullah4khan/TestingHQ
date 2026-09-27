@@ -51,12 +51,39 @@ _PATCHED = ("connect", "connect_ex")
 _ORIGINALS: dict = {}
 
 
-class NetworkBlocked(AssertionError):
+class NetworkBlocked(BaseException):
     """Raised when a test that must stay hermetic tries to reach the network.
 
-    An `AssertionError` subclass so it reads as a test failure rather than a
-    crash, and so it is not swallowed by any `except OSError` or
-    `except Exception` in the code under test.
+    Derives from `BaseException`, NOT from `Exception`, and that is the whole
+    point of the class.
+
+    It was an `AssertionError` subclass, on the reasoning that an
+    `except Exception` in the code under test could not swallow it. That
+    reasoning was wrong, and the way it was wrong is worth recording because
+    the shape of the mistake recurs.
+
+    `AssertionError` IS an `Exception`. `core/transport.py` wraps every
+    `client.send()` in `except Exception` so that any transport failure is
+    reportable as a result rather than a crash, which is correct for
+    production. With the block as an AssertionError, that clause caught it:
+    `post()` returned a `TransportResult` with `status=None` and the guard's
+    message in `error`, the caller recorded a timeout, and the test passed
+    green. The guard made the mistake about a millisecond faster and not one
+    bit louder.
+
+    Worse, the resulting record classified as `clean_failed`, so a test could
+    assert that a payload failed as expected and be right, when the actual
+    reason was that it never left the machine.
+
+    Deriving from `BaseException` puts it outside `except Exception` while
+    still being an exception pytest reports. That is the same technique
+    pytest's own control-flow exceptions use, `Skipped` and `Exit` both derive
+    from `OutcomeException(BaseException)` precisely so that library code
+    cannot catch them by accident.
+
+    It surfaces as an error rather than a failure, which is the right outcome:
+    it is not a wrong assertion, it is code that should not have run in a
+    hermetic test at all.
     """
 
 

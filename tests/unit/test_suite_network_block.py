@@ -65,15 +65,6 @@ def test_connect_ex_is_blocked_as_well(network_guard):
         sock.close()
 
 
-def test_the_error_is_an_assertion_error_not_a_crash(network_guard):
-    """It subclasses AssertionError so it reads as a test failure rather than
-    an error, and, more importantly, so the code under test cannot swallow it
-    inside an `except OSError` or a bare `except Exception` and carry on
-    thinking it sent something."""
-    assert issubclass(network_guard.error_class, AssertionError)
-    assert not issubclass(network_guard.error_class, OSError)
-
-
 def test_the_error_says_how_to_proceed(network_guard):
     """A bare "a socket was opened" with no next step is close to useless when
     you are reading five hundred test names. The message names both escapes:
@@ -122,6 +113,89 @@ def test_the_marker_is_registered_so_a_typo_is_an_error(pytestconfig):
         "allow_network is not registered in pyproject.toml, so pytest will "
         "ignore the marker instead of warning about it"
     )
+
+
+def test_the_error_is_not_swallowable_by_except_exception(network_guard):
+    """The class must sit outside `except Exception`, or the guard is
+    decorative.
+
+    This is not hypothetical. `NetworkBlocked` was an `AssertionError`
+    subclass on the reasoning that an `except Exception` in the code under test
+    could not catch it. `AssertionError` IS an `Exception`.
+    `core/transport.py` wraps every `client.send()` in `except Exception` so
+    that any transport failure is reportable as a result, which is right for
+    production. That clause swallowed the block: `post()` returned a result
+    with `status=None` and the message in `error`, the caller recorded a
+    timeout, and the test passed green.
+
+    Asserted directly rather than through a real send, because the direct
+    assertion is the invariant and the end-to-end one below is the symptom.
+    """
+    assert not issubclass(network_guard.error_class, Exception), (
+        "NetworkBlocked must not derive from Exception, or any `except "
+        "Exception` in the code under test can swallow it and a hermetic test "
+        "will pass while reaching the network"
+    )
+    # Still an exception pytest reports, and still catchable deliberately.
+    assert issubclass(network_guard.error_class, BaseException)
+    with pytest.raises(network_guard.error_class):
+        try:
+            raise network_guard.error_class("deliberate")
+        except Exception:  # noqa: BLE001 - the point of the test
+            pytest.fail("caught by except Exception, which is the bug")
+
+
+def test_the_send_path_raises_rather_than_returning_a_result(network_guard):
+    """The symptom the assertion above protects, end to end through the real
+    transport.
+
+    `post()` with no injected client, inside a suite that blocks the network,
+    must RAISE. It must not come back as a `TransportResult` with a null
+    status, because that is what lets a hermetic test pass while its code
+    under test reached the network.
+
+    Before the fix this returned a result whose `error` held the guard's own
+    message, and a record built from it classified as `clean_failed`, so a
+    test could assert that a payload failed as expected and be right when the
+    real reason was that it never left the machine.
+    """
+    from testinghq.blast.generate import generate_corpus
+    from testinghq.core.transport import post
+
+    email = generate_corpus(7, 1)[0]
+
+    with pytest.raises(network_guard.error_class):
+        post(email, "http://127.0.0.1:9/intake")
+
+
+def test_the_corrupted_send_path_raises_too(network_guard):
+    """`blast fire --send` reaches the network through the same `post()`, with
+    a real corrupted payload rather than a clean one. The path a user runs gets
+    its own assertion rather than being assumed to follow from the unit above.
+    """
+    from testinghq.blast.corrupt import DEFAULT_MIX, corrupt_corpus
+    from testinghq.blast.generate import generate_corpus
+    from testinghq.core.transport import post
+
+    corrupted = corrupt_corpus(generate_corpus(7, 3), 7, DEFAULT_MIX)
+
+    for email, _recipe in corrupted:
+        with pytest.raises(network_guard.error_class):
+            post(email, "http://127.0.0.1:9/intake")
+
+
+def test_the_barrage_send_path_raises_too(network_guard):
+    """Barrage reaches the network the same way, through the same
+    `transport.post`. Checking only Blast would leave half the product's send
+    paths unverified."""
+    from testinghq.barrage.fire import make_send_fn
+    from testinghq.blast.generate import generate_corpus
+
+    pool = generate_corpus(11, 2)
+    send_fn = make_send_fn(pool, "http://127.0.0.1:9/intake")
+
+    with pytest.raises(network_guard.error_class):
+        send_fn(0)
 
 
 def test_the_only_module_that_opts_out_is_the_one_that_binds_loopback():
