@@ -15,15 +15,31 @@ from __future__ import annotations
 
 import re
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
+
+from testinghq.core import config as config_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SECURITY = REPO_ROOT / ".github" / "workflows" / "security.yml"
+
+#: Read pyproject with whatever parser this interpreter actually has.
+#:
+#: This file used `import tomllib`, which is stdlib only from 3.11. The result
+#: was that the test guarding the version matrix could not be collected on 3.9
+#: or 3.10, so exactly those two matrix jobs failed, on the very change that
+#: introduced them. The one file that has to run on every supported version
+#: cannot import the parser that only exists on some of them.
+_toml = config_module.tomllib
+if _toml is None:  # pragma: no cover - only below 3.11 with tomli missing
+    pytest.skip(
+        "no TOML parser on this interpreter, and core/config.py raises the "
+        "same error, so there is nothing to assert without one",
+        allow_module_level=True,
+    )
 
 #: Every version the project says it supports, and the newest it says it does
 #: not. 3.9 is the floor because that is what is claimed; 3.14 does not exist
@@ -34,7 +50,7 @@ CEILING = SUPPORTED[-1]
 
 
 def _pyproject() -> dict:
-    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    return _toml.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
 def _ci_matrix() -> list[str]:
