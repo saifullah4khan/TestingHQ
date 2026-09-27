@@ -75,13 +75,18 @@ from .verify import DEFAULT_RATE, build_clean_corpus
 
 #: Seconds before the slow-retry redelivery.
 #:
-#: Two minutes, not one second. A pipeline that deduplicates in-process, or in
-#: a cache with a short TTL, survives an immediate duplicate and fails the same
-#: duplicate two minutes later, so one second only ever proves the easy half.
-#: Two minutes is past the window almost every real deduplication cache uses and
-#: short enough that a run stays usable; `--retry-after` is there for a pipeline
-#: with a longer window, and the tradeoff is that a longer window means a longer
-#: run.
+#: Two minutes, and configurable, because deduplication windows vary far too
+#: widely for any one number to be right for everyone. A pipeline that
+#: deduplicates in-process, or in a cache with a short TTL, survives an
+#: immediate duplicate and fails the same duplicate minutes later, so a
+#: one-second gap only ever proves the easy half. A pipeline that keeps a
+#: dedup record for a day needs `--retry-after` in the thousands, and the
+#: tradeoff is simply that a longer window means a longer run.
+#:
+#: No claim is made here about how that window compares to any particular
+#: deployment's. There is no default that is past everybody's cache and short
+#: enough to be usable, so this is a starting point to adjust, not a correct
+#: answer.
 #:
 #: WHAT THIS SCENARIO CANNOT DO, and it is worth being blunt about because the
 #: name suggests otherwise. A provider retries a delivery because IT believes

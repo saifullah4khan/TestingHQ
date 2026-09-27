@@ -238,9 +238,9 @@ def _add_redeliver_parser(sub) -> None:
     r_fire.add_argument(
         "--retry-after", type=float, default=pipeline_redeliver.DEFAULT_RETRY_AFTER,
         help=(
-            "seconds before the slow-retry redelivery. A pipeline with a short "
-            "deduplication cache survives an immediate duplicate and fails the "
-            "same duplicate minutes later"
+            "seconds before the slow-retry redelivery. Deduplication windows "
+            "vary widely, so the default is a starting point to adjust rather "
+            "than a value that suits every pipeline"
         ),
     )
     r_fire.add_argument(
