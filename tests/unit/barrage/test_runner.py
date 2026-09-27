@@ -255,19 +255,26 @@ def test_run_with_real_clock_and_sleep_defaults_raises_on_over_ceiling_before_di
 # ---------------------------------------------------------------------------
 # Regression: the ramp hang.
 #
-# TokenBucket.acquire() cannot be driven to completion by an injected,
+# TokenBucket.acquire() could not be driven to completion by an injected,
 # purely additive clock when the rate's reciprocal is not exactly
-# representable in binary: the refill rounds to just under the deficit, the
-# next computed wait is ~1e-17, and adding that to a clock reading ~0.67 is
-# a no-op at float precision, so the bucket's internal wait loop spins
+# representable in binary: the refill rounded to just under the deficit, the
+# next computed wait was ~1e-17, and adding that to a clock reading ~0.67 is
+# a no-op at float precision, so the bucket's internal wait loop spun
 # forever. Rates 2 and 4 are exactly representable and never trip it, which
 # is why the steady-state tests above pass; a ramp to 10 in 5 steps produces
-# rates 2, 4, 6, 8, 10 and rate 6 hangs the whole run.
+# rates 2, 4, 6, 8, 10 and rate 6 hung the whole run.
 #
-# These tests pin the ramp path against that. A load generator whose rate
-# ramp can block forever is a real defect: this is the module whose entire
-# safety story is that it paces predictably and stops when told.
+# These tests pin the ramp path. They are kept, and kept strict, after the
+# 2026-07-27 fix in core/ratelimit.py, for two reasons that survive that
+# fix. First, a load generator whose rate ramp can block forever is a real
+# defect regardless of whose arithmetic caused it: this is the module whose
+# entire safety story is that it paces predictably and stops when told.
+# Second, Barrage does not rely on acquire() blocking, so these tests no
+# longer prove the core fix; they prove this lane's own schedule arithmetic
+# terminates on its own. That is a separate property, and a fix upstream
+# could have regressed this path without turning any of it red.
 # ---------------------------------------------------------------------------
+
 
 
 class BoundedSleeper(FakeSleeper):

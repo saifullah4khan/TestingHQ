@@ -18,6 +18,20 @@ from __future__ import annotations
 import time
 from typing import Callable
 
+# Shortest wait this module will ever ask a clock to honour, in seconds.
+#
+# This exists because an injected clock is usually purely additive: it advances
+# by exactly the amount it was asked to sleep, and nothing else. A real
+# monotonic clock keeps ticking on its own, which hides arithmetic that does not
+# quite close. An injected one cannot, so a wait small enough to be a no-op
+# against the current clock reading is a wait that will never elapse.
+#
+# One nanosecond is far below anything this rate limiter acts on: the slowest
+# meaningful pace in the product is a fraction of a request per second, and the
+# fastest is the 50 req/s hard ceiling in Barrage. At 50 req/s a nanosecond is
+# five hundred millionths of one token.
+_MIN_WAIT = 1e-9
+
 
 class TokenBucket:
     """A standard token bucket: holds at most `capacity` tokens, refilling
@@ -64,7 +78,12 @@ class TokenBucket:
         available, then consume them and return the number of seconds
         waited (0.0 if they were already available). Raises ValueError if
         `tokens` exceeds the bucket's capacity, since it could never be
-        satisfied."""
+        satisfied.
+
+        The wait is computed once, as an absolute deadline, rather than
+        recomputed and re-accumulated on every pass. That distinction is the
+        whole reason this terminates.
+        """
         if tokens <= 0:
             raise ValueError(f"tokens must be > 0, got {tokens}")
         if tokens > self._capacity:
@@ -72,12 +91,25 @@ class TokenBucket:
                 f"cannot acquire {tokens} tokens: bucket capacity is {self._capacity}"
             )
         waited = 0.0
+        deadline = None
         while True:
             self._refill()
             if self._tokens >= tokens:
                 self._tokens -= tokens
                 return waited
-            deficit = tokens - self._tokens
-            wait_for = deficit / self._rate
-            self._sleep(wait_for)
-            waited += wait_for
+            if deadline is None:
+                # The instant at which the current deficit is covered. Sleep
+                # to it in one go; see the module docstring.
+                deadline = self._clock() + (tokens - self._tokens) / self._rate
+            remaining = deadline - self._clock()
+            if remaining <= _MIN_WAIT:
+                # The deficit is covered to within a rounding error that the
+                # clock cannot represent. Charging the caller for time that
+                # will never elapse is worse than handing over the sliver
+                # short, so round it off and stop. The old loop had no exit
+                # here: it asked for another ~1e-17, which was a no-op
+                # against the current clock reading, and spun forever.
+                self._tokens = 0.0
+                return waited
+            self._sleep(remaining)
+            waited += remaining

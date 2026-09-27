@@ -225,26 +225,33 @@ def _pace_and_gate(bucket: TokenBucket) -> float:
 
     Pacing is done by the caller sleeping to an absolute deadline derived
     from the stage's rate (see the dispatch loops); this bucket is the
-    independent authority that the configured rate is not exceeded. Because
-    the caller only arrives here once the schedule says a token is earned,
-    the bucket is already in credit and this returns ~0 without waiting.
+    independent authority that the configured rate is not exceeded. The two
+    are deliberately not the same mechanism. The schedule decides when a
+    request is due; the bucket independently confirms the rate is legal.
+    Collapsing them into one would mean a slow target silently pacing the
+    load down, which is exactly the feedback a load test must not have.
 
-    Why the schedule paces instead of just calling `bucket.acquire()` and
-    letting it block: TokenBucket.acquire() cannot be driven to completion
-    by an injected, purely additive clock for a rate whose reciprocal is
-    not exactly representable in binary (5, 6, 10 req/s, and most real
-    rates; 2 and 4 are fine). It computes `wait_for = deficit / rate`,
-    sleeps exactly that, then refills by `wait_for * rate`, which rounds to
-    just under `deficit`. The residual deficit is ~1e-16, so the next
-    `wait_for` is ~1e-17, and adding 1e-17 to a clock reading ~0.67 is a
-    no-op at float precision: elapsed becomes 0, no refill happens, and the
-    loop spins forever. A real wall clock ticks forward on its own and
-    masks this; an injected one does not. That is a latent defect in
-    core/ratelimit.py (which this lane must not edit, and whose own tests
-    only exercise rates 1 and 2, both exactly representable). Barrage
-    therefore never asks the bucket to wait: it arrives with the token
-    already earned. Do not "simplify" this back into a bare blocking
-    acquire() on the hot path.
+    Because the caller only arrives here once the schedule says a token is
+    earned, the bucket is already in credit and this returns ~0 without
+    waiting.
+
+    History, because the shape of this code is surprising otherwise. Until
+    2026-07-27 the bucket could not be trusted to block at all:
+    TokenBucket.acquire() spun forever under an injected, purely additive
+    clock at any rate whose reciprocal is not exactly representable in
+    binary, which is most real rates. Barrage therefore arrived here with
+    the token already earned by construction, because the alternative was a
+    hang. That defect is fixed at the root in core/ratelimit.py (absolute
+    deadline plus a nanosecond floor) and is covered by a swept rate
+    regression in tests/unit/test_ratelimit.py and
+    tests/security/test_rate_limit_gate_contract.py.
+
+    The workaround is not being undone here, and the reason is no longer
+    the bug. The design reason stands on its own: an open-loop load test
+    must hold its arrival schedule regardless of how long the target took
+    to answer. Note the asymmetry if this is ever revisited: a closed-loop
+    run has no schedule to hold, so it would be the place where a blocking
+    acquire is actually the right tool.
     """
     return bucket.acquire()
 

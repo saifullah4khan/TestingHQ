@@ -145,31 +145,38 @@ looks like when it is enforced rather than requested.
 - [x] [A] `testinghq barrage fire` CLI in `barrage/fire.py`, dry-run default, plus
   replay.
 
-### Known bug found by this lane, NOT fixed here, owner is Lane A
+### Known bug found by this lane, since fixed in Lane A
 
-`core/ratelimit.py`'s `TokenBucket.acquire()` can spin forever under a purely
+`core/ratelimit.py`'s `TokenBucket.acquire()` could spin forever under a purely
 additive injected clock when the rate's reciprocal is not exactly representable in
-binary. It computes `wait_for = deficit / rate`, advances by exactly that, then
-refills by `wait_for * rate`, which rounds to just under `deficit`. The residual is
-about 1e-16, the next `wait_for` about 1e-17, and adding 1e-17 to a clock reading
+binary. It computed `wait_for = deficit / rate`, advanced by exactly that, then
+refilled by `wait_for * rate`, which rounds to just under `deficit`. The residual
+is about 1e-16, the next `wait_for` about 1e-17, and adding 1e-17 to a clock reading
 around 0.67 is a no-op at float precision: elapsed becomes 0, no refill happens,
 and the loop never exits.
 
-Rates 2 and 4 are exactly representable and never trip it, which is why every
-existing test passes. Rate 10 hangs. Under a real monotonic clock it self-heals,
-because the clock advances regardless, so this is invisible in production and fatal
-under the injected clocks this repo mandates for hermetic tests. Note the
-implication: `tests/security/test_rate_limit_gate_contract.py` currently passes
-because it happened to choose a representable rate, not because the code is right.
+Under a real monotonic clock it self-heals, because the clock ticks regardless, so
+it is invisible in production and fatal under the injected clocks this repo
+mandates. Note the implication for how it was missed: `tests/unit/test_ratelimit.py`
+drove the blocking `acquire()` at rates 1 and 2 only, both exactly representable,
+and used rate 10 only through the non-blocking `try_acquire()`, which cannot spin.
+Nobody chose 1 and 2 for any reason at all. The tests guarding the rate limiter
+were green for a reason unrelated to whether the module worked.
 
-Barrage worked around it inside its own lane rather than editing `core/`. The root
-cause is still on `main`.
+Measured on 2026-07-27, one blocking process per rate against the pre-fix module:
+3, 5, 6, 7, 9, 10, 11, 12, 13 and 25 all hang. Only 1, 2, 4, 8 and 16, the
+powers of two, plus sub-unit rates with an integer reciprocal, terminate.
 
-- [ ] [A][M] Fix `TokenBucket` so it tolerates float residue: advance to a computed
-  deadline rather than accumulating increments, or clamp a sub-epsilon deficit to
-  zero. Add a regression parameterised over non-representable rates (3, 7, 10) with
-  an injected clock, and parameterise the security lane's gate contract test the
-  same way so it cannot pass by luck again.
+- [x] [A][M] Fix `TokenBucket` so it tolerates float residue. Compute the wait
+  once as an absolute deadline rather than accumulating per-pass increments, and
+  floor the wait at one nanosecond so the loop has a guaranteed exit. The
+  regression is parameterised over 3, 5, 6, 7, 9, 10 and 11 with an injected
+  clock, and asserts both that the loop terminates and that it still waits the
+  full earned time, so the floor cannot quietly grow into a licence to pace
+  faster than configured. The security lane's gate contract test is parameterised
+  the same way and now drives the real bucket, not only the fake, so it can no
+  longer pass by luck.
+
 
 Barrage reuses `blast/generate` for clean payloads. It does not re-garble: Blast
 proves the parser is correct under messy input, Barrage proves the pipeline holds
