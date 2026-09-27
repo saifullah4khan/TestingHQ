@@ -35,7 +35,7 @@ jobs:
       # matrix lives in ci.yml.
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        python-version: ["3.10", "3.13"]
     name: end-to-end (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7

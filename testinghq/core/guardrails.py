@@ -172,8 +172,8 @@ def _extract_addresses(values: Iterable[str]) -> List[str]:
     it.
 
     Note: `strict=` is deliberately not passed to getaddresses. It only
-    exists on Python 3.13+ and on recent 3.9-3.12 patch releases, and this
-    project supports Python >= 3.9. The default behavior extracts every
+    exists on Python 3.13+ and on recent 3.10-3.12 patch releases, and this
+    project supports Python >= 3.10. The default behavior extracts every
     address on all supported versions, which is what this guard needs.
     """
     fieldvalues = []

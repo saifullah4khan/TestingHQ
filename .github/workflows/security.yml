@@ -17,10 +17,10 @@ jobs:
     strategy:
       # Floor and ceiling rather than every version. The guardrail tests do not
       # vary by interpreter, so what matters here is that the extremes work,
-      # not that 3.10 does. The full matrix lives in ci.yml.
+      # not that 3.11 does. The full matrix lives in ci.yml.
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        python-version: ["3.10", "3.13"]
     name: security-tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
@@ -43,15 +43,13 @@ jobs:
       # vulnerable pin of tomli would ship unremarked. 3.10 audits the
       # dependency, 3.11 audits the stdlib-only path.
       #
-      # 3.10 rather than 3.9, which was the original choice and could not go
-      # green. pip-audit audits the whole environment, and the environment
-      # contains the runner's setuptools. The fix for PYSEC-2026-3447 is
-      # setuptools 83.0.0, and 83.0.0 declares `requires-python >=3.10`, so on
-      # 3.9 pip can install at most 79.0.1, which is the vulnerable version.
-      # The 3.9 audit leg therefore always failed and the only way past it was
-      # --ignore-vuln, which hides real CVEs to buy a green tick. 3.10 gets
-      # `tomli` installed (the marker is `python_version < '3.11'`) and can take
-      # a fixed setuptools, so it audits the dependency honestly.
+      # 3.10 is also the floor, so this matrix covers every version the audit
+      # could ever need. It used to include 3.9 and that leg could not go
+      # green: pip-audit audits the whole environment, the environment contains
+      # the runner's setuptools, and the fix for PYSEC-2026-3447 is setuptools
+      # 83.0.0, which declares `requires-python >=3.10`. On 3.9 pip can install
+      # at most 79.0.1, the vulnerable version, so the only way past it was
+      # --ignore-vuln. See docs/decisions/0002-python-floor-3-10.md.
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11"]

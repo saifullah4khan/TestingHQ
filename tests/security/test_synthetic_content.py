@@ -24,10 +24,10 @@ def _legacy_parseaddr_extract(values):
     This uses parseaddr's pre-hardening semantics (`strict=False`), which is
     what Python exhibits BY DEFAULT before the CVE-2023-27043 fix landed
     (< 3.9.19 / 3.10.14 / 3.11.9 / 3.12.4). This project's
-    requires-python = ">=3.9" permits every one of those interpreters, so
-    this is not a hypothetical: it is the behavior a supported install can
-    have. Used below to demonstrate that the multi-recipient bypass is real
-    and that using getaddresses is what kills it.
+    requires-python = ">=3.10" still permits 3.10.0 to 3.10.13, so this is
+    not hypothetical: it is the behavior a supported install can have. Used
+    below to demonstrate that the multi-recipient bypass is real and that
+    using getaddresses is what kills it.
     """
     extracted = []
     for value in values:
