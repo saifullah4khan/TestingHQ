@@ -27,6 +27,17 @@ Two details that matter for it to actually work:
   timeout.
 - `replay` needs a real artifact on disk, so the test builds one of the right
   shape rather than skipping the command.
+
+The pipeline tools need the same treatment for the same reason, and it is worth
+being explicit about why their case is not a special exemption. `verify`,
+`ledger` and `redeliver` refuse to run without a readback adapter, by design:
+a verification run with no adapter would check nothing, report nothing wrong and
+exit 0, which is the false green this package exists to eliminate. So every
+documented command for them is genuinely unrunnable as written, and this
+harness supplies a mail-sink adapter and the sink to read, built to match the
+payloads the command will send. The example in the README stays the short
+version an operator types; the plumbing the guard needs is the guard's job,
+exactly as it already is for `replay`.
 """
 from __future__ import annotations
 
@@ -52,6 +63,10 @@ WRITE_FLAGS = ("--out",)
 
 #: Argument that names a JSON artifact to replay.
 REPLAY_TARGET = re.compile(r"^[^\s/\\]+\.json$")
+
+#: The tools that cannot run without a readback adapter, and therefore the ones
+#: this harness has to supply one for.
+PIPELINE_TOOLS = frozenset({"verify", "ledger", "redeliver"})
 
 #: The CLI's own convention, identical across both tools: 0 ran, 1 refused,
 #: 2 dry-run with nothing sent. Declared here rather than imported so this
@@ -120,9 +135,76 @@ def _barrage_artifact() -> dict:
     }
 
 
+#: A config whose readback is a mail sink the harness writes, and whose target
+#: is loopback. Nothing connects to it: `--send` is stripped, so the only
+#: consumer of the sink is a `verify check`, which reads and never sends.
+READBACK_CONFIG = """[targets.local]
+name = "local"
+url = "http://127.0.0.1:9/intake"
+
+[readback]
+kind = "mailbox"
+path = "{sink}"
+"""
+
+
+def _sink_and_artifact(tmp_path: Path, seed: int = 1, count: int = 4):
+    """A mail sink and a matching run artifact for the pipeline tools.
+
+    Both are built from the same tagged corpus, which is the point: the sink
+    holds exactly what a correct pipeline would hold for the payloads the
+    command sends, so a documented `verify check` reads back a clean run and
+    exits 0 rather than reporting a total loss. A sink built from a different
+    corpus, or an empty one, would make every documented check command exit 3,
+    and the harness would be asserting that correct commands are broken.
+    """
+    from testinghq.core import report
+    from testinghq.pipeline.verify import build_tagged_corpus
+
+    sink = tmp_path / "mail-sink.jsonl"
+    lines = []
+    records = []
+    for email, tag, record_id in build_tagged_corpus(seed, count):
+        lines.append(
+            json.dumps(
+                {
+                    "id": report.payload_sha256(email)[:12],
+                    "tag": tag,
+                    "from": email.from_addr,
+                    "subject": email.subject,
+                    "body": email.text,
+                    "attachments": [a.filename for a in email.attachments],
+                    "route": email.envelope.to[0],
+                    "message_id": email.headers.get("Message-ID", "").strip("<>"),
+                }
+            )
+        )
+        records.append(
+            {
+                "id": record_id,
+                "category": "clean",
+                "tag": tag,
+                "payload_sha256": report.payload_sha256(email),
+                "response": {"status": 200, "latency_ms": 1.0, "body_snippet": "ok"},
+                "assertion": {"passed": True, "mismatches": []},
+            }
+        )
+    sink.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    artifact = {
+        "seed": seed,
+        "config": {
+            "tool": "verify", "count": count, "seed": seed, "tag_prefix": "hq",
+            "target": "local", "dry_run": False,
+        },
+        "summary": {"sent": count, "found": count, "verified": count, "failed": 0},
+        "records": records,
+    }
+    return sink, artifact
+
+
 def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
-    """Strip the program name and --send, redirect output paths, and supply a
-    replay artifact.
+    """Strip the program name and --send, redirect output paths, and supply
+    whatever the command needs to be runnable at all.
 
     The leading `testinghq` is dropped: it is the console-script name, and
     passing it through to `python -m testinghq.cli` would have argparse read it
@@ -133,6 +215,7 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
         argv = argv[1:]
     tool = argv[0] if argv else ""
     is_replay = "replay" in argv
+    is_check = "check" in argv
 
     out: list[str] = []
     index = 0
@@ -145,9 +228,14 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
             out += [arg, str(tmp_path / (arg.lstrip("-") or "out.json"))]
             index += 2
             continue
-        if is_replay and REPLAY_TARGET.match(arg):
-            name = "barrage_artifact.json" if tool == "barrage" else "blast_artifact.json"
-            payload = _barrage_artifact() if tool == "barrage" else _blast_artifact()
+        if (is_replay or is_check) and REPLAY_TARGET.match(arg):
+            if tool == "barrage":
+                name, payload = "barrage_artifact.json", _barrage_artifact()
+            elif is_check:
+                sink, payload = _sink_and_artifact(tmp_path)
+                name = "verify_artifact.json"
+            else:
+                name, payload = "blast_artifact.json", _blast_artifact()
             path = tmp_path / name
             path.write_text(json.dumps(payload), encoding="utf-8")
             out.append(str(path))
@@ -155,6 +243,36 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
             continue
         out.append(arg)
         index += 1
+
+    # A pipeline command without a readback is refused by design, so one is
+    # supplied here rather than documented. `--config` is appended last so it
+    # wins over any the example already carried, matching how argparse resolves
+    # a repeated option and keeping the harness's behaviour independent of what
+    # the example happens to say.
+    #
+    # The sink path goes in as posix. A Windows path with backslashes is a TOML
+    # basic string with invalid escapes in it, and the first version of this
+    # wrote one, so every documented pipeline command was refused with a
+    # complaint about a `[readback]` table that had plainly been there all
+    # along.
+    #
+    # The poll settings matter as much. A documented command is run to prove it
+    # is not refused, not to produce a verdict, so the readback is told not to
+    # wait: with the real defaults one `verify check` sat out a five-second quiet
+    # window per poll and this file took seventeen seconds of it. Zero still
+    # confirms, because a confirming poll happens either way.
+    if tool in PIPELINE_TOOLS and "--readback" not in out:
+        sink, _artifact = _sink_and_artifact(tmp_path)
+        config = tmp_path / "readback_target.toml"
+        config.write_text(
+            READBACK_CONFIG.format(sink=sink.as_posix()), encoding="utf-8"
+        )
+        out += [
+            "--readback", "mailbox",
+            "--config", str(config),
+            "--quiet-window", "0",
+            "--poll-interval", "0.05",
+        ]
     return out
 
 
@@ -168,8 +286,15 @@ def test_the_docs_actually_contain_commands_to_check():
         f"{list(DOC_FILES)}; the extractor has probably stopped matching"
     )
     tools = {command.split()[1] for _f, _l, command in DOC_COMMANDS}
-    assert tools == {"blast", "barrage"}, (
-        f"expected commands for both tools, found {sorted(tools)}"
+    known = {"blast", "barrage"} | set(PIPELINE_TOOLS)
+    assert tools <= known, (
+        f"a documented command names a tool this harness does not know how to "
+        f"run: {sorted(tools - known)}. Add it to PIPELINE_TOOLS and give the "
+        f"harness whatever that tool needs to be runnable, or its documented "
+        f"examples will be refused."
+    )
+    assert {"blast", "barrage"} <= tools, (
+        f"the two shipped tools should still be documented; found {sorted(tools)}"
     )
 
 

@@ -28,10 +28,28 @@ endpoints you do not own.
 
 
 The suite ships as one installable package, `testinghq`, with subcommands
-(`testinghq blast ...`, `testinghq barrage ...`). Both share a common core:
-the firing transport, target configuration, guardrails, and rate limiting.
-A readback seam is built on that core, described below, and the three tools
-that need it are landing on top of it.
+(`testinghq blast ...`, `testinghq barrage ...`, `testinghq verify ...`,
+`testinghq ledger ...`). They share a common core: the firing transport, target configuration,
+guardrails, and rate limiting.
+A readback seam is built on that core, described below, and `verify` and
+`ledger` are the tools on it so far.
+
+**Verify.** What the pipeline actually produced. Every tool above judges a run by
+the HTTP status, and a 200 only means the endpoint accepted the POST. It does
+not mean a ticket was created, that the sender survived parsing, that the body
+arrived whole, that the attachments came through, or that the message went to the
+right place. Verify gives the seam an adapter that reads your system's own
+output and checks each payload against ground truth Blast already generates:
+was a ticket created, is the sender right, is the subject right, is the body
+intact, are the attachments there, was it routed correctly. That turns "did it
+crash" into "did it parse correctly", which is the question anyone actually has.
+
+**Ledger.** Exactly-once accounting. Sends N messages, each carrying a tag no
+other run could produce, then counts what the pipeline made of them: missing
+(an email your customer sent and you lost), extra (a ticket nobody sent), and
+duplicated (two tickets for one email). Point it at a system under Barrage load,
+or with a dependency failing, and it answers the question every intake owner
+asks and nothing else answers: did we lose anything?
 
 ### The readback seam
 
@@ -87,7 +105,7 @@ readback is a ticket store or a mail sink that may hold other people's data.
 
 ## Status
 
-Both shipped tools work end to end. The suite is 1084 tests, green on every push, and
+All four shipped tools work end to end. The suite is 1084 tests, green on every push, and
 CI runs on every change.
 
 **Blast** ships: seeded deterministic generation, six mutators behind five
@@ -110,6 +128,18 @@ response time rather than by the rate you asked for. Tracked in
 **The web UI** ships: a dependency-free single-page app that runs the same
 engine, with dry-run as the default action and a configured-target allow-list
 plus an explicit confirm step before anything is sent.
+
+**Ledger** ships: per-message tagging, an accounting that keeps missing,
+duplicated, misparsed and extra apart, and a verdict plus an exit code that is
+the answer. A lookup-only adapter reports `extra: null` and `UNVERIFIED STRAYS`
+rather than reporting none found for a question it never asked, so it cannot
+pass a CI gate by accident.
+
+**Verify** ships: the six per-field checks plus the two threading checks,
+per-message tagging so a run is reproducible and two concurrent runs cannot read
+each other's records, a readback phase that runs after every send, and an
+artifact that is a blast artifact with an extra block on each record, so
+`testinghq compare` reads it like any other run.
 
 Milestone history and what is still open are tracked in
 `docs/agents/BLAST_BACKLOG.md`.
@@ -166,6 +196,39 @@ how a pipeline behaves when the failure that caused a real retry is also
 present, and a pipeline that deduplicates only on a failure signal rather than on
 Message-ID will pass this and still duplicate a real retry.
 
+
+Verify, for what the pipeline made of the payloads rather than what it answered:
+
+```
+# dry run by default: previews the corpus and the adapter, makes no calls
+testinghq verify fire --target local
+
+# fire the clean corpus, then read your system's output back and check it
+testinghq verify fire --target local --send
+
+# say where your system should have routed each message, if it has its own
+# routing taxonomy; without it, the expected route is the message's recipient
+testinghq verify fire --target local --send --expect-route queue/support
+
+# for a pipeline that creates the ticket on a queue consumer rather than inside
+# the request, keep asking until the record counts stop moving
+testinghq verify fire --target local --send --quiet-window 10 --max-wait 120
+
+# check a run that already happened. Sends nothing, so it has no --send.
+testinghq verify check verify.json
+```
+
+
+Ledger, for exactly-once accounting:
+
+```
+# 50 uniquely tagged messages, then reconcile them against what the system holds
+testinghq ledger fire --target local --send --count 50
+
+# change the tag prefix when two runs hit the same system at once
+testinghq ledger fire --target local --send --tag-prefix spike-2026-09
+```
+
 Every `testinghq` command in this file is executed as a dry run by
 `tests/unit/test_readme_examples.py`, so an example cannot rot into a command
 that exits non-zero without the suite noticing. The three pipeline commands are
@@ -202,6 +265,10 @@ than a weapon, and none of them are cosmetic:
 Barrage fires clean, valid payloads only. It reuses Blast's seeded generator for
 realistic bodies and deliberately never garbles them: Barrage is about volume, not
 malformed input. That is Blast's job.
+
+Verify also fires clean payloads only, for the same structural reason and a
+different one: verify grades results, and a deliberately mangled payload has no
+correct parse to grade against. Blast owns messy input.
 
 
 ## License
