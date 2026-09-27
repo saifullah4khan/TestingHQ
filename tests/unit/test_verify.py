@@ -128,6 +128,13 @@ def _run(target_config, tmp_path, spec_probe, fetch, name="verify.json", **kwarg
         sleep=_CLOCK.sleep,
         clock=_CLOCK,
         printer=lines.append,
+        # A readback that polls is given a zero quiet window here, because
+        # nothing in this file is asserting about how long a window is; the poll
+        # semantics are asserted in test_readback_poll.py, on a virtual clock,
+        # where the timing IS the assertion. Without this the suite sat out
+        # five real seconds per polling run.
+        quiet_window=0.0,
+        poll_interval=0.05,
         **kwargs,
     )
     return code, client, "\n".join(lines), json.loads((tmp_path / name).read_text(encoding="utf-8"))
@@ -543,6 +550,7 @@ def test_verify_check_reads_a_saved_run_without_sending(
         str(tmp_path / "checked.json"),
         readback=_config(),
         printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
     )
     text = "\n".join(lines)
     assert code == EXIT_OK, text
@@ -666,6 +674,7 @@ def test_verify_check_says_how_many_records_it_skipped(
     code = verify.check_saved_run(
         str(tmp_path / "run.json"), target_config, str(tmp_path / "checked.json"),
         readback=_config(), printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
     )
     text = "\n".join(lines)
     assert code == EXIT_OK, text
