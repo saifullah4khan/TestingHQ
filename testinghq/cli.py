@@ -14,6 +14,13 @@ is NOT an email sender, NOT a flooding tool, and NOT for endpoints you do
 not own. Dry-run by default, configured targets only, and a hard
 rate-and-duration ceiling that requires --allow-high-rate to raise.
 barrage replay: re-runs a saved barrage run from its seed and config.
+
+compare --baseline <run.json> --candidate <run.json>: reads two saved run
+artifacts and reports only what changed between them, so a change to a parser
+can be judged as an improvement or a regression rather than eyeballed at. It
+reads two JSON files and prints. It never resolves a target, never opens a
+socket, and has no --send, so there is nothing to gate. Exits non-zero when
+the candidate introduced a regression, which makes it usable as a CI step.
 """
 from __future__ import annotations
 
@@ -30,6 +37,7 @@ from .blast.corrupt import DEFAULT_MIX, corrupt_corpus
 from .blast.generate import generate_corpus
 from .blast.payload import InboundEmail
 from .blast.serialize import to_multipart_parts
+from .compare import runs as compare_runs
 from .core import guardrails, report
 from .core.config import ConfigError, load_config
 from .core.ratelimit import TokenBucket
@@ -160,6 +168,31 @@ def _add_barrage_parser(sub) -> None:
     b_replay.add_argument("--out", help="path to write the run artifact JSON")
     b_replay.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
+    )
+
+    # compare. Note the absence of --target, --send and --config, which is the
+    # point: it reads two files and compares them. There is no network path to
+    # gate, so there is no gate. Unlike blast and barrage there is no
+    # subcommand, because there is exactly one thing it does.
+    compare = sub.add_parser(
+        "compare",
+        help="compare a baseline and a candidate run artifact and report what changed",
+    )
+    compare.add_argument(
+        "--baseline", required=True, help="path to the baseline run artifact JSON"
+    )
+    compare.add_argument(
+        "--candidate", required=True, help="path to the candidate run artifact JSON"
+    )
+    compare.add_argument("--out", help="path to write the difference report as JSON")
+    compare.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help=(
+            "exit non-zero when the candidate introduced a regression. Off by "
+            "default so a plain comparison is just a comparison; turn it on in "
+            "CI, where a non-zero exit should stop something"
+        ),
     )
 
 
@@ -593,6 +626,40 @@ def _cmd_barrage_replay(args) -> int:
     return _barrage_execute(args, plan, seed, config["pool_size"], config.get("target"))
 
 
+def _cmd_compare(args) -> int:
+    """Compare two saved run artifacts and report what changed.
+
+    Kept thin on purpose, like the barrage handlers: all of the comparison
+    logic lives in `testinghq/compare/runs.py`, so this is only argument
+    plumbing, file reading, output, and the exit code.
+
+    Note what is absent. There is no `evaluate_send` call, no target
+    resolution, no config load and no transport. This function cannot put bytes
+    on a wire, which is why it has no dry-run mode and no guardrail gate: the
+    gate would have nothing to gate. Every refusal here is about a malformed
+    input file, not about a request.
+    """
+    try:
+        baseline = compare_runs.load_artifact(args.baseline)
+        candidate = compare_runs.load_artifact(args.candidate)
+    except compare_runs.CompareError as exc:
+        print(f"compare: {exc}", file=sys.stderr)
+        return compare_runs.EXIT_USAGE
+
+    diff = compare_runs.compare(baseline, candidate)
+    print(compare_runs.format_diff(diff))
+
+    if args.out:
+        Path(args.out).write_text(
+            json.dumps(diff, indent=2, sort_keys=False), encoding="utf-8"
+        )
+        print(f"\nwrote {args.out}")
+
+    if args.fail_on_regression and diff["regressed"]:
+        return compare_runs.EXIT_REGRESSION
+    return compare_runs.EXIT_NO_REGRESSION
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -611,6 +678,8 @@ def main(argv=None):
         if args.command == "replay":
             return _cmd_barrage_replay(args)
         return _not_yet(args.command)
+    if args.tool == "compare":
+        return _cmd_compare(args)
     return _not_yet(args.tool)
 
 
