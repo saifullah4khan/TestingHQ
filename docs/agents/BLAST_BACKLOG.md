@@ -174,6 +174,28 @@ Blast v1 is complete. Landed #16.
     reports every payload as a timeout and flags every degenerate one as a
     failure. Both true, both nonsense. The dry-run summary is built explicitly
     and there is a test saying why.
+- [x] [B][M] Delegate `web/expectations.py` to `core/report.py`. DONE. It is now a
+  re-export of the engine's rules and defines none of them. The docstring records
+  why, because the reason is not obvious from the diff.
+  The backlog framed this as one duplicated module. It was two.
+  `web/static/app.js` also carried a `classifyRecord()` that re-derived each
+  record's outcome from its status code, making the browser a third copy of
+  `core/report.py` that no test could reach, because no CI here runs JavaScript.
+  That copy is gone: the server now annotates every record with the engine's
+  verdict and the browser renders it. The annotation is response-layer only, so
+  the on-disk artifact schema and the fixtures are untouched, which matters
+  because Barrage replays those artifacts and a display field does not belong in
+  them.
+  Two structural guards added to `tests/test_lane_hygiene.py`, both proven red by
+  re-inlining the thing they forbid and confirmed clean after reverting: a rule
+  body in `web/expectations.py`, and a `classifyRecord` or
+  `is2xx`/`is5xx`/`isTimeout` helper in `web/static/app.js`.
+  `tests/unit/test_report.py`'s cross-check between the two implementations was
+  replaced rather than kept. Comparing two implementations could only ever go red
+  on a fixture that happened to exercise a changed rule, which is the failure it
+  existed to catch, and with one implementation it was vacuous. It is now an
+  identity check plus a data-level check that the fixtures classify to the flags
+  they claim.
 - [ ] [B][M] Delegate `web/expectations.py` to `core/report.py`. The two copies
   agree today, verified record by record, and `tests/unit/test_report.py`
   cross-checks them. That cross-check stops meaning anything the moment the

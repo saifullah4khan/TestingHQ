@@ -28,7 +28,7 @@ if __package__ in (None, ""):  # allows `python web/server.py` directly
 else:
     from . import adapter, config as config_module, generator
 
-from testinghq.core import guardrails
+from testinghq.core import guardrails, report
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -68,6 +68,25 @@ def _read_json_body(handler):
         return json.loads(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError(f"invalid JSON body: {exc}") from exc
+
+
+def _annotate_outcomes(artifact):
+    """Attach each record's outcome, computed by the engine, for the browser.
+
+    This is a presentation-layer annotation and nothing more. The on-disk run
+    artifact schema is unchanged and carries no `outcome` key, so fixtures and
+    `core.report`'s schema tests are unaffected.
+
+    It exists because `web/static/app.js` used to re-derive the outcome from
+    the status code, which made the browser a third copy of the expectation
+    rules. That copy could disagree with the engine and nothing would catch
+    it, because no CI in this repo runs JavaScript. Annotating here means the
+    rules are evaluated once, by the canonical implementation, and the
+    browser only renders what it is told.
+    """
+    for record in artifact.get("records", []):
+        record["outcome"] = report.classify_record(record)
+    return artifact
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -146,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
         except generator.GeneratorError as exc:
             self._send_json(400, {"error": str(exc)})
             return
-        self._send_json(200, artifact)
+        self._send_json(200, _annotate_outcomes(artifact))
 
     def _handle_fire(self):
         try:
@@ -174,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
         except generator.GeneratorError as exc:
             self._send_json(400, {"error": str(exc)})
             return
-        self._send_json(200, artifact)
+        self._send_json(200, _annotate_outcomes(artifact))
 
 
 def make_server(host="127.0.0.1", port=8765):
