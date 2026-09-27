@@ -420,7 +420,17 @@ def _cmd_fire(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _cmd_replay(args) -> int:
+def _cmd_replay(args, client=None) -> int:
+    """Replay a saved run. `client` is the injectable HTTP client, threaded
+    into `_run_fire` exactly as the fire path does.
+
+    It is here for the same reason it is on `_run_fire`: without it this
+    function's send path opens real sockets and there is no way to test
+    anything about it hermetically. That gap was found by writing the
+    integration test for replay, which spent eighty-one seconds making forty
+    real connection attempts before failing. `main()` passes no client, which
+    is the real-network path, same as the fire path.
+    """
     try:
         data = json.loads(Path(args.run).read_text(encoding="utf-8"))
     except OSError as exc:
@@ -471,7 +481,16 @@ def _cmd_replay(args) -> int:
         _print_dry_run_preview(pairs, seed)
         return 2
 
-    return _run_fire(pairs, seed, count, target_name, args.rate, args.out, args.config)
+    return _run_fire(
+        pairs,
+        seed,
+        count,
+        target_name,
+        args.rate,
+        args.out,
+        args.config,
+        client=client,
+    )
 
 
 # ---------------------------------------------------------------------------
