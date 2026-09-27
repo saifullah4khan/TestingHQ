@@ -1,4 +1,4 @@
-"""The CLI surface for verify, ledger and redeliver.
+"""The CLI surface for verify and ledger.
 
 These tests are about the wiring, not the tools. The tools are covered in
 depth elsewhere; what has to be true here is narrower and just as important:
@@ -420,3 +420,41 @@ def test_an_unimplemented_subcommand_says_so_rather_than_crashing(capsys):
 def test_an_unknown_tool_is_rejected_by_the_parser():
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["nonsense"])
+
+
+def test_the_tools_share_their_readback_arguments():
+    """One argument grammar for all three. An operator who has learned one has
+    learned the other two, and the guardrail on the readback URL is in one
+    place rather than three."""
+    parser = cli.build_parser()
+    for argv in (
+        ["verify", "fire"],
+        ["ledger", "fire"],
+    ):
+        args = parser.parse_args(argv)
+        assert hasattr(args, "readback")
+        assert hasattr(args, "allow_public_readback")
+        assert hasattr(args, "expect_route")
+        assert hasattr(args, "send")
+        assert hasattr(args, "tag_prefix")
+        assert hasattr(args, "config")
+
+
+def test_verify_check_sends_nothing_so_it_has_no_send_flag():
+    """The absence is deliberate and matches `compare`: a path that cannot
+    reach the network has nothing to gate, and a `--send` that does nothing is
+    an invitation to believe it did something."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["verify", "check", "run.json"])
+    assert not hasattr(args, "send")
+
+
+def test_ledger_fire_does_nothing_without_send(target_config, capsys):
+    code = cli.main(
+        ["ledger", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--count", "5"]
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "hq-0-0000 .. hq-0-0004" in out
+    assert "no network calls were made" in out
