@@ -128,24 +128,20 @@ def build_plan(
     run length; `warmup` is the ramp portion of it, so the steady-state
     hold is `duration - warmup`.
 
-    `concurrency` may be None, meaning "not specified", which resolves to the
-    default for the mode.
+    `concurrency` may be None, meaning "not specified".
 
-    Open mode always records a concurrency of 1, because it has no executor
-    and dispatches serially: one request is issued, read, and only then is the
-    next dispatched. Any other value would be written into the run artifact
-    and printed by the dry-run preview while having no effect. Measured, not
-    assumed: against a real target slower than the arrival interval,
-    concurrency 1, 4 and 64 all produced the same throughput, and
-    `_run_open_loop_stages` does not take the parameter at all.
+    Open mode records a concurrency of 1 and closed mode records what it was
+    given. Open mode is serial, so any other number would be written into the
+    run artifact and printed by the preview while having no effect. Closed
+    mode is also serial today but genuinely threads the number into its slot
+    allocation, so coercing it would discard a value that becomes meaningful
+    the moment an executor exists. The CLI refuses an explicit value above 1
+    in both modes until then.
 
-    This coerces rather than raises, on purpose. The CLI refuses an
-    explicitly-passed `--concurrency` in open mode, because there an operator
-    is asking for something inert and should be told. Here, the caller may be
-    `barrage replay` reading an artifact written before this was true, whose
-    stored number was always meaningless; refusing that would break replay of
-    every open-mode run this tool has ever produced. The artifact is a record
-    of what ran, and what ran was serial.
+    Coercion rather than raising on the open path, because the caller may be
+    `barrage replay` reading an artifact written before serial dispatch was
+    recorded accurately, whose stored number was always meaningless. Refusing
+    would break replay of every run the tool has ever produced.
     """
     if duration <= warmup:
         raise BarrageError(

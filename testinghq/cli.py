@@ -567,17 +567,28 @@ def _cmd_barrage_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
     print(f"barrage fire: {decision.reason}")
 
-    # An explicitly-passed --concurrency is refused in open mode, here rather
+    # An explicitly-passed --concurrency is refused in BOTH modes, here rather
     # than inside build_plan, because this is the layer where an operator is
     # asking for something that will have no effect. build_plan coerces it
     # instead, since the caller there may be `barrage replay` reading an
     # artifact whose stored number predates this being true.
-    if args.mode == "open" and args.concurrency is not None:
+    #
+    # Both modes, not just open. Open mode does not pass the parameter to
+    # _run_open_loop_stages at all. Closed mode does pass it and the slot logic
+    # is correct, but there is no executor, so a send is never more than one
+    # request in flight and the spare slots never hold anything. Measured
+    # against a real target slower than the arrival interval, concurrency 1, 4
+    # and 64 all produced the same throughput in both modes.
+    #
+    # The earlier version of this refusal only covered open mode and told the
+    # user to "use --mode closed", which sent them to the mode where the flag
+    # is equally inert. That was the code contradicting its own decision note.
+    if args.concurrency is not None and args.concurrency != 1:
         print(
-            f"refused: --concurrency {args.concurrency} has no effect with "
-            "--mode open. Barrage has no executor yet, so open mode dispatches "
-            "one request at a time and the real concurrency is 1. Use --mode "
-            "closed, or drop the flag. Tracked in issue #38.",
+            f"refused: --concurrency {args.concurrency} has no effect in "
+            f"--mode {args.mode}. Barrage has no executor yet, so requests are "
+            f"dispatched one at a time in both modes and the real concurrency "
+            f"is 1. Drop the flag. Tracked in issue #38.",
             file=sys.stderr,
         )
         return barrage_fire.EXIT_REFUSED

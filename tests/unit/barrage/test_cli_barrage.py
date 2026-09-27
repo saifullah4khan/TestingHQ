@@ -162,13 +162,14 @@ def test_barrage_fire_dry_run_previews_the_plan(forbid_network, capsys):
     cli.main(
         [
             "barrage", "fire", "--target", "local", "--rate", "10",
-            "--duration", "20", "--concurrency", "4", "--mode", "closed",
+            "--duration", "20", "--mode", "closed",
         ]
     )
     out = capsys.readouterr().out
     assert "closed-loop" in out
     assert "10/s" in out
-    assert "concurrency: 4" in out
+    # No explicit --concurrency, so the default resolves and is reported.
+    assert f"concurrency: {barrage_fire.DEFAULT_CONCURRENCY}" in out
 
 
 def test_barrage_replay_dry_run_makes_zero_network_calls(tmp_path, forbid_network, capsys):
@@ -459,17 +460,47 @@ def test_require_synthetic_pool_refuses_a_non_reserved_address():
 # ---------------------------------------------------------------------------
 
 
-def test_concurrency_is_refused_in_open_mode_with_a_reason(capsys):
+@pytest.mark.parametrize("mode", ["open", "closed"])
+def test_concurrency_is_refused_with_a_reason(mode, capsys):
+    """Both modes, not just open.
+
+    The previous version of this refused only in open mode and told the user to
+    "use --mode closed", which sent them to the mode where the flag is equally
+    inert. That was the code contradicting its own decision note, and the note
+    had the measurement to back it: against a real target slower than the
+    arrival interval, concurrency 1, 4 and 64 all produced the same throughput
+    in both modes, because `testinghq` has no executor and a send is never more
+    than one request in flight.
+    """
     rc = cli.main(
-        ["barrage", "fire", "--target", "local", "--mode", "open", "--concurrency", "8"]
+        ["barrage", "fire", "--target", "local", "--mode", mode, "--concurrency", "8"]
     )
     err = capsys.readouterr().err
 
     assert rc == barrage_fire.EXIT_REFUSED
     assert "no effect" in err
     # The message has to say why, not just that, and where the fix is.
-    assert "one request at a time" in err
+    assert "one at a time" in err
     assert "issue #38" in err
+    # And it must not send anyone to the other mode, which is the bug. The
+    # mode NAME legitimately appears in "has no effect in --mode closed"; what
+    # must not appear is advice to switch to it.
+    assert "use --mode" not in err.lower()
+    assert "or use" not in err.lower()
+    assert "drop the flag" in err.lower(), "the message should say what to do instead"
+
+
+def test_concurrency_of_one_is_accepted_in_both_modes(capsys):
+    """1 is the truth, so passing it explicitly is not asking for something
+    inert. Refusing it would be pedantry that teaches users to distrust the
+    flag."""
+    for mode in ("open", "closed"):
+        rc = cli.main(
+            ["barrage", "fire", "--target", "local", "--mode", mode,
+             "--concurrency", "1"]
+        )
+        assert rc == barrage_fire.EXIT_DRY_RUN
+        assert "concurrency: 1" in capsys.readouterr().out
 
 
 def test_refusing_concurrency_sends_nothing(capsys, forbid_network):
@@ -488,11 +519,14 @@ def test_refusing_concurrency_sends_nothing(capsys, forbid_network):
     assert "refused" in out.err
 
 
-def test_concurrency_is_allowed_in_closed_mode():
-    rc = cli.main(
-        ["barrage", "fire", "--target", "local", "--mode", "closed", "--concurrency", "8"]
-    )
-    assert rc == barrage_fire.EXIT_DRY_RUN
+def test_closed_mode_still_records_the_concurrency_it_was_given():
+    """Closed mode threads the number into its slot allocation, so the value is
+    meaningful the moment an executor exists. Coercing it in `build_plan` would
+    throw that away and make the eventual fix harder to see.
+
+    The CLI refuses an explicit value above 1 meanwhile; this is about what the
+    plan records, which is the layer `barrage replay` depends on."""
+    assert barrage_fire.build_plan("closed", 5.0, 20.0, 8, 5.0).concurrency == 8
 
 
 def test_omitting_concurrency_resolves_per_mode():
@@ -545,15 +579,19 @@ def test_dry_run_preview_states_that_dispatch_is_serial(capsys):
 
 def test_dry_run_preview_states_serial_dispatch_in_closed_mode_too(capsys):
     """Closed mode has working slot logic, which makes it look concurrent, and
-    the preview previously did not say otherwise. It is as serial as open
-    mode today, and the preview must not imply otherwise in either."""
-    rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "closed",
-                   "--concurrency", "8"])
+    the preview previously did not say otherwise. It is as serial as open mode
+    today, and the preview must not imply otherwise in either.
+
+    No explicit --concurrency here, because that is now refused. The default
+    still resolves and is reported honestly alongside the serial notice."""
+    rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "closed"])
     out = capsys.readouterr().out
 
     assert rc == barrage_fire.EXIT_DRY_RUN
     assert "SERIAL" in out
-    assert "concurrency: 8" in out, "the configured value is still reported, honestly"
+    assert f"concurrency: {barrage_fire.DEFAULT_CONCURRENCY}" in out, (
+        "the default is still reported, honestly, next to the serial notice"
+    )
 
 
 def test_dry_run_preview_warns_that_a_slow_target_caps_the_rate(capsys):
