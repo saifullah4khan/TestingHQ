@@ -1,16 +1,23 @@
+from pathlib import Path
+
 import pytest
 
+from testinghq.barrage import runner as runner_module
 from testinghq.barrage.runner import (
     DEFAULT_MAX_DURATION_SEC,
     DEFAULT_MAX_RATE_PER_SEC,
     RampStage,
     RateCeilingError,
     RunPlan,
+    _pace_and_gate,
+    _run_open_loop_stages,
     build_stages,
     check_rate_ceiling,
     ramp_stages,
     run,
 )
+from testinghq.core.ratelimit import TokenBucket
+
 
 
 class FakeClock:
@@ -518,3 +525,113 @@ def test_run_plan_rejects_invalid_fields():
         RunPlan(mode="open", rate=1.0, concurrency=1, warmup_seconds=-1.0, hold_seconds=1.0)
     with pytest.raises(ValueError):
         RunPlan(mode="open", rate=1.0, concurrency=1, warmup_seconds=0.0, hold_seconds=0.0)
+
+
+# ---------------------------------------------------------------------------
+# The rate gate.
+#
+# docs/decisions/0001-barrage-pacing.md keeps the TokenBucket in
+# barrage/runner.py even though the schedule is the pacer, on the grounds that
+# the gate is a check which fires when the schedule is wrong.
+#
+# That argument is only worth something if the gate can fail, and it is worth
+# exactly as much as the precision of "when the schedule is wrong". Both halves
+# are pinned here. An assertion that the gate never fires, on its own, is
+# compatible with a gate that does nothing at all, so the second test is the one
+# that carries the argument.
+# ---------------------------------------------------------------------------
+
+
+def test_the_gate_never_waits_when_the_schedule_holds():
+    """The invariant the decision rests on: every dispatch is on schedule, the
+    bucket is in credit before every acquire, and `waited` is exactly zero for
+    all of them.
+
+    Asserted as equality to 0.0 rather than "small", because a gate that waited
+    a little on every call would still look fine in a throughput report while
+    quietly having become a second pacer."""
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    stage = RampStage(rate=5.0, duration=3.0)
+
+    records = _run_open_loop_stages(
+        [stage], lambda index: ("ok", 0.0), clock=clock.now, sleep=sleeper
+    )
+
+    assert records, "the run dispatched nothing"
+    assert [r.waited for r in records] == [0.0] * len(records), (
+        "the gate blocked during a correctly paced run, which would mean the "
+        "schedule and the bucket disagree about the rate"
+    )
+    # And the schedule really was what paced this, not the gate: dispatches
+    # landed on 1/rate intervals.
+    expected = [i * (1.0 / 5.0) for i in range(len(records))]
+    assert [r.dispatch_time for r in records] == pytest.approx(expected, abs=1e-9)
+
+
+def test_the_gate_blocks_when_tokens_are_taken_faster_than_they_are_earned():
+    """The other half, and the reason the gate is worth keeping.
+
+    Driven through `_pace_and_gate` rather than by calling `TokenBucket`
+    directly. An earlier version of this test constructed the bucket itself,
+    which proved the bucket can block and said nothing about whether the gate
+    is wired to it: replacing the body of `_pace_and_gate` with `return 0.0`
+    left that version green. This one goes through the gate the dispatch loops
+    actually call, so neutering the gate turns it red.
+
+    The state is twelve tokens taken at 5/s with no time passing, which is
+    exactly what a bug in the schedule's interval arithmetic would produce."""
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    bucket = TokenBucket(
+        rate_per_sec=5.0,
+        capacity=runner_module._GATE_CAPACITY,
+        clock=clock.now,
+        sleep=sleeper,
+    )
+    headroom = int(runner_module._GATE_CAPACITY)
+
+    waits = [_pace_and_gate(bucket) for _ in range(12)]
+
+    assert waits[:headroom] == [0.0] * headroom, (
+        "the bucket's headroom should be free tokens, since that is what it is for"
+    )
+    assert any(w > 0 for w in waits), (
+        "the gate let a 5/s bucket hand out 12 tokens with no time passing, so "
+        "it cannot catch a pacing bug and is not the independent check the "
+        "decision note claims"
+    )
+    # It throttles to the configured rate, not to some other value: 12 tokens
+    # at 5/s less the free headroom takes that many seconds to earn.
+    assert sum(waits) == pytest.approx((12 - headroom) / 5.0, abs=1e-6)
+
+
+
+
+def test_the_gate_and_the_schedule_read_the_rate_from_different_expressions():
+    """What the gate can and cannot catch, pinned so nobody overclaims it.
+
+    The two mechanisms derive the rate from `stage.rate`, but by different
+    routes: the schedule divides to get an interval, the bucket is handed the
+    rate directly. So a mistake in one is not automatically a mistake in the
+    other, and the gate does catch an interval bug.
+
+    What it does NOT catch is a disagreement about the rate, because both read
+    the same field. This asserts that shared origin, so the day someone routes
+    the bucket's rate through a different source, whoever reads this learns
+    that the gate's scope grew.
+    """
+    source = (Path(__file__).resolve().parents[3] / "testinghq" / "barrage" / "runner.py")
+    text = source.read_text(encoding="utf-8-sig")
+
+    # the schedule derives an interval by division
+    assert "interval = 1.0 / stage.rate" in text, (
+        "the schedule's interval is no longer derived by division; re-check "
+        "what the gate is now able to catch"
+    )
+    # the bucket is handed the rate itself
+    assert text.count("rate_per_sec=stage.rate") >= 2, (
+        "both dispatch loops should hand the bucket stage.rate directly; if one "
+        "has changed source, the gate no longer reads the same field as the "
+        "schedule and its scope has changed"
+    )

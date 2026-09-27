@@ -1,111 +1,155 @@
 # Decision 0001: Barrage paces on the schedule, not on the bucket
 
-Date: 2026-09-27. Status: accepted, no code change.
+Date: 2026-09-27. Status: accepted, 2026-09-27. No pacing behaviour changed.
 
 ## The question
 
-`TokenBucket.acquire()` used to spin forever under an injected clock at any
-rate whose reciprocal is not exactly representable in binary. `barrage/runner.py`
-worked around that by never letting the bucket block: arrivals are paced by an
-absolute schedule, and the bucket is asked for a token only once the schedule
-says it is already earned.
+`TokenBucket.acquire()` used to spin forever under an injected clock at most
+real rates. `barrage/runner.py` worked around that by never letting the bucket
+block: arrivals are paced by an absolute schedule, and the bucket is asked for
+a token only once the schedule says it is already earned.
 
 That bug is fixed. Should the workaround be undone?
 
 ## Decision: keep the schedule. The gate stays a gate.
 
-Two reasons, and the second is the one that settles it.
+### A note on the metric, because the first version of this note got it wrong
 
-**The schedule is correct, and it holds.** Measured with an injected clock, a
-6 req/s target, a 3-second stage, and a `send_fn` that does not block
-(fire-and-forget, which is what open loop is supposed to mean):
+An earlier draft reported row A as 6.35 req/s against a configured 6.0 and
+called it a 6 percent overshoot. That was a fencepost artifact and it read as
+though the run exceeded a ceiling it never touched. N dispatches span N-1
+intervals, so:
 
-| | dispatches | elapsed | effective | slip vs ideal | gate blocked |
-|---|---|---|---|---|---|
-| schedule-paced, non-blocking sends | 18 | 2.833s | **6.35/s** | **0ms** | **0.000000s** |
+- **inter-arrival rate** = (N-1) / elapsed. Whether the pacing held.
+- **offered throughput** = N / elapsed. What the target actually saw.
 
-The schedule is exact. The gate never blocks once, because arrivals are always
-at least `1/rate` apart and the bucket refills at exactly the rate it is
-consumed. There is nothing for a blocking gate to add.
+Only the first is a pacing metric. `(18-1)/2.833 = 6.00/s` exactly, which is the
+configured rate, as it should be. Barrage's own run artifact reports the second
+one, as `summary.throughput.achieved_rps`, which is correct for what it is.
 
-**The gate is not what costs the load.** Same target, but with a `send_fn` that
-blocks for 300ms, which is what actually ships:
+### The measurement
 
-| | effective | shortfall | gate blocked |
+Injected clock, 6 req/s target, 167 ms interval, 3-second stage, a `send_fn`
+that does not block, which is what open loop is supposed to mean:
+
+| | dispatches | elapsed | inter-arrival | offered | slip vs ideal | gate blocked |
+|---|---|---|---|---|---|---|
+| schedule-paced, non-blocking sends | 18 | 2.833s | **6.00/s** | 6.35/s | **0 ms** | **0.000000 s** |
+
+The schedule is exact and the gate never blocks once. Arrivals are always at
+least `1/rate` apart and the bucket refills at exactly the rate it is consumed,
+so there is nothing for a blocking gate to add.
+
+Now the comparison that settles it, same target, with a `send_fn` that blocks
+for 300 ms:
+
+| | inter-arrival | shortfall | gate blocked |
 |---|---|---|---|
-| A. schedule-paced, serialised sends | 3.53/s | **41%** | 0.000000s |
-| C. gate-paced, serialised sends | 3.53/s | **41%** | varies |
+| A. schedule-paced, serialised sends | 3.33/s | 44% | 0.000000 s |
+| B. gate-paced, serialised sends | 3.33/s | 44% | varies |
 
-A and C are identical. Swapping the pacer changes nothing at all, because the
+**A and B are identical.** Swapping the pacer changes nothing, because the
 shortfall is caused by the send being serialised, not by the pacer. So the
 question as posed is not load-bearing: making the bucket block would add a
 second wait on top of a schedule that already covers the case, and would give
 the run two mechanisms that could disagree.
 
-The gate is still worth keeping, but for a different reason than it had. It is
-an **independent implementation of the rate limit**, built from a different
-mechanism than the schedule. If the schedule arithmetic is ever wrong, the gate
-notices, which is a real check on this module's own pacing rather than a
-formality.
+### What the gate is actually good for, stated narrowly
 
-## The thing this turned up
+The gate catches an error in the schedule's **interval arithmetic**. The
+schedule computes an interval by dividing (`1.0 / stage.rate`); the bucket is
+handed the rate itself. Different expressions, same field, so a mistake in one
+is not automatically a mistake in the other.
 
-**Barrage's open-loop mode is not currently open loop, and that is a larger
-problem than the one that was asked about.**
+It does **not** catch a disagreement about the rate, because both read
+`stage.rate`. That narrower scope was previously stated as "an independent
+implementation of the rate limit", which overclaimed: they are not independent
+of the rate, only of the interval.
 
-`testinghq/barrage/fire.py`'s `send_fn` calls `post()` inline and returns the
-result, so a dispatch cannot happen until the previous send completes. The
-`RunPlan` docstring says `concurrency` is "enforced by the caller's executor, not
-by this module", but there is no executor: the caller is the CLI, and the CLI
-sends serially.
+Three tests in `tests/unit/barrage/test_runner.py` pin this, and the second one
+is the one that carries the argument:
 
-That is why row A shows 41% shortfall and 2.3 seconds of slip. The configured
-rate is not being offered to the target at all once the target is slower than
-the arrival interval, which is exactly the condition a load test exists to
-investigate. The mode that is supposed to find a target's breaking point cannot
-currently see it, because the run throttles itself before the target does.
+- `test_the_gate_never_waits_when_the_schedule_holds` asserts `waited == 0.0`
+  exactly, not "small", for every dispatch of a correctly paced run. A gate
+  that waited a little on every call would look fine in a throughput report
+  while having quietly become a second pacer.
+- `test_the_gate_blocks_when_tokens_are_taken_faster_than_they_are_earned`
+  drives twelve tokens through `_pace_and_gate` at 5/s with no time passing and
+  requires it to block and to throttle to exactly the configured rate. It goes
+  **through the gate function**, not around it. An earlier version of this test
+  constructed the `TokenBucket` directly, which proved the bucket can block and
+  said nothing about the gate being wired to it: replacing the body of
+  `_pace_and_gate` with `return 0.0` left that version green. Verified red
+  against a neutered gate with the current version.
+- `test_the_gate_and_the_schedule_read_the_rate_from_different_expressions`
+  asserts the shared origin, so the day someone routes the bucket's rate
+  through a different source, whoever reads this learns the gate's scope grew.
 
-This is **not** fixed here, and it should not be, because it is a change to how
-requests are dispatched rather than a pacing decision. It is the next thing
-worth looking at. The fix is a real executor with bounded outstanding requests,
-and it needs its own decisions: what `concurrency` means when a send outlives
-its slot, what happens to the run artifact when a request is still in flight at
-stage end, and whether the rate ceiling is checked on dispatch or on
-outstanding count.
+## The larger finding: nothing in Barrage is concurrent
 
-Until that lands, the honest description of `--mode open` is "a rate-capped
-serial send", and the run report's achieved-versus-target throughput is the
-number that reveals it.
+`testinghq/` does not import `threading` anywhere. There is no
+`concurrent.futures`, no executor, no asyncio, in `testinghq/` or in
+`core/transport.py`. A request is issued, its response read, and only then does
+the next dispatch begin.
 
-## Two comments in `barrage/runner.py` that are now wrong
+`RunPlan`'s docstring says `concurrency` is "enforced by the caller's executor,
+not by this module" for open mode. The caller is the CLI, and the CLI has no
+executor either.
 
-Left alone deliberately, per the instruction not to change code without
-approval. Both cite a defect that no longer exists, which is the same stale-doc
-failure this repo has been bitten by repeatedly.
+Measured against a **real** slow target: a local HTTP server sleeping 300 ms
+per response, driven by the shipped `testinghq barrage fire` binary with the
+real transport, 6 req/s target, 9-second run, 3-second warmup, seed 1.
 
-**`_GATE_CAPACITY`, lines 166 to 172.** The comment reads:
+**Open mode**, 300 ms target response against a 167 ms interval:
 
-> Do not lower this to 1.0: that puts the bucket exactly on the knife-edge
-> where float rounding makes it spin (see _pace_and_gate).
+| `--concurrency` | requests | elapsed | inter-arrival | vs target |
+|---|---|---|---|---|
+| 1 | 46 | 14.324s | 3.14/s | 48% short |
+| 4 | 46 | 14.368s | 3.13/s | 48% short |
+| 64 | 46 | 14.236s | 3.16/s | 47% short |
 
-The spin is fixed and the 1.0 boundary is safe. The reason to keep capacity at
-2.0 is now ordinary jitter tolerance. Proposed replacement: keep the value,
-rewrite the reason.
+**Closed mode**, same target:
 
-**`_pace_and_gate`, lines 236 to 252.** A paragraph of history explaining that
-the bucket "could not be trusted to block at all" and that Barrage "therefore
-arrives here with the token already earned by construction, because the
-alternative was a hang". Accurate as history, wrong as a description of the
-present. Proposed replacement: state that the schedule is the pacer because open
-loop must hold its arrival rate independently of service time, and that the
-gate is an independent check on that schedule.
+| `--concurrency` | requests | elapsed | inter-arrival | vs target |
+|---|---|---|---|---|
+| 1 | 27 | 8.297s | 3.13/s | 48% short |
+| 4 | 28 | 8.425s | 3.20/s | 47% short |
+| 64 | 27 | 8.196s | 3.17/s | 47% short |
 
-Say the word and both are a two-line change.
+Two things fall out of that, and the second is worse than the first.
+
+**Open mode is not open loop.** It cannot hold its arrival schedule against a
+target slower than the interval, which is the exact condition a load test
+exists to investigate. The mode meant to find a target's breaking point cannot
+see it, because the run throttles itself before the target does.
+
+**`--concurrency` is inert in both modes.** Not just open mode, where
+`_run_open_loop_stages` does not take the parameter at all, but closed mode
+too. The closed-loop slot logic is correct, but with a serialised send there is
+never more than one request in flight, so 63 of those 64 slots never have
+anything to hold. The flag is parsed, validated, stored in the run plan, echoed
+into the run artifact's config block, and printed by the dry-run preview as
+`concurrency: N`, and then has no effect at all.
+
+That is a lie in user-facing output. Until an executor exists,
+`--mode open` and `--mode closed` are both "a rate-capped serial send", and the
+dry-run preview says otherwise.
+
+Not fixed by this decision. It is a change to how requests are dispatched, and
+it is tracked with a design proposal in issue #38.
+
+## Why the gate is not the pacer, restated without the removed argument
+
+A blocking gate would throttle offered load down exactly when the target is
+slow, and measuring that is the entire point of an open-loop run. The schedule
+is authoritative for that reason, which has nothing to do with the acquire()
+defect that originally forced the arrangement.
 
 ## How to revisit this
 
-The decision is only correct while open loop actually offers the configured
-rate. Row B above is the condition, and a run reporting achieved throughput
-materially below its target against a responsive target means the decision's
-premise has stopped holding, whether because sends are serialised or for some
-other reason. That is the signal to reopen this.
+The decision holds while the schedule is exact, which is the condition measured
+in row one above. A run reporting inter-arrival throughput materially below its
+target against a **responsive** target means the schedule stopped holding, and
+that is the signal to reopen this. A shortfall against a *slow* target means
+something else, and as of this writing the most likely cause is the missing
+executor rather than the pacing.
