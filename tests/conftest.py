@@ -53,6 +53,7 @@ asserted to have no stale entries, so it cannot rot into a blanket.
 """
 from __future__ import annotations
 
+import os
 import socket
 import time
 from typing import Dict, List, Tuple
@@ -67,7 +68,22 @@ _ORIGINALS: dict = {}
 #: Wall-clock budget for one hermetic test. A test that exceeds it is either
 #: waiting on a real clock or doing real work, and both belong in a place that
 #: says so.
-SLOW_TEST_BUDGET = 1.0
+#:
+#: Two seconds, not one, and the number comes from the failure it has to catch
+#: rather than from a round number. The bug that produced this guard was three
+#: tests each waiting 5.5s, so anything under about 3s catches it. Meanwhile a
+#: pytest subprocess costs roughly 0.8s on a developer machine before it runs a
+#: single test, and about twice that on a CI runner, so a 1s budget would leave
+#: the guard's own tests sitting at the threshold and failing in CI for being
+#: the thing that proves the guard works. A guard that is flaky is worse than no
+#: guard, because it gets switched off.
+SLOW_TEST_BUDGET = 2.0
+
+#: Overrides the budget, so a test can prove the guard without waiting a real
+#: second and without the suite taking one per proof. Read from the environment
+#: rather than as a pytest option because the consumer is a subprocess: an
+#: option would have to be threaded through argv for no benefit.
+SLOW_TEST_BUDGET_ENV = "TESTINGHQ_SLOW_TEST_BUDGET"
 
 #: Tests allowed to exceed the budget, by node id, with the reason. Kept small
 #: on purpose: every entry is a test that shells out, and a list of ten is a
@@ -82,29 +98,43 @@ SLOW_TEST_EXEMPTIONS: Dict[str, str] = {
         "collects once, for the same reason: what pytest collects by default is "
         "the thing being asserted about."
     ),
-    "tests/unit/test_suite_time_budget.py::test_a_slow_hermetic_test_fails_the_session": (
-        "starts a fresh interpreter and collects a test tree, which is the only "
-        "way to see whether the session hook actually fails a run."
-    ),
-    "tests/unit/test_suite_time_budget.py::test_a_single_test_run_is_not_judged": (
-        "same, and its whole point is that a one-test run is fast, so the run "
-        "it waits for is one process start and nothing else."
-    ),
-    "tests/unit/test_suite_time_budget.py::test_the_marker_is_what_exempts_a_test_from_the_budget": (
-        "same, and it additionally collects a marked probe to prove the marker "
-        "is what excludes a test rather than its runtime."
-    ),
 }
 
 #: Below this many tests, the run is a targeted one (`pytest -k`, a single node)
 #: rather than a suite run, and the budget is not enforced. A deliberate
-#: `pytest tests/unit/test_x.py::test_y` is debugging, not CI, and failing it for
-#: being slow would train people to pass `-p no:...` and then stop reading.
+#: `pytest tests/unit/test_x.py::test_y` is debugging, not CI, and failing it
+#: for being slow would train people to pass `-p no:...` and then stop reading.
 SLOW_TEST_MIN_TESTS = 20
 
 _TIMINGS: List[Tuple[float, str, bool]] = []
 _COLLECTED: set = set()
 _WHOLE_SUITE: set = set()
+
+
+def slow_test_budget() -> float:
+    """The budget for this run, from the environment or the default.
+
+    A malformed override raises rather than falling back. A budget that quietly
+    reverts to the default is the exact failure this guard exists to prevent,
+    applied to the guard: it would look enforced, enforce nothing, and the
+    reading of the environment variable would be the only way to tell.
+    """
+    raw = os.environ.get(SLOW_TEST_BUDGET_ENV)
+    if raw is None or not raw.strip():
+        return SLOW_TEST_BUDGET
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{SLOW_TEST_BUDGET_ENV}={raw!r} is not a number. Set it to a number "
+            f"of seconds, or unset it to use the {SLOW_TEST_BUDGET}s default."
+        ) from exc
+    if value <= 0:
+        raise ValueError(
+            f"{SLOW_TEST_BUDGET_ENV}={raw!r} must be greater than zero; a budget of "
+            "zero or less fails every test including the empty one"
+        )
+    return value
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -264,6 +294,7 @@ def pytest_sessionfinish(session, exitstatus):
     """
     if exitstatus != 0:
         return
+    budget = slow_test_budget()
     measured = [(d, node) for d, node, exempt in _TIMINGS if not exempt]
     if len(measured) < SLOW_TEST_MIN_TESTS:
         return
@@ -275,7 +306,7 @@ def pytest_sessionfinish(session, exitstatus):
     stale = sorted(set(SLOW_TEST_EXEMPTIONS) - _COLLECTED) if True in _WHOLE_SUITE else []
     unexercised = sorted(set(SLOW_TEST_EXEMPTIONS) & _COLLECTED - ran)
     slow = sorted(
-        ((d, node) for d, node in measured if d > SLOW_TEST_BUDGET),
+        ((d, node) for d, node in measured if d > budget),
         reverse=True,
     )
     legitimately_slow = [(d, node) for d, node in slow if node in SLOW_TEST_EXEMPTIONS]
@@ -285,7 +316,7 @@ def pytest_sessionfinish(session, exitstatus):
         lines = ["", "test timing budget:", ""]
         for node in stale:
             lines.append(
-                f"  EXEMPTION IS STALE  {SLOW_TEST_BUDGET:.1f}s budget, {node}"
+                f"  EXEMPTION IS STALE  {budget:.3g}s budget, {node}"
             )
             lines.append(f"      reason given: {SLOW_TEST_EXEMPTIONS[node]}")
             lines.append(
@@ -294,7 +325,7 @@ def pytest_sessionfinish(session, exitstatus):
             )
         for duration, node in unexpected:
             lines.append(
-                f"  TOO SLOW  {duration:.2f}s over a {SLOW_TEST_BUDGET:.1f}s budget: {node}"
+                f"  TOO SLOW  {duration:.2f}s over a {budget:.3g}s budget: {node}"
             )
         if legitimately_slow:
             lines.append("")
