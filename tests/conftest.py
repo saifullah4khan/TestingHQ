@@ -51,13 +51,22 @@ _PATCHED = ("connect", "connect_ex")
 _ORIGINALS: dict = {}
 
 
-class NetworkBlocked(AssertionError):
+class NetworkBlocked(BaseException):
     """Raised when a test that must stay hermetic tries to reach the network.
 
-    An `AssertionError` subclass so it reads as a test failure rather than a
-    crash, and so it is not swallowed by any `except OSError` or
-    `except Exception` in the code under test.
+    Derives from `BaseException` rather than `Exception` so that it cannot be
+    caught by an `except Exception` in the code under test.
+    `core/transport.py` wraps every `client.send()` in one, to report any
+    transport failure as a result rather than a crash, and that clause would
+    otherwise turn a blocked connect into a recorded timeout and a green test.
+
+    This is the technique pytest's own control-flow exceptions use: `Skipped`
+    and `Exit` both derive from `OutcomeException(BaseException)` for the same
+    reason. A consequence is that it surfaces as an error rather than a
+    failure, which is correct here: a test that reached the network is not a
+    wrong assertion, it is code that should not have run.
     """
+
 
 
 def _blocked(name):
