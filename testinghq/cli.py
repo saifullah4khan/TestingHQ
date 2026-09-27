@@ -125,8 +125,13 @@ def _add_barrage_parser(sub) -> None:
         help="total run duration in seconds, including the warmup ramp",
     )
     b_fire.add_argument(
-        "--concurrency", type=int, default=barrage_fire.DEFAULT_CONCURRENCY,
-        help="closed-loop worker count, or open-loop max outstanding requests",
+        "--concurrency",
+        type=int,
+        default=None,
+        help=(
+            "closed-loop worker count. Refused with --mode open, which has no "
+            "executor yet and dispatches one request at a time; see issue #38"
+        ),
     )
     b_fire.add_argument(
         "--mode", choices=["open", "closed"], default=barrage_fire.DEFAULT_MODE,
@@ -561,6 +566,21 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
 def _cmd_barrage_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
     print(f"barrage fire: {decision.reason}")
+
+    # An explicitly-passed --concurrency is refused in open mode, here rather
+    # than inside build_plan, because this is the layer where an operator is
+    # asking for something that will have no effect. build_plan coerces it
+    # instead, since the caller there may be `barrage replay` reading an
+    # artifact whose stored number predates this being true.
+    if args.mode == "open" and args.concurrency is not None:
+        print(
+            f"refused: --concurrency {args.concurrency} has no effect with "
+            "--mode open. Barrage has no executor yet, so open mode dispatches "
+            "one request at a time and the real concurrency is 1. Use --mode "
+            "closed, or drop the flag. Tracked in issue #38.",
+            file=sys.stderr,
+        )
+        return barrage_fire.EXIT_REFUSED
 
     try:
         plan = barrage_fire.build_plan(

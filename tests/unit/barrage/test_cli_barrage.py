@@ -86,7 +86,11 @@ def test_barrage_fire_parser_defaults():
     assert args.command == "fire"
     assert args.rate == barrage_fire.DEFAULT_RATE
     assert args.duration == barrage_fire.DEFAULT_DURATION
-    assert args.concurrency == barrage_fire.DEFAULT_CONCURRENCY
+    # None, not DEFAULT_CONCURRENCY: the flag means "not specified", which
+    # build_plan resolves per mode. Defaulting it here would make an explicit
+    # --concurrency indistinguishable from an omitted one, and open mode has
+    # to refuse the explicit case.
+    assert args.concurrency is None
     assert args.mode == barrage_fire.DEFAULT_MODE
     assert args.send is False  # dry-run is the DEFAULT
     assert args.allow_high_rate is False  # the ceiling is on by DEFAULT
@@ -435,3 +439,129 @@ def test_require_synthetic_pool_refuses_a_non_reserved_address():
     )
     with pytest.raises(GuardrailError):
         barrage_fire.require_synthetic_pool([tainted])
+
+
+# ---------------------------------------------------------------------------
+# --concurrency in open mode.
+#
+# Barrage has no executor. testinghq does not import threading anywhere, and
+# there is no concurrent.futures or asyncio in testinghq or core/transport. A
+# request is issued, its response read, and only then is the next dispatched,
+# so exactly one is ever in flight and --concurrency cannot mean anything.
+#
+# Measured against a real local server sleeping 300ms, driving the shipped
+# binary at 6 req/s: open mode achieved 3.14 req/s at --concurrency 1, 3.13 at
+# 4 and 3.16 at 64. Closed mode was the same story. The flag was parsed,
+# validated, stored in the plan, written into the run artifact and printed by
+# the dry-run preview, and did nothing.
+#
+# These pin the two things that make the tool honest about it.
+# ---------------------------------------------------------------------------
+
+
+def test_concurrency_is_refused_in_open_mode_with_a_reason(capsys):
+    rc = cli.main(
+        ["barrage", "fire", "--target", "local", "--mode", "open", "--concurrency", "8"]
+    )
+    err = capsys.readouterr().err
+
+    assert rc == barrage_fire.EXIT_REFUSED
+    assert "no effect" in err
+    # The message has to say why, not just that, and where the fix is.
+    assert "one request at a time" in err
+    assert "issue #38" in err
+
+
+def test_refusing_concurrency_sends_nothing(capsys, forbid_network):
+    """The refusal has to happen before any request, not after. A dry run is
+    the default here, so this is the easy half to get wrong: a plan that
+    previews happily and only then refuses would already have told the
+    operator the run was fine."""
+    rc = cli.main(
+        ["barrage", "fire", "--target", "local", "--mode", "open",
+         "--concurrency", "8", "--send"]
+    )
+    out = capsys.readouterr()
+
+    assert rc == barrage_fire.EXIT_REFUSED
+    assert "dry-run preview" not in out.out
+    assert "refused" in out.err
+
+
+def test_concurrency_is_allowed_in_closed_mode():
+    rc = cli.main(
+        ["barrage", "fire", "--target", "local", "--mode", "closed", "--concurrency", "8"]
+    )
+    assert rc == barrage_fire.EXIT_DRY_RUN
+
+
+def test_omitting_concurrency_resolves_per_mode():
+    """None must not leak into the plan. Closed resolves to the default, open
+    to the truth."""
+    closed = barrage_fire.build_plan("closed", 5.0, 20.0, None, 5.0)
+    opened = barrage_fire.build_plan("open", 5.0, 20.0, None, 5.0)
+
+    assert closed.concurrency == barrage_fire.DEFAULT_CONCURRENCY
+    assert opened.concurrency == 1
+
+
+def test_open_mode_records_the_concurrency_it_actually_had():
+    """A run artifact is a record of what ran. Recording a number that had no
+    effect makes every future replay of it a reproduction of a fiction."""
+    plan = barrage_fire.build_plan("open", 5.0, 20.0, 64, 5.0)
+    assert plan.concurrency == 1
+
+
+def test_replay_of_a_legacy_artifact_with_a_meaningless_concurrency_still_works(tmp_path):
+    """Artifacts written before this was true carry an inert number, and
+    refusing them would break replay of every open-mode run this tool has
+    produced. The record is historical; the rebuild has to tolerate it."""
+    artifact = {
+        "seed": 5,
+        "config": {
+            "mode": "open", "rate": 10.0, "duration": 20.0, "warmup": 5.0,
+            "concurrency": 2, "pool_size": 10, "target": "local", "dry_run": False,
+        },
+    }
+    run_path = tmp_path / "run.json"
+    run_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    assert cli.main(["barrage", "replay", str(run_path)]) == barrage_fire.EXIT_DRY_RUN
+
+
+# ---------------------------------------------------------------------------
+# The dry-run preview has to describe what this build can actually do.
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_preview_states_that_dispatch_is_serial(capsys):
+    rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "open"])
+    out = capsys.readouterr().out
+
+    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert "SERIAL" in out
+    assert "one request in flight" in out
+
+
+def test_dry_run_preview_states_serial_dispatch_in_closed_mode_too(capsys):
+    """Closed mode has working slot logic, which makes it look concurrent, and
+    the preview previously did not say otherwise. It is as serial as open
+    mode today, and the preview must not imply otherwise in either."""
+    rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "closed",
+                   "--concurrency", "8"])
+    out = capsys.readouterr().out
+
+    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert "SERIAL" in out
+    assert "concurrency: 8" in out, "the configured value is still reported, honestly"
+
+
+def test_dry_run_preview_warns_that_a_slow_target_caps_the_rate(capsys):
+    """The consequence, not just the mechanism. An operator reading only the
+    target-rate line has no way to know the run will not hold it."""
+    rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "open"])
+    out = capsys.readouterr().out
+
+    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert "slower than the arrival interval" in out
+    assert "will not hold its schedule" in out
