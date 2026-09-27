@@ -26,14 +26,69 @@ endpoint starts shedding or slowing. Barrage is a load tester against your own
 infrastructure. It is not an email sender, not a flooding tool, and not for
 endpoints you do not own.
 
+
 The suite ships as one installable package, `testinghq`, with subcommands
-(`testinghq blast ...`, `testinghq barrage ...`). Blast and Barrage share a common
-core: the firing transport, target configuration, guardrails, and rate limiting.
+(`testinghq blast ...`, `testinghq barrage ...`). Both share a common core:
+the firing transport, target configuration, guardrails, and rate limiting.
+A readback seam is built on that core, described below, and the three tools
+that need it are landing on top of it.
+
+### The readback seam
+
+Blast and Barrage both judge a run by the HTTP status, and a 200 only means the
+endpoint accepted the POST. It does not mean a ticket was created, that the
+sender survived parsing, that the body arrived whole, or that the message went
+anywhere useful. The seam is how a tool asks your system what it made of a
+message. It is small: an adapter that can read your system's output.
+
+```
+# a JSON API: GET the url with the tag as a query parameter, read the records
+[readback]
+kind = "http"
+url = "http://localhost:8000/tickets"
+
+# an outbound mail sink: a JSON Lines file, one delivered message per line
+[readback]
+kind = "mailbox"
+path = "./mail-sink.jsonl"
+```
+
+Anything else, including a database, is one import path: `--readback
+mypkg.myadapters:build`.
+
+The target may be a `ReadbackAdapter`, a factory taking the `[readback]` config
+table, or a plain function taking a `Probe`. A one-line lambda is a complete
+adapter, which is what makes the seam cheap enough that nobody skips checking
+and goes back to trusting the status code.
+
+**A check that could not run says so, and says why.** Three distinct causes, kept
+apart because they mean opposite things: `no record found` (the finding itself),
+`adapter cannot see field` (a gap in your integration), and `nothing to check`
+(most often a payload with no attachments). A run that verified nothing says so
+too, and the reports print what they skipped as prominently as what they found.
+
+**The readback polls until it settles.** After the last send it keeps asking, and
+believes the answer when every payload has been found AND the per-tag record
+counts have held steady for `--quiet-window` seconds. Waiting on the counts
+rather than on "did it create anything" is what catches a duplicate that lands
+after the first sighting. It gives up at `--max-wait` and says GAVE UP rather
+than claiming a quiet it did not hear, and the report always states how long it
+took.
+
+**Credentials come from the environment.** `[readback.headers]` takes
+`Authorization = "env:HQ_READBACK_TOKEN"` and nothing else. A literal value is
+refused rather than warned about, because a config file is a file that gets
+shared, and a missing variable is refused before the run sends anything. A run
+artifact records header names and never values.
+
+Readback URLs go through the same guardrail as firing targets, and a public host
+is refused unless you pass `--allow-public-readback`. On a real deployment the
+readback is a ticket store or a mail sink that may hold other people's data.
 
 ## Status
 
-Both tools work end to end. The suite is 529 tests, green on every push, and CI
-runs on every change.
+Both shipped tools work end to end. The suite is 1084 tests, green on every push, and
+CI runs on every change.
 
 **Blast** ships: seeded deterministic generation, six mutators behind five
 messiness recipes, a 20-case named edge-case catalog, seeded attachments,
@@ -50,6 +105,7 @@ is refused in open mode because it cannot mean anything there. Against a target
 slower than the arrival interval, achieved throughput is capped by the target's
 response time rather than by the rate you asked for. Tracked in
 [issue #38](https://github.com/saifullah4khan/TestingHQ/issues/38).
+
 
 **The web UI** ships: a dependency-free single-page app that runs the same
 engine, with dry-run as the default action and a configured-target allow-list
@@ -102,9 +158,19 @@ testinghq barrage fire --target local --send --out load.json
 testinghq barrage replay load.json --send
 ```
 
+
+The slow-retry scenario is the duplicate half of a provider retry, not a
+failure-driven one: it re-sends a message whose first delivery SUCCEEDED, which
+is what a correct pipeline should deduplicate by Message-ID. It cannot tell you
+how a pipeline behaves when the failure that caused a real retry is also
+present, and a pipeline that deduplicates only on a failure signal rather than on
+Message-ID will pass this and still duplicate a real retry.
+
 Every `testinghq` command in this file is executed as a dry run by
 `tests/unit/test_readme_examples.py`, so an example cannot rot into a command
-that exits non-zero without the suite noticing.
+that exits non-zero without the suite noticing. The three pipeline commands are
+run with a mail-sink adapter the harness supplies, because they refuse to run
+without one by design.
 
 ## Responsible use
 
@@ -136,6 +202,7 @@ than a weapon, and none of them are cosmetic:
 Barrage fires clean, valid payloads only. It reuses Blast's seeded generator for
 realistic bodies and deliberately never garbles them: Barrage is about volume, not
 malformed input. That is Blast's job.
+
 
 ## License
 

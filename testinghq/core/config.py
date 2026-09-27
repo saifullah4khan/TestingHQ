@@ -56,6 +56,7 @@ class Config:
     """Loaded TestingHQ configuration."""
 
     targets: Dict[str, Target] = field(default_factory=dict)
+    readback: Optional[Any] = None
 
     def target_urls(self):
         return [t.url for t in self.targets.values()]
@@ -64,6 +65,18 @@ class Config:
         """Target names, suitable as the `allowed_targets` argument to
         guardrails.require_configured_target."""
         return list(self.targets.keys())
+
+    def readback_table(self):
+        """The raw `[readback]` table, or None when the file declares none.
+
+        Held raw rather than parsed, and typed `Any`, on purpose: the shape and
+        the meaning of that table belong to testinghq/pipeline/adapters.py, and
+        parsing it here would make the core config loader know about a tool
+        that did not exist when it was written. The cast-free Optional[Any] is
+        what lets that stay true without importing the pipeline package into
+        core.
+        """
+        return self.readback
 
     def get(self, name: str) -> Target:
         try:
@@ -100,10 +113,16 @@ def load_config(
     `env` defaults to `os.environ`; pass an explicit mapping in tests so
     loading never depends on the real process environment.
 
+    An optional `[readback]` table is accepted and carried through untouched as
+    `Config.readback`. It describes how the pipeline tools read a system's
+    output, which only those tools interpret, so this loader validates only
+    that it is a table and leaves its contents to
+    `testinghq/pipeline/adapters.py`.
+
     Raises ConfigError for: a missing file, unparsable TOML, a `targets` key
-    that is not a table, a target entry that is not a table, or a target
-    entry missing `url`. `Target.__post_init__` further validates each url's
-    shape.
+    that is not a table, a target entry that is not a table, a target
+    entry missing `url`, or a `readback` key that is not a table.
+    `Target.__post_init__` further validates each url's shape.
     """
     if tomllib is None:  # pragma: no cover - depends on interpreter version
         raise ConfigError(
@@ -154,4 +173,11 @@ def load_config(
 
         targets[name] = Target(name=name, url=url)
 
-    return Config(targets=targets)
+    readback = raw.get("readback")
+    if readback is not None and not isinstance(readback, dict):
+        raise ConfigError(
+            f"config file {config_path}: 'readback' must be a table, "
+            f"got {type(readback).__name__}"
+        )
+
+    return Config(targets=targets, readback=readback)
