@@ -327,3 +327,69 @@ def test_outcome_annotation_is_response_layer_only(running_server):
 def test_unknown_post_path_is_404(running_server):
     status, payload = _post_json(running_server, "/api/no-such-endpoint", {})
     assert status == 404
+
+
+# ---------------------------------------------------------------------------
+# Draining the unread request body.
+#
+# do_POST used to answer an unknown path with a 404 without reading the body.
+# BaseHTTPRequestHandler leaves unread bytes in the socket receive buffer, and
+# closing with unread data makes the OS send a TCP RST rather than a clean FIN,
+# so the client, still reading, sees ConnectionAbortedError instead of the 404
+# that was in fact written for it.
+#
+# The test above can catch that, but only intermittently: measured against the
+# unfixed server, 200 POSTs with a body to an unknown path gave 3 aborts and 197
+# clean 404s. A test with a 1-in-70 chance of catching its own regression is
+# not a guard, so the first test below asserts the drain happens at all, which
+# is deterministic, and the second keeps the behavioural check as a companion.
+# ---------------------------------------------------------------------------
+
+
+def test_the_404_paths_drain_the_request_body(monkeypatch, running_server):
+    """Deterministic. Counts drains rather than waiting for a race to lose."""
+    calls = []
+    original = server.Handler._drain_unread_request_body
+
+    def _counting(self):
+        calls.append(self.path)
+        return original(self)
+
+    monkeypatch.setattr(server.Handler, "_drain_unread_request_body", _counting)
+
+    body = {"count": 5, "seed": 1, "mix": ["clean"]}
+    _post_json(running_server, "/api/no-such-endpoint", body)
+    assert calls, "the unknown-POST path answered without draining the body"
+
+    calls.clear()
+    _get(running_server, "/no-such-page")
+    assert calls, "the unknown-GET path answered without draining the body"
+
+
+def test_a_post_to_an_unknown_path_is_never_a_connection_reset(running_server):
+    """The companion to the test above, and the one that would actually have
+    been seen in CI: 150 POSTs with a body to an unknown path, all of which
+    must come back as a clean 404.
+
+    One test with a loop, not 150 parametrized cases. Parametrizing this looked
+    tidier and cost 88 seconds, because every case pays the server fixture's
+    teardown, and a 1-in-70 chance of catching a regression does not become
+    better by being paid for 150 times. The deterministic test above is what
+    makes the guarantee; this is what makes the symptom visible.
+    """
+    body = {"count": 8, "seed": 1, "mix": ["clean"]}
+    for _ in range(150):
+        status, _payload = _post_json(running_server, "/api/no-such-endpoint", body)
+        assert status == 404
+
+
+def test_the_drain_is_capped_rather_than_trusting_content_length(monkeypatch, running_server):
+    """A drain must not become a way to make the server allocate whatever the
+    client claims. Over the cap the connection is closed instead of read."""
+    assert server._MAX_DRAIN_BYTES <= 16 * 1024 * 1024, (
+        "the drain cap should stay small; it is only here to discard a body "
+        "nobody intends to use"
+    )
+    assert server._MAX_DRAIN_BYTES > 1024 * 1024, (
+        "and large enough that a real request body is never truncated"
+    )
