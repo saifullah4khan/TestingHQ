@@ -89,12 +89,21 @@ false, so a human can check in one glance.
   a non-ASCII marker in. Verified genuinely corrupting, 40 of 40.
 - [x] [A] Attachment generation in `blast/attachments.py`. Landed #10. Bytes seeded.
 - [x] [A] Named edge-case catalog in `blast/catalog.py`. Landed #10. 20 cases.
-- [ ] [B][M] Mutator and category-mix integration tests under `tests/integration/`.
-  NOT DONE and NOT BLOCKED: `corrupt.py` is on `main`, claim this freely.
-  `tests/unit/test_corrupt.py` covers the mutators in isolation (Lane A). What is
-  missing is the Lane B integration view: a fixed-seed corrupted corpus posted to
-  the fake sink, asserting the sink receives every category intact and that the
-  mix ratios hold end to end.
+- [x] [B][M] Mutator and category-mix integration tests under `tests/integration/`.
+  DONE, in `tests/integration/test_corpus_generation.py`. A fixed-seed corpus is
+  generated, corrupted per `DEFAULT_MIX`, serialized, and posted to the fake sink.
+  Covers: every mutator is referenced by at least one recipe and vice versa; each
+  recipe can be built in isolation; `clean` leaves payloads byte-identical; every
+  non-clean recipe actually changes something; all five categories are reachable
+  from the default mix; the observed distribution tracks the configured weights
+  (loosely, since these are random draws); and every payload survives the real
+  wire format.
+  Writing it found that the ground-truth contract is subtler than the existing
+  happy-path test assumed. The generator puts the RFC 5322 display-name form in
+  the header and the bare addr-spec in ground truth, and puts a full message in
+  `text` but only the substantive sentence in `body_core`. The hand-built list in
+  `test_intake_happy_path.py` used bare addresses and set `body_core == text`, so
+  its equalities held only for a shape the generator never emits.
 
 ## M3 - reporting and reproducibility: DONE
 
@@ -105,9 +114,38 @@ Blast v1 is complete. Landed #16.
 - [x] [A] Category-versus-outcome summary, expectation-based. A degenerate input
   returning a clean 4xx is a PASS; a 5xx or a timeout is a FAIL; a clean input not
   returning 2xx is a FAIL. The summary points at bugs, not statuses.
+- [x] [B][M] Mutator and category-mix integration tests under `tests/integration/`.
+  DONE, in `tests/integration/test_corpus_generation.py`. A fixed-seed corpus is
+  generated, corrupted per `DEFAULT_MIX`, serialized, and posted to the fake sink.
+  Covers: every mutator is referenced by at least one recipe and vice versa; each
+  recipe can be built in isolation; `clean` leaves payloads byte-identical; every
+  non-clean recipe actually changes something; all five categories are reachable
+  from the default mix; the observed distribution tracks the configured weights
+  (loosely, since these are random draws); and every payload survives the real
+  wire format.
+  Writing it found that the ground-truth contract is subtler than the existing
+  happy-path test assumed. The generator puts the RFC 5322 display-name form in
+  the header and the bare addr-spec in ground truth, and puts a full message in
+  `text` but only the substantive sentence in `body_core`. The hand-built list in
+  `test_intake_happy_path.py` used bare addresses and set `body_core == text`, so
+  its equalities held only for a shape the generator never emits.
 - [x] [A] Matcher protocol and StatusOnlyMatcher.
-- [ ] [B][M] Reporting and replay integration tests. NOT DONE and NO LONGER
-  BLOCKED: `core/report.py` is on main. Claim freely.
+- [x] [B][M] Reporting and replay integration tests. DONE, in
+  `tests/integration/test_reporting_and_replay.py`. Drives the real CLI send and
+  replay paths with an injected client. Covers: a fire run's artifact is exactly
+  what `core.report` derives from the same records; a 500 from the endpoint is
+  recorded as a 5xx and flags every clean payload; a raising client is recorded
+  as a timeout rather than an invented status; replay re-fires byte-identical
+  request bodies; replay refuses a tampered payload hash without firing; and a
+  dry-run replay makes zero network calls.
+  Writing it found a real defect: **`blast replay --send` had no injectable HTTP
+  client.** `_run_fire` takes one, but `_cmd_replay` never passed one, so the
+  replay send path opened real sockets and nothing about it could be tested
+  hermetically. The first run of the new test spent 81 seconds making 40 real
+  connection attempts before failing. Fixed by threading a `client` parameter
+  through `_cmd_replay` exactly as the fire path already had. The fire path's own
+  docstring calls out that `client` exists for hermetic tests; replay had no
+  equivalent and no one had noticed because no test existed.
 
 ## UI v1: DONE, with one real follow-up
 

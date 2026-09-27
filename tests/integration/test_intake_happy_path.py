@@ -1,15 +1,26 @@
 """Happy-path integration test: clean InboundEmail payloads, dry-run posted
 to the fake sink, decoded fields checked against per-payload ground truth.
 
-Scope note: the M1 backlog item calls for a fixed-seed *generated* clean
-corpus. testinghq/blast/generate.py (the clean generator, Lane A) is not
-built yet, so this file hand-builds a small fixed set of clean InboundEmail
-payloads instead of generating them. Everything downstream of generation --
-serialize.to_multipart_parts, the fake sink's encode/decode round trip, and
-the ground-truth assertions -- is exercised exactly as the generated-corpus
-version will exercise it. Once blast/generate.py lands, extend this file (or
-add a sibling) to drive the same assertions from a seeded corpus instead of
-the hand-built list below.
+Scope note: this file hand-builds a small fixed set of clean InboundEmail
+payloads rather than generating them. It was written when
+testinghq/blast/generate.py did not exist, and its own note said what should
+happen once the generator landed: drive the same assertions from a seeded
+corpus. That is now done, in test_corpus_generation.py, which also covers the
+mutators and the category mix.
+
+This file is kept rather than deleted, because it is worth having both: the
+hand-built payloads are hand-picked to be exactly the shapes an
+implementation is most likely to get wrong (an attachment, a payload with
+none, a long unicode body), and reading them is easier than reverse
+engineering a seed. But note that its assertions are weaker than they look,
+and test_corpus_generation.py explains why in detail: the hand-built list used
+bare addresses on both sides and set ground_truth.body_core equal to text,
+whereas the real generator puts an RFC 5322 display name in the header and
+only the substantive sentence in body_core. So the two equalities below held
+only for a shape the generator never emits, and had never been exercised
+against real generated data. They are kept because they still check the round
+trip faithfully for a payload shaped this way; they are not evidence about
+the generator.
 
 Hermetic: no network. "Dry-run" here means what it means throughout Blast:
 the payload is built and delivered to a controlled destination (the fake
