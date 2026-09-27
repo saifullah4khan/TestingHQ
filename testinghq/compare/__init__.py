@@ -1,4 +1,4 @@
-"""Bellwether: a regression differ for run artifacts.
+"""Compare: a regression differ for run artifacts.
 
 Blast answers "is my parser correct under this messy input". Barrage answers
 "does my pipeline hold under this much load". Neither can answer the question
@@ -10,8 +10,8 @@ past a hundred unchanged records to find the three that moved. That is manual,
 it is easy to get wrong, and the thing you most want to notice, a payload that
 used to pass and now fails, is the easiest thing to miss.
 
-Bellwether takes a baseline artifact and a candidate artifact and reports only
-what moved.
+`testinghq compare --baseline run.json --candidate run2.json` takes the two
+saved runs and reports only what moved. The name is the description.
 
 TWO PROPERTIES WORTH KNOWING BEFORE YOU TRUST IT:
 

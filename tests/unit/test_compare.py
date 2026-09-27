@@ -1,6 +1,6 @@
-"""Tests for testinghq/bellwether, the regression differ.
+"""Tests for testinghq/compare, the regression differ.
 
-The interesting assertions here are the negative ones. Bellwether's value
+The interesting assertions here are the negative ones. compare's value
 depends on two properties that are easy to break silently:
 
 1. It cannot send anything. It has no transport, no target, no --send.
@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from testinghq.bellwether import compare as bw
+from testinghq.compare import runs as bw
 from testinghq.core import report
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BELLWETHER_DIR = REPO_ROOT / "testinghq" / "bellwether"
+COMPARE_DIR = REPO_ROOT / "testinghq" / "compare"
 
 
 # ---------------------------------------------------------------------------
@@ -401,8 +401,8 @@ def test_the_verdict_is_the_first_thing_on_the_page():
     regressed = bw.compare(_artifact(records), _artifact([_record("clean-1-0000", report.CLEAN, 500)]))
     clean = bw.compare(_artifact(records), _artifact(records))
 
-    assert bw.format_diff(regressed).splitlines()[0].startswith("Bellwether: REGRESSED")
-    assert bw.format_diff(clean).splitlines()[0].startswith("Bellwether: no regressions")
+    assert bw.format_diff(regressed).splitlines()[0].startswith("compare: REGRESSED")
+    assert bw.format_diff(clean).splitlines()[0].startswith("compare: no regressions")
 
 
 def test_warnings_appear_near_the_top_not_buried():
@@ -426,7 +426,7 @@ def test_unchanged_totals_are_not_printed_as_a_wall_of_zeros():
 # ---------------------------------------------------------------------------
 
 
-def test_bellwether_defines_no_classification_rules_of_its_own():
+def test_compare_defines_no_classification_rules_of_its_own():
     """A fourth copy of the expectation rules is a mistake this repository has
     already made three times: once for the guardrails, once in
     web/expectations.py, and once in web/static/app.js. Each one was correct
@@ -434,18 +434,18 @@ def test_bellwether_defines_no_classification_rules_of_its_own():
     point is that two correct bodies can be compared forever and still differ
     where it matters."""
     offenders = []
-    for path in sorted(BELLWETHER_DIR.glob("*.py")):
+    for path in sorted(COMPARE_DIR.glob("*.py")):
         source = path.read_text(encoding="utf-8")
         for rule in ("def classify_record", "def flag_for_record", "def compute_summary"):
             if rule in source:
                 offenders.append(f"{path.name}: {rule}")
     assert not offenders, (
-        "bellwether must classify through testinghq.core.report, not define "
+        "compare must classify through testinghq.core.report, not define "
         f"its own rules: {offenders}"
     )
 
 
-def test_bellwether_never_imports_a_transport():
+def test_compare_never_imports_a_transport():
     """It reads two JSON files. That is the entire job, and it is why it needs
     no dry-run mode and no guardrail gate: there is nothing to gate. If it ever
     gains a network import it has stopped being the thing that cannot hurt
@@ -465,12 +465,12 @@ def test_bellwether_never_imports_a_transport():
         "requests",
         "asyncio",
     }
-    for path in sorted(BELLWETHER_DIR.glob("*.py")):
+    for path in sorted(COMPARE_DIR.glob("*.py")):
         assert not (_imported_names(path) & forbidden_modules), (
             f"{path.name} imports a networking module"
         )
         assert "transport" not in _imported_names(path), (
-            f"{path.name} imports a transport; bellwether compares files and "
+            f"{path.name} imports a transport; compare reads files and "
             "must not acquire a network path"
         )
 
@@ -483,11 +483,16 @@ def _imported_names(path):
     the previous version of this collector missed, because it only looked at
     `node.module` and recorded "core". Checking the aliases too is what makes
     the guard able to see the thing it exists to prevent.
+
+    Read as utf-8-sig so a stray byte-order mark makes this guard fail on the
+    mark rather than with an opaque SyntaxError. One did, on a file this
+    repository's own guard was meant to check.
     """
     import ast
 
     names = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    source = path.read_text(encoding="utf-8-sig")
+    for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 names.add(alias.name.split(".")[0])
@@ -499,7 +504,19 @@ def _imported_names(path):
     return names
 
 
-def test_the_transport_guard_would_notice_if_bellwether_grew_one():
+def test_no_module_in_the_package_carries_a_byte_order_mark():
+    """Not style. A BOM makes `ast.parse` fail, so the transport guard above
+    would raise instead of reporting, and a guard that raises on one file and
+    passes on another is not a guard."""
+    offenders = [
+        path.name
+        for path in sorted(COMPARE_DIR.glob("*.py"))
+        if path.read_bytes()[:3] == b"\xef\xbb\xbf"
+    ]
+    assert not offenders, f"byte-order marks found: {offenders}"
+
+
+def test_the_transport_guard_would_notice_if_compare_grew_a_transport_import():
     """Proven red, not assumed. The same collector that passes over the real
     modules does reject a module that reaches for the transport, which is the
     only way to know the guard is a guard."""
@@ -518,18 +535,18 @@ def test_the_transport_guard_would_notice_if_bellwether_grew_one():
 
     # And the real modules pass, so the rejection above is discriminating
     # rather than a check that rejects everything.
-    for path in sorted(BELLWETHER_DIR.glob("*.py")):
+    for path in sorted(COMPARE_DIR.glob("*.py")):
         assert "transport" not in _imported_names(path)
 
 
-def test_bellwether_does_not_import_the_guardrails_either():
+def test_compare_does_not_import_the_guardrails_either():
     """It has nothing to guard, so importing the guardrails would be
     decorative. Checked because a future author wiring up a target would reach
     for it out of habit, and the whole point of this subcommand is that it does
     not have one."""
-    for path in sorted(BELLWETHER_DIR.glob("*.py")):
+    for path in sorted(COMPARE_DIR.glob("*.py")):
         assert "guardrails" not in path.read_text(encoding="utf-8"), (
-            f"{path.name} imports guardrails; bellwether has no send path to gate"
+            f"{path.name} imports guardrails; compare has no send path to gate"
         )
 
 
@@ -557,7 +574,7 @@ def test_cli_compare_exits_zero_when_nothing_regressed(tmp_path):
     records = [_record("clean-1-0000", report.CLEAN, 200)]
     path = _write(tmp_path, "run.json", _artifact(records))
 
-    result = _run_cli("bellwether", "compare", "--baseline", path, "--candidate", path)
+    result = _run_cli("compare", "--baseline", path, "--candidate", path)
 
     assert result.returncode == bw.EXIT_NO_REGRESSION
     assert "no regressions" in result.stdout
@@ -573,7 +590,7 @@ def test_cli_compare_exits_zero_on_a_regression_by_default(tmp_path):
         tmp_path, "cand.json", _artifact([_record("clean-1-0000", report.CLEAN, 500)])
     )
 
-    result = _run_cli("bellwether", "compare", "--baseline", baseline, "--candidate", candidate)
+    result = _run_cli("compare", "--baseline", baseline, "--candidate", candidate)
 
     assert result.returncode == bw.EXIT_NO_REGRESSION
     assert "REGRESSED" in result.stdout
@@ -588,7 +605,7 @@ def test_cli_fail_on_regression_exits_nonzero(tmp_path):
     )
 
     result = _run_cli(
-        "bellwether", "compare", "--baseline", baseline,
+        "compare", "--baseline", baseline,
         "--candidate", candidate, "--fail-on-regression",
     )
 
@@ -600,11 +617,11 @@ def test_cli_refuses_a_missing_file_with_exit_two_and_no_traceback(tmp_path):
         tmp_path, "base.json", _artifact([_record("clean-1-0000", report.CLEAN, 200)])
     )
     result = _run_cli(
-        "bellwether", "compare", "--baseline", good, "--candidate", str(tmp_path / "gone.json")
+        "compare", "--baseline", good, "--candidate", str(tmp_path / "gone.json")
     )
 
     assert result.returncode == bw.EXIT_USAGE
-    assert "bellwether:" in result.stderr
+    assert "compare:" in result.stderr
     assert "Traceback" not in result.stderr
 
 
@@ -618,7 +635,7 @@ def test_cli_writes_a_machine_readable_report(tmp_path):
     out = tmp_path / "diff.json"
 
     result = _run_cli(
-        "bellwether", "compare", "--baseline", baseline, "--candidate", candidate,
+        "compare", "--baseline", baseline, "--candidate", candidate,
         "--out", str(out),
     )
 
@@ -628,13 +645,13 @@ def test_cli_writes_a_machine_readable_report(tmp_path):
     assert diff["regressions"]["count"] == 1
 
 
-def test_bellwether_needs_no_target_or_config(tmp_path):
+def test_compare_needs_no_target_or_config(tmp_path):
     """The property that makes it safe to run anywhere, including in a CI
     container with no config file and no network."""
     records = [_record("clean-1-0000", report.CLEAN, 200)]
     path = _write(tmp_path, "run.json", _artifact(records))
 
-    result = _run_cli("bellwether", "compare", "--baseline", path, "--candidate", path)
+    result = _run_cli("compare", "--baseline", path, "--candidate", path)
 
     assert result.returncode == bw.EXIT_NO_REGRESSION
     assert "target" not in result.stdout.lower()

@@ -185,7 +185,7 @@ def _delta(baseline_counts: Dict[str, int], candidate_counts: Dict[str, int], ke
     return rows
 
 
-#: Status classes in the engine's own canonical order, so bellwether's output
+#: Status classes in the engine's own canonical order, so this tool's output
 #: ordering matches `core.report`'s.
 STATUS_CLASS_KEYS = ("2xx", "4xx", "5xx", "timeout")
 
@@ -312,7 +312,7 @@ def format_diff(diff: Dict[str, Any]) -> str:
     lines: List[str] = []
     verdict = "REGRESSED" if diff["regressed"] else "no regressions"
     lines.append(
-        f"Bellwether: {verdict}  ({diff['records_compared']} record(s) "
+        f"compare: {verdict}  ({diff['records_compared']} record(s) "
         f"compared, aligned by {diff['aligned_by']})"
     )
     lines.append(
