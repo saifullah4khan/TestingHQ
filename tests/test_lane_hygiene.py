@@ -128,3 +128,62 @@ def test_web_delegates_to_canonical_guardrails():
     assert "guardrails.evaluate_send" in source, (
         "web/adapter.py must gate sending through the canonical guardrail, not a local copy"
     )
+
+
+def test_web_expectations_delegates_to_canonical_report():
+    """The same lesson, learned the same way, one module over.
+
+    web/expectations.py carried a second copy of classify_record,
+    flag_for_record and compute_summary, written before core/report.py
+    existed. The guardrail incident above is the precedent: two correct copies
+    that disagree are worse than one copy, and nothing in the build notices
+    until the disagreement has already shipped.
+
+    The check is structural rather than behavioural on purpose. A behavioural
+    check would compare outputs and pass happily while two implementations
+    drifted, which is precisely the failure mode being guarded against. What
+    must be impossible is a second body to drift.
+    """
+    expectations = REPO_ROOT / "web" / "expectations.py"
+    assert expectations.is_file(), "web/expectations.py is missing"
+
+    source = expectations.read_text(encoding="utf-8")
+    assert "from testinghq.core.report import" in source, (
+        "web/expectations.py must import the canonical report module"
+    )
+    for rule in ("classify_record", "flag_for_record", "compute_summary"):
+        assert f"def {rule}(" not in source, (
+            f"web/expectations.py must not define its own {rule}(); the rules "
+            "live in testinghq/core/report.py and are inherited, not copied"
+        )
+
+
+def test_web_static_has_no_copy_of_the_expectation_rules():
+    """The rules were in this repo three times, not twice.
+
+    web/static/app.js re-derived each record's outcome from its status code,
+    which made the browser an independent copy of core/report.py that no test
+    could check, because no CI here runs JavaScript. The server now annotates
+    every record with the engine's verdict and the browser renders it.
+
+    Asserted on the source text because that is the only thing available. A
+    behavioural test would need a JavaScript runtime, and adding one to a
+    Python-only repo to protect code that should not exist is the wrong
+    trade. The rule literals are what a drifted copy would contain.
+    """
+    app_js = REPO_ROOT / "web" / "static" / "app.js"
+    assert app_js.is_file(), "web/static/app.js is missing"
+
+    source = app_js.read_text(encoding="utf-8")
+    assert "function classifyRecord(" not in source, (
+        "web/static/app.js must read record.outcome from the server, not "
+        "re-derive it; the expectation rules live in core/report.py only"
+    )
+    for helper in ("function is2xx(", "function is5xx(", "function isTimeout("):
+        assert helper not in source, (
+            f"web/static/app.js must not define {helper[:-1]}(), which existed "
+            "only to support a local copy of the expectation rules"
+        )
+    assert "record.outcome" in source, (
+        "web/static/app.js should read the outcome the server annotated"
+    )

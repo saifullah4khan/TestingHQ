@@ -11,17 +11,27 @@ entry is a localhost URL. `fake_transport` pins the server's client seam for
 every test, so a fire request is served by a recording fake instead of a real
 connection to localhost:8000. Without it these tests would pass or fail
 depending on whether anything happened to be listening on that port.
+
+The outcome annotation is also checked here rather than in the browser. The
+server adds `outcome` to each record using the engine's own classify_record,
+and web/static/app.js used to carry its own copy of those rules, which no test
+in this repo could reach. The tests at the bottom of this file pin the
+annotation to the engine's verdict on both endpoints.
 """
 import json
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
+from testinghq.core import report
 from testinghq.core.transport import ClientResponse
 
 from web import config, server
+
+FIXTURES_DIR = Path(__file__).resolve().parents[2] / "web" / "tests" / "fixtures"
 
 
 class _RecordingClient:
@@ -247,6 +257,71 @@ def test_dry_run_over_http_sends_nothing(running_server, fake_transport):
     assert status == 200
     assert len(payload["records"]) == 8
     assert fake_transport.requests == []
+
+
+# ---------------------------------------------------------------------------
+# The outcome annotation.
+#
+# web/static/app.js used to re-derive each record's outcome from its status
+# code, which made the browser a third copy of core/report.py's rules that no
+# test in this repo could check, because no CI here runs JavaScript. The
+# server now annotates every record with the engine's verdict and the browser
+# renders it.
+#
+# These tests pin the half of that which is checkable: the annotation the
+# server sends is the engine's own verdict, for every record, on both
+# endpoints. They deliberately do not assert particular outcomes, because the
+# statuses depend on which generator produced the artifact and pinning them
+# here would make this a test of the generator.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"mix": ["clean"], "count": 6, "seed": 0},
+        {"mix": ["clean", "messy-but-valid", "degenerate"], "count": 24, "seed": 11},
+        {"mix": [], "count": 15, "seed": 3},
+    ],
+)
+def test_dry_run_records_arrive_with_the_engines_own_outcome(running_server, payload):
+    status, body = _post_json(running_server, "/api/dry-run", payload)
+    assert status == 200
+    assert body["records"]
+    for record in body["records"]:
+        assert record["outcome"] == report.classify_record(record)
+
+
+def test_fire_records_arrive_with_the_engines_own_outcome(running_server):
+    real_targets = config.load_targets()
+    some_target = next(iter(real_targets))
+    status, body = _post_json(
+        running_server,
+        "/api/fire",
+        {"target": some_target, "mix": ["clean", "degenerate"], "count": 12,
+         "seed": 4, "confirm": True},
+    )
+    assert status == 200
+    for record in body["records"]:
+        assert record["outcome"] == report.classify_record(record)
+
+
+def test_outcome_annotation_is_response_layer_only(running_server):
+    """The annotation is a response convenience, not a schema change. The
+    on-disk artifact and the shipped fixtures carry no `outcome` key, and
+    core/report.py's record keys are asserted elsewhere. This keeps the two
+    layers from quietly merging, which would put a display field into the
+    artifacts Barrage replays."""
+    fixture = json.loads(
+        (FIXTURES_DIR / "sample_run_clean.json").read_text(encoding="utf-8")
+    )
+    assert all("outcome" not in record for record in fixture["records"])
+
+    status, body = _post_json(
+        running_server, "/api/dry-run", {"mix": ["clean"], "count": 2, "seed": 0}
+    )
+    assert status == 200
+    assert all("outcome" in record for record in body["records"])
 
 
 def test_unknown_post_path_is_404(running_server):
