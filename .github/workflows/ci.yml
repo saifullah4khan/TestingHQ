@@ -10,13 +10,29 @@ defaults:
     shell: bash
 
 jobs:
-  tests:
+  # The interpreter matrix. Named "test-version" so that the gate below can
+  # keep the name "tests".
+  test-version:
     runs-on: ubuntu-latest
+    strategy:
+      # Every version pyproject.toml claims, not a sample of them. The claim
+      # used to be >=3.9 while only 3.11 was ever run, which is a promise
+      # nothing was checking, and on 3.9 and 3.10 it would have failed: the
+      # TOML parser is stdlib only from 3.11, so `tomli` is a declared
+      # conditional dependency.
+      #
+      # fail-fast is off so one broken version does not hide the state of the
+      # others. A matrix that cancels itself on the first failure cannot tell
+      # you "3.9 is broken and 3.10 is fine", which is the information you need.
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    name: tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
       - name: Run tests
@@ -30,3 +46,31 @@ jobs:
         run: |
           set -euo pipefail
           pytest -q -m "not allow_network"
+      - name: Report the interpreter actually used
+        # Guards against the matrix silently not doing what it says, which is
+        # the same failure as claiming a version nobody ran.
+        run: python -c "import sys; print('tested on', sys.version)"
+
+  # The gate. This job is named exactly "tests" because that is the name the
+  # "protect main" ruleset requires, and it is not a job name that is allowed to
+  # drift: the ruleset matches on the string. When this job was first given a
+  # matrix its name became "tests (py3.11)" and the rule stopped ever being
+  # satisfied, so the PR sat blocked forever with nothing visibly wrong.
+  #
+  # `tests/unit/test_ci_gate_names.py` asserts this job exists under this name
+  # and that it needs the matrix, so the required name cannot quietly disappear
+  # again.
+  tests:
+    name: tests
+    needs: [test-version]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any interpreter leg failed
+        if: >-
+          needs.test-version.result != 'success'
+        run: |
+          echo "at least one interpreter leg did not pass: ${{ needs.test-version.result }}"
+          exit 1
+      - name: All interpreter legs passed
+        run: echo "every claimed Python version passed"

@@ -14,11 +14,19 @@ defaults:
 jobs:
   security-tests:
     runs-on: ubuntu-latest
+    strategy:
+      # Floor and ceiling rather than every version. The guardrail tests do not
+      # vary by interpreter, so what matters here is that the extremes work,
+      # not that 3.10 does. The full matrix lives in ci.yml.
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
+    name: security-tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
       - name: Run guardrail and security tests
@@ -28,22 +36,47 @@ jobs:
 
   dependency-audit:
     runs-on: ubuntu-latest
+    strategy:
+      # Two interpreters on purpose. The project has a conditional runtime
+      # dependency, `tomli` below Python 3.11, and pip-audit only sees what is
+      # installed. Auditing on a single 3.11 job would never see it, so a
+      # vulnerable pin of tomli would ship unremarked. 3.10 audits the
+      # dependency, 3.11 audits the stdlib-only path.
+      #
+      # 3.10 rather than 3.9, which was the original choice and could not go
+      # green. pip-audit audits the whole environment, and the environment
+      # contains the runner's setuptools. The fix for PYSEC-2026-3447 is
+      # setuptools 83.0.0, and 83.0.0 declares `requires-python >=3.10`, so on
+      # 3.9 pip can install at most 79.0.1, which is the vulnerable version.
+      # The 3.9 audit leg therefore always failed and the only way past it was
+      # --ignore-vuln, which hides real CVEs to buy a green tick. 3.10 gets
+      # `tomli` installed (the marker is `python_version < '3.11'`) and can take
+      # a fixed setuptools, so it audits the dependency honestly.
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+    name: dependency-audit (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install project and pip-audit
         run: |
           set -euo pipefail
           # Upgrade the build toolchain before auditing. pip-audit audits the whole
-          # environment, so the runner's own pip and setuptools are in scope. This
-          # repo declares no runtime dependencies, so without this the job reports
-          # only on the toolchain and reds every PR for reasons unrelated to the
-          # change under review. setuptools is the one that actually bites: the
-          # hosted image ships 79.0.1 (PYSEC-2026-3447, fixed in 83.0.0).
-          # Upgrading fixes the finding. Do not swap this for --ignore-vuln, which
-          # would hide a real CVE to buy a green tick.
+          # environment, so the runner's own pip and setuptools are in scope. On a
+          # 3.11 job the project itself contributes no third-party runtime package,
+          # so without this the job reports only on the toolchain and reds every PR
+          # for reasons unrelated to the change under review. setuptools is the one
+          # that actually bites: the hosted image ships 79.0.1 (PYSEC-2026-3447,
+          # fixed in 83.0.0, which needs Python 3.10 and is why 3.9 is not in the
+          # matrix above). Upgrading fixes the finding. Do not swap this for
+          # --ignore-vuln, which would hide a real CVE to buy a green tick.
+          #
+          # The 3.10 job is not redundant. It is the one that has `tomli`
+          # installed, so it is the only job that would ever audit it.
+
           python -m pip install --upgrade pip setuptools
           pip install -e ".[dev]"
           pip install pip-audit
