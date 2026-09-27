@@ -4,6 +4,13 @@ Runs the real stdlib server on 127.0.0.1 with an OS-assigned ephemeral port
 in a background thread - loopback only, no external network, fully
 hermetic. Exercises the actual HTTP layer (routing, JSON (de)serialization,
 status codes) rather than calling handler methods directly.
+
+The one thing that is NOT hermetic by default is the fire path's transport,
+because the adapter runs the real engine now and web/targets.json's first
+entry is a localhost URL. `fake_transport` pins the server's client seam for
+every test, so a fire request is served by a recording fake instead of a real
+connection to localhost:8000. Without it these tests would pass or fail
+depending on whether anything happened to be listening on that port.
 """
 import json
 import threading
@@ -12,7 +19,30 @@ import urllib.request
 
 import pytest
 
+from testinghq.core.transport import ClientResponse
+
 from web import config, server
+
+
+class _RecordingClient:
+    def __init__(self, status=200, body=b"ok"):
+        self.status = status
+        self.body = body
+        self.requests = []
+
+    def send(self, request):
+        self.requests.append(request)
+        return ClientResponse(status=self.status, body=self.body)
+
+
+@pytest.fixture(autouse=True)
+def fake_transport(monkeypatch):
+    """Every test in this module gets a non-network transport. Autouse on
+    purpose: opting in per test is how one of them ends up making a real
+    request to a port that may or may not be listening."""
+    client = _RecordingClient()
+    monkeypatch.setattr(server, "HTTP_CLIENT", client)
+    return client
 
 
 @pytest.fixture()
@@ -187,7 +217,9 @@ def test_fire_with_truthy_string_confirm_is_refused(running_server):
     assert "error" in payload
 
 
-def test_fire_with_configured_target_and_confirm_succeeds(running_server):
+def test_fire_with_configured_target_and_confirm_succeeds(
+    running_server, fake_transport
+):
     real_targets = config.load_targets()
     some_target = next(iter(real_targets))
     status, payload = _post_json(
@@ -199,6 +231,22 @@ def test_fire_with_configured_target_and_confirm_succeeds(running_server):
     assert payload["config"]["dry_run"] is False
     assert payload["config"]["target"] == some_target
     assert len(payload["records"]) == 4
+    # And it really did go through the transport, once per record, at the
+    # configured target's URL.
+    assert len(fake_transport.requests) == 4
+    assert {r.url for r in fake_transport.requests} == {real_targets[some_target].url}
+
+
+def test_dry_run_over_http_sends_nothing(running_server, fake_transport):
+    """The dry-run/fire split has to hold over the real HTTP layer too, not
+    just at the adapter. This is the test that would catch a UI regression
+    where the default action quietly started sending."""
+    status, payload = _post_json(
+        running_server, "/api/dry-run", {"mix": ["clean"], "count": 8, "seed": 2}
+    )
+    assert status == 200
+    assert len(payload["records"]) == 8
+    assert fake_transport.requests == []
 
 
 def test_unknown_post_path_is_404(running_server):

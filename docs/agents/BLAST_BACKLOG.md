@@ -114,6 +114,34 @@ Blast v1 is complete. Landed #16.
 - [x] [B] Branded `web/` shell over the engine. Landed #11. Controls, streaming
   results table, category-versus-outcome panel, dry-run default, explicit confirm.
   Guardrails delegate to `core/guardrails.py`; do not reintroduce a local copy.
+- [x] [B][M] Swap `web/adapter.py` from the fixture stand-in to the real engine.
+  DONE. `dry_run()` and `fire()` now build the corpus with
+  `blast.generate` + `blast.corrupt`, put it on the wire with `core.transport`,
+  and build records with `core.report`. The seam held: the change is confined
+  to `web/adapter.py` plus a client parameter, and nothing else in `web/`
+  learned anything new. `web/generator.py` and the fixtures are kept, because
+  `tests/web/test_generator.py` still exercises the fixture path directly and
+  because the fixtures are the cross-check corpus the engine lane depends on.
+  Two things this exposed, both now guarded:
+  - The fire path could open a real socket, and `web/targets.json`'s first
+    entry is a localhost URL, so a test that forgot to inject a client made a
+    genuine request and waited out the transport timeout. `web/server.py` now
+    holds the client in a module-level `HTTP_CLIENT` seam, the server tests pin
+    it with an autouse fixture, and `tests/web/test_adapter.py` replaces the
+    default transport client with a raising stub so a forgotten injection fails
+    in milliseconds instead of passing quietly. This was not theoretical: a
+    duplicate test definition left behind during the swap added 12 seconds to
+    the suite and still passed.
+  - A dry run has no responses, so computing its summary with the normal rules
+    reports every payload as a timeout and flags every degenerate one as a
+    failure. Both true, both nonsense. The dry-run summary is built explicitly
+    and there is a test saying why.
+- [ ] [B][M] Delegate `web/expectations.py` to `core/report.py`. The two copies
+  agree today, verified record by record, and `tests/unit/test_report.py`
+  cross-checks them. That cross-check stops meaning anything the moment the
+  adapter above started building records with the real engine, because the UI's
+  records now come from `core/report.py` while this copy keeps classifying them.
+  This is now the top open item.
 - [x] [B][S] Fix the self-contradicting web fixture. `sample_run_with_failures.json`
   declared `by_status_class.5xx: 1` with two 500s in its own records. The defect was
   known and, worse, encoded: `tests/unit/test_report.py` carried a comment

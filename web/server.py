@@ -32,6 +32,17 @@ from testinghq.core import guardrails
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+# The HTTP client the fire path hands to the adapter. None means the engine's
+# real transport client, which opens a socket.
+#
+# This exists because the adapter runs the real engine now, and the test suite
+# must stay hermetic: web/targets.json's first entry is a localhost URL, so a
+# fire test without an injected client would make a genuine request to
+# localhost:8000 and sit there until the transport timeout expired. Before the
+# adapter was on the real engine no fire path opened a socket at all, so this
+# seam did not need to exist. Tests monkeypatch it; nothing in production does.
+HTTP_CLIENT = None
+
 _STATIC_FILES = {
     "/": "index.html",
     "/index.html": "index.html",
@@ -149,7 +160,9 @@ class Handler(BaseHTTPRequestHandler):
         seed = body.get("seed", 0)
         confirm = body.get("confirm", False)
         try:
-            artifact = adapter.fire(target, mix, count, seed, confirm)
+            artifact = adapter.fire(
+                target, mix, count, seed, confirm, client=HTTP_CLIENT
+            )
         except guardrails.GuardrailError as exc:
             # Canonical guardrail refusal: unconfigured target, unsafe public
             # host, or no explicit confirm. All are a refusal, not a bug.
