@@ -91,16 +91,20 @@ Barrage, for load rather than variety:
 testinghq barrage fire --target local --rate 20 --duration 60
 
 # actually run the load test against a configured target
-testinghq barrage fire --target local --rate 20 --duration 60 --concurrency 8 --send
+testinghq barrage fire --target local --rate 20 --duration 60 --send
 
-# open-loop (fixed arrival rate, finds the breaking point) is the default;
-# closed-loop holds concurrency fixed and lets offered load self-limit
-testinghq barrage fire --target local --mode closed --concurrency 8 --send
+# closed-loop is the other mode. It is also serial today, so --concurrency is
+# refused in both modes until an executor lands (issue #38)
+testinghq barrage fire --target local --mode closed --send
 
 # write the run artifact, then re-run it later from its seed and config
 testinghq barrage fire --target local --send --out load.json
 testinghq barrage replay load.json --send
 ```
+
+Every `testinghq` command in this file is executed as a dry run by
+`tests/unit/test_readme_examples.py`, so an example cannot rot into a command
+that exits non-zero without the suite noticing.
 
 ## Responsible use
 
