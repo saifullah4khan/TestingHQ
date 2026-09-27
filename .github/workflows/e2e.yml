@@ -27,7 +27,11 @@ defaults:
     shell: bash
 
 jobs:
-  e2e:
+  # The matrix. Named "e2e-version" so the gate below can keep the name
+  # "end-to-end". Same reason as the "test-version" / "tests" split in ci.yml:
+  # a job named after its matrix reports a context that changes with the
+  # matrix, and branch protection matches a fixed string.
+  e2e-version:
     runs-on: ubuntu-latest
     strategy:
       # Floor and ceiling only. These tests exercise the wire format and the
@@ -61,4 +65,35 @@ jobs:
           set -euo pipefail
           command -v testinghq
           testinghq --version
+
+  # The gate. This job is named exactly "end-to-end" and that name is a
+  # contract with the "protect main" ruleset, which requires it alongside
+  # "tests". Without it the only required check was the hermetic suite, so
+  # every test that opens a socket was advisory: the web UI fire-path refusal
+  # tests and the pipeline socket tests could go red on a pull request and
+  # still merge. A network assertion nobody blocks on is a comment.
+  #
+  # GitHub matches the context string exactly, which is why the matrix job
+  # above is "end-to-end (py3.10)" and this is "end-to-end". A required
+  # context that no job ever reports blocks every merge forever with nothing
+  # visibly wrong, so the ordering matters in both directions: this job must
+  # exist for the rule to be satisfiable, and the rule must be added for this
+  # job to mean anything.
+  #
+  # tests/unit/test_ci_gate_names.py asserts both halves: a job reports this
+  # name, and it needs the matrix.
+  end-to-end:
+    name: end-to-end
+    needs: [e2e-version]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if either e2e leg failed
+        if: >-
+          needs.e2e-version.result != 'success'
+        run: |
+          echo "at least one end-to-end leg did not pass: ${{ needs.e2e-version.result }}"
+          exit 1
+      - name: Both end-to-end legs passed
+        run: echo "every end-to-end leg passed"
 
