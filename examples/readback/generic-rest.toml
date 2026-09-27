@@ -1,0 +1,119 @@
+# Readback recipe: any REST API
+#
+# WHAT IS VERIFIED AND WHAT IS NOT
+#
+#   This one WAS run. The record shape below is what
+#   tests/integration/pipeline_under_test.py and the loopback e2e tests
+#   actually return, and the field paths in this file are the ones those tests
+#   exercise. It is the reference for what the http adapter does, and it is the
+#   one to copy when your own API is nothing like Zendesk or Freshdesk.
+#
+# Copy to target.toml and change the url and the field paths.
+#
+#   testinghq verify fire --target generic --send --config target.toml
+
+[targets.generic]
+name = "generic"
+url = "http://127.0.0.1:8000/intake"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The adapter does one GET per probe, with the tag appended as a query
+# parameter, and reads every record in the response. Three response shapes are
+# accepted, because all three are what real APIs do and refusing two of them
+# would push you into a custom adapter for something that is not worth one:
+#
+#   a bare list            [ {...}, {...} ]
+#   a bare object          {...}
+#   a list under a key     {"items": [ {...} ]}
+#
+# A 404, an empty list, an empty body, or a null all mean "the system holds no
+# record of this message". That is a finding, not an error: the whole point of
+# the tool is that not-found is a result. Any other non-2xx is a refusal and
+# stops the run.
+
+[readback]
+kind = "http"
+url = "http://127.0.0.1:8000/api/intake-records"
+tag_param = "tag"
+items_key = "items"
+timeout = 10.0
+
+# Optional auth for your own API. Every value must be "env:<VARIABLE>"; a
+# literal is refused, and so is a variable that is not set, before anything is
+# sent. A run artifact records the header NAMES and never the values, so an
+# artifact can be uploaded without carrying a credential.
+#
+# [readback.headers]
+# Authorization = "env:MY_API_TOKEN"
+# X-Tenant = "env:MY_TENANT"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# THE MOST IMPORTANT SECTION IN THIS FILE.
+#
+# A dotted path reaches into nested objects, and an index reaches into lists
+# (`attachments.0.name`). Only map what your API actually returns.
+#
+# Do not map a field you are hoping for. An unmapped field is reported as NOT
+# CHECKED with the reason, which is honest and actionable. A mapped field your
+# API does not return is also NOT CHECKED, so the two are equally safe, but a
+# typo in a path reads exactly like a field your API lacks, and you will spend
+# an afternoon on the wrong problem. Test the path against one real response
+# first.
+#
+# `ticket_id` is the only required one. A record without it is refused, because
+# one message producing two records and one producing one have to be
+# distinguishable, and that is what the ledger and redelivery tools are for.
+#
+# The defaults, for an API whose fields are named as TestingHQ names them, are
+# the ones below. Omit [readback.fields] entirely and you get exactly these.
+#
+#   from_addr   normalized before comparison, so "Alice <a@example.com>" and
+#               "a@example.com" both work.
+#   subject     compared case- and whitespace-insensitively.
+#   body        the payload's substantive text has to APPEAR inside it. A system
+#               that reformats or truncates the body will fail this, which is
+#               usually the finding you wanted. Use --body-exact only for a
+#               system that stores the field verbatim.
+#   route       compared case-insensitively. Without --expect-route the expected
+#               value is the message's own recipient address.
+
+[readback.fields]
+ticket_id = "id"
+from_addr = "from"
+subject = "subject"
+body = "body"
+attachment_names = "attachments"
+route = "route"
+message_id = "message_id"
+in_reply_to = "in_reply_to"
+references = "references"
+tag = "tag"
+category = "category"
+priority = "priority"
+
+# ---------------------------------------------------------------------------
+# Enumerating every record, not just the ones you looked for
+# ---------------------------------------------------------------------------
+#
+# `enumerate = true` (the default) also calls the url with no tag, to look for
+# records that belong to no payload at all: a message TestingHQ never sent that
+# arrived anyway, or one a previous run left behind. Those are reported as
+# strays.
+#
+# If your API cannot list without a tag, set enumerate = false. The cost is
+# that stray detection is off, and the report will say so rather than claiming
+# there were none.
+#
+# `list_path` is for an API whose listing lives somewhere other than `url`:
+# a summary endpoint that returns ids, with the records themselves fetched per
+# id. This adapter cannot follow a second hop, so use it only if the listing
+# endpoint returns full records under a different path than the single lookup.
+
+# enumerate = true
+# list_path = "https://api.example.com/v1/records"

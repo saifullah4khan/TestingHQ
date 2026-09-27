@@ -1,0 +1,122 @@
+# Readback recipe: Freshdesk API
+#
+# WHAT IS VERIFIED AND WHAT IS NOT
+#
+#   The TOML parses with the real loader, and the field paths are checked
+#   against sample records in tests/test_readback_recipes.py, modelled on the
+#   shapes in Freshdesk's published API documentation.
+#
+#   It has NOT been run against a live Freshdesk account. Nobody on this project
+#   has one. Treat the field paths as "what their documentation says", not as
+#   "this was seen to work".
+#
+# Copy to target.toml, fill in your domain, and pass --config.
+#
+#   export FRESHDESK_TOKEN="..."     # API key, Admin > Settings > API Keys
+#   testinghq verify fire --target freshdesk --send --config target.toml
+#
+# Never put the token in this file.
+
+[targets.freshdesk]
+name = "freshdesk"
+url = "http://127.0.0.1:8000/intake"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# Freshdesk filters with a `query` string on the ticket list endpoint, and
+# TestingHQ appends the tag as a query parameter, so `tag_param = "query"` gives
+#
+#   /api/v2/tickets?query=hq-1-0000
+#
+# The tag has to be findable in the searchable text. Freshdesk's `query`
+# parameter searches subject, description, and the requester's email, so a
+# message TestingHQ sent to a pipeline which put the tag in the body will match.
+# If your pipeline strips the tag from the body before creating the ticket, this
+# will find nothing: that is a finding, not a configuration error, and the
+# report will say no record was found.
+#
+# Auth is a header, not a query parameter. Freshdesk's API key goes in
+# Authorization as a Basic credential with any username and the key as the
+# password. That encoding is done in the shell when you export the variable, so
+# the value never has to be assembled in this file:
+#
+#   export FRESHDESK_TOKEN="$(printf ':%s' "$FRESHDESK_KEY" | base64)"
+#
+# The guardrail refuses a literal value in [readback.headers], so the only
+# thing this file can contain is the name of the variable.
+
+[readback]
+kind = "http"
+url = "https://your-domain.freshdesk.com/api/v2/tickets"
+tag_param = "query"
+items_key = "items"
+timeout = 20.0
+allow_public_hosts = true
+
+[readback.headers]
+Authorization = "env:FRESHDESK_TOKEN"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A Freshdesk ticket is flatter than a Zendesk one, so more of it is checkable.
+# `requester_id` is an integer id rather than an address, which is why
+# from_addr is not mapped to it below: the checks normalize addresses, and an
+# integer compared against an email address fails every time. See the note
+# further down.
+#
+# Skip reasons you should expect for this recipe:
+#   "adapter cannot see field" for from_addr, which is a deliberate choice
+#     rather than a gap. See below.
+#   "no record found" when a message never became a ticket.
+
+[readback.fields]
+ticket_id = "id"
+subject = "subject"
+body = "description"
+route = "group_id"
+priority = "priority"
+category = "type"
+
+# NOT MAPPED: tag. A Freshdesk ticket's `tags` is a LIST, and this adapter
+# accepts a list only for attachment_names and references, so tag = "tags" is
+# refused at load with "a readback field must be a string or null, got list".
+# The search already found the ticket BY the tag, so nothing needs to carry it
+# back. If your pipeline copies the tag into a single-valued custom field, map
+# that field's API name here instead.
+
+# ---------------------------------------------------------------------------
+# What this recipe cannot check, and why
+# ---------------------------------------------------------------------------
+#
+#   from_addr        Freshdesk records the requester as `requester_id`, an
+#                    integer, not an address. The address needs a second GET to
+#                    /api/v2/contacts/{id}, which a single-GET adapter cannot
+#                    follow. Mapping `requester_id` to from_addr would produce
+#                    a check comparing "42" against "alice@example.com", which
+#                    fails on every ticket and reads like a broken pipeline
+#                    rather than a missing lookup. So it is left unmapped and
+#                    reported as NOT CHECKED.
+#
+#   attachment_names  A ticket's attachments are not in the list payload, only
+#                     a count. Same reasoning as the Zendesk recipe: a count is
+#                     not a name, and mapping it would let a check pass by
+#                     accident.
+#
+#   in_reply_to       Freshdesk has no RFC 5322 threading headers. A threading
+#   references        check here would be comparing a different system's idea
+#                     of the same concept.
+#
+#   message_id        Not exposed on a ticket. A pipeline that records it in a
+#                     custom field can map that field's API name here and get
+#                     threading coverage.
+#
+# To get a sender check against Freshdesk, write a custom adapter:
+#
+#   testinghq verify fire --send --readback mypkg.adapters:freshdesk
+#
+# where build_freshdesk does the second GET and returns a Readback with
+# from_addr filled in. A plain function taking a Probe is a complete adapter.
