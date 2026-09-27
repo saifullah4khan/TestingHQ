@@ -21,11 +21,23 @@ JSON formats sort their keys.
 the format layer existed. That is the compatibility promise: an existing config
 with no `format` key keeps producing the identical request, and the test that
 says so compares against bytes captured before this module did.
+
+PROVENANCE, because it decides how much a passing test is worth. `sendgrid` and
+`mime` are the shapes this project already emitted or that RFC 5322 and RFC 2046
+define, so their tests are checks against a specification. `mailgun` and
+`postmark` are written from those vendors' published field lists and have not
+been fired at a live account of either, so their tests check that the bytes
+match the documented shape and nothing more. A real end-to-end run is task 10,
+and claiming these are verified against a live provider before that has happened
+is the specific dishonesty the rest of this project is careful about.
 """
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from email.message import EmailMessage
+from typing import Dict, List, Optional, Tuple
 
 from ..blast.payload import InboundEmail
 from ..blast.serialize import (
@@ -98,6 +110,230 @@ class SendgridFormat(WireFormat):
 
 
 # ---------------------------------------------------------------------------
+# mailgun: Mailgun inbound routing
+# ---------------------------------------------------------------------------
+
+
+class MailgunFormat(WireFormat):
+    """Mailgun inbound routing, which also posts multipart/form-data but with a
+    different field vocabulary.
+
+    Written from Mailgun's published inbound-routing field list. The naming
+    differences from SendGrid are the whole reason this exists and the easy
+    things to get wrong:
+
+    - The body parts are `body-plain` and `body-html`, not `text` and `html`.
+    - Mailgun calls the envelope sender `sender` and keeps `from` for the From
+      header, so a payload whose real envelope sender differs from its From
+      header lands in the right place for the first time.
+    - The recipient is `recipient`; SendGrid's `to` is the To header, which is
+      a different value when a message was Bcc'd.
+    - Headers arrive as one `message-headers` blob, not as `headers`.
+    - `stripped-text` and `stripped-html` are Mailgun's quote-stripped
+      variants. Not sent here: they are derived by Mailgun's own parser, and
+      inventing them from the full body would be fabricating a value that the
+      receiving pipeline might reasonably prefer.
+    """
+
+    name = "mailgun"
+
+    def __init__(self, boundary: str) -> None:
+        self._boundary = boundary
+
+    def encode(self, payload: InboundEmail) -> EncodedBody:
+        from .transport import encode_multipart
+
+        parts: List[FormPart] = [
+            FormField("recipient", payload.to),
+            FormField("sender", payload.envelope.from_addr),
+            FormField("from", payload.from_addr),
+            FormField("to", payload.to),
+            FormField("subject", payload.subject),
+            FormField("body-plain", payload.text),
+            FormField("body-html", payload.html),
+            FormField("Content-Type", "text/plain"),
+            FormField("message-headers", headers_text(payload.headers)),
+            FormField("Message-Id", _first_header(payload.headers, "Message-Id") or ""),
+            FormField("attachments", str(len(payload.attachments))),
+        ]
+        for index, attachment in enumerate(payload.attachments, start=1):
+            parts.append(
+                FormFile(
+                    name=f"attachment{index}",
+                    filename=attachment.filename,
+                    content_type=attachment.content_type,
+                    content=attachment.content,
+                )
+            )
+
+        return EncodedBody(
+            body=encode_multipart(parts, self._boundary),
+            content_type=f"multipart/form-data; boundary={self._boundary}",
+        )
+
+
+def _first_header(headers, name: str) -> Optional[str]:
+    """The first value for a header name, case-insensitively.
+
+    HTTP header names are case-insensitive, and a generator that wrote
+    `Message-ID` against one that expects `Message-Id` should not silently lose
+    the value. A missing header returns None, which the caller turns into the
+    empty field Mailgun itself sends.
+    """
+    wanted = name.casefold()
+    for key, value in headers.items():
+        if key.casefold() == wanted:
+            return value
+    return None
+
+
+# ---------------------------------------------------------------------------
+# postmark: Postmark inbound webhook, JSON
+# ---------------------------------------------------------------------------
+
+
+class PostmarkFormat(WireFormat):
+    """Postmark's inbound webhook, which posts a single JSON object rather than
+    multipart form fields.
+
+    Written from Postmark's published inbound webhook payload. Two shapes differ
+    from everything else here:
+
+    - Field names are PascalCase (`From`, `TextBody`, `MessageID`), and `From`
+      is the header rather than the envelope sender. Postmark's inbound webhook
+      has no envelope field, so `sender` is not invented: `headers` carries the
+      raw ones and `envelope` is left to the receiver to infer.
+    - Attachments are inline as base64 `Content` alongside their name and
+      content type, not as separate file parts. Base64 rather than a
+      multipart file, because Postmark's payload is one JSON document and a
+      nested binary would have no standard encoding.
+    """
+
+    name = "postmark"
+
+    def __init__(self, boundary: str) -> None:
+        """Accepts the boundary and ignores it, because the registry hands the
+        same arguments to every format. A JSON document has no boundary, and the
+        alternative is a special case in the lookup that a fourth format would
+        have to know about. Kept as a named unused argument rather than `*_` so
+        that the next reader can see it was a decision."""
+
+    def encode(self, payload: InboundEmail) -> EncodedBody:
+        return EncodedBody(
+            body=json.dumps(
+                self._document(payload), sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+            content_type="application/json",
+        )
+
+    def _document(self, payload: InboundEmail) -> Dict[str, object]:
+        document: Dict[str, object] = {
+            "From": payload.from_addr,
+            "To": payload.to,
+            "Cc": "",
+            "Bcc": "",
+            "Subject": payload.subject,
+            "MessageID": _first_header(payload.headers, "Message-Id") or "",
+            "Headers": [
+                {"Name": name, "Value": value}
+                for name, value in payload.headers.items()
+            ],
+            "HtmlBody": payload.html,
+            "TextBody": payload.text,
+            "ReplyTo": "",
+            "StrippedTextReply": "",
+        }
+        if payload.attachments:
+            document["Attachments"] = [
+                {
+                    "Name": attachment.filename,
+                    "ContentType": attachment.content_type,
+                    "ContentLength": len(attachment.content),
+                    "Content": base64.b64encode(attachment.content).decode("ascii"),
+                }
+                for attachment in payload.attachments
+            ]
+        else:
+            # An empty list rather than an absent key. Postmark's schema has
+            # the field, and a receiver doing `for a in body["Attachments"]`
+            # gets a KeyError on a message with no files, which is a receiver
+            # bug this format should not have to work around.
+            document["Attachments"] = []
+        return document
+
+
+# ---------------------------------------------------------------------------
+# mime: raw RFC 5322
+# ---------------------------------------------------------------------------
+
+
+class MimeFormat(WireFormat):
+    """A whole RFC 5322 message as the body, rather than a form encoding of one.
+
+    This is the format for a receiver that expects to be handed a message
+    instead of a submission about one: an SMTP-to-HTTP bridge, a Lambda that
+    takes a raw message, or anything that re-injects the mail later and needs it
+    to still be a valid message.
+
+    Built with the stdlib `email` package, because hand-rolling MIME headers and
+    boundary quoting is exactly the kind of code that is wrong in a way no
+    hermetic test will notice until a real receiver parses it.
+
+    The multipart boundary is fixed, not random. `email` would otherwise pick
+    one per message, which would make the same payload produce different bytes
+    on every run and break the determinism every other format here guarantees.
+    """
+
+    name = "mime"
+
+    def __init__(self, boundary: str) -> None:
+        self._boundary = boundary
+
+    def encode(self, payload: InboundEmail) -> EncodedBody:
+        message = EmailMessage()
+        message["To"] = payload.to
+        message["From"] = payload.from_addr
+        message["Subject"] = payload.subject
+        message.set_content(payload.text or "", charset="utf-8")
+        if payload.html:
+            message.add_alternative(payload.html, subtype="html", charset="utf-8")
+            message.set_boundary(self._boundary)
+        for attachment in payload.attachments:
+            message.add_attachment(
+                attachment.content,
+                maintype=attachment.content_type.split("/", 1)[0],
+                subtype=attachment.content_type.split("/", 1)[-1],
+                filename=attachment.filename,
+            )
+        for name, value in payload.headers.items():
+            if name.casefold() in _NOT_COPIED_HEADERS:
+                continue
+            message[name] = value
+
+        return EncodedBody(body=message.as_bytes(), content_type=message.get_content_type())
+
+
+#: Headers the MIME format sets from the payload's own fields, plus the ones
+#: `email` owns. Copying these from `payload.headers` as well would produce a
+#: message with two of each, and the wrong one wins depending on the parser.
+#: The address headers are excluded for the same reason: `to`/`from` live on
+#: the payload as fields, and the envelope sender is deliberately not written
+#: as a `Return-Path` here, because inventing one would put a fabricated address
+#: in a header a real MTA route reads.
+_NOT_COPIED_HEADERS = frozenset(
+    {
+        "content-type",
+        "content-transfer-encoding",
+        "mime-version",
+        "content-length",
+        "to",
+        "from",
+        "subject",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # The registry
 # ---------------------------------------------------------------------------
 
@@ -107,6 +343,9 @@ class SendgridFormat(WireFormat):
 #: in at lookup time breaks that without a lazy import.
 _CONSTRUCTORS = {
     SendgridFormat.name: SendgridFormat,
+    MailgunFormat.name: MailgunFormat,
+    PostmarkFormat.name: PostmarkFormat,
+    MimeFormat.name: MimeFormat,
 }
 
 
