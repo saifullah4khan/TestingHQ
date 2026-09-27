@@ -255,13 +255,24 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
     # wrote one, so every documented pipeline command was refused with a
     # complaint about a `[readback]` table that had plainly been there all
     # along.
+    #
+    # The poll settings matter as much. A documented command is run to prove it
+    # is not refused, not to produce a verdict, so the readback is told not to
+    # wait: with the real defaults one `verify check` sat out a five-second quiet
+    # window per poll and this file took seventeen seconds of it. Zero still
+    # confirms, because a confirming poll happens either way.
     if tool in PIPELINE_TOOLS and "--readback" not in out:
         sink, _artifact = _sink_and_artifact(tmp_path)
         config = tmp_path / "readback_target.toml"
         config.write_text(
             READBACK_CONFIG.format(sink=sink.as_posix()), encoding="utf-8"
         )
-        out += ["--readback", "mailbox", "--config", str(config)]
+        out += [
+            "--readback", "mailbox",
+            "--config", str(config),
+            "--quiet-window", "0",
+            "--poll-interval", "0.05",
+        ]
     return out
 
 
