@@ -46,10 +46,16 @@ jobs:
         # The tests spawn the installed `testinghq` console script, so this must
         # be an install and not just an importable source tree.
         run: pip install -e ".[dev]"
-      - name: Run end-to-end tests against a real loopback socket
+      - name: Run every network-exempt test against a real loopback socket
+        # Selected by MARKER, not by directory. tests/web/test_server.py is also
+        # marked allow_network and starts a real stdlib server, so running only
+        # tests/e2e left 23 of the 31 exempt tests running nowhere in CI while
+        # the hermetic job correctly refused to run them. Between the two jobs
+        # the suite is now covered exactly once, which
+        # tests/unit/test_hermetic_suite.py asserts by counting.
         run: |
           set -euo pipefail
-          pytest -q tests/e2e
+          pytest -q -m allow_network
       - name: Prove the binary these tests drove is the one CI installed
         run: |
           set -euo pipefail
