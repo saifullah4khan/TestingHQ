@@ -163,12 +163,16 @@ class DispatchRecord:
     result: object
 
 
-# Headroom for the gate bucket. See _pace_and_gate below: the bucket is the
-# rate authority, but it is asked for a token only once the absolute
-# schedule says the token is already earned, so a capacity of 2 leaves it
-# comfortably in credit and it never has to enter its own internal wait
-# loop. Do not lower this to 1.0: that puts the bucket exactly on the
-# knife-edge where float rounding makes it spin (see _pace_and_gate).
+# Headroom for the gate bucket. See _pace_and_gate: the schedule is the
+# pacer, and this bucket is a check on the schedule's interval arithmetic, so
+# it needs enough headroom that a correctly paced run never enters its own
+# internal wait loop. 2.0 does that.
+#
+# The old justification for this value was a float knife-edge where the bucket
+# would spin. That was the TokenBucket.acquire() defect fixed in 2026-07-27
+# and it no longer applies, so 1.0 would now be safe too. 2.0 stays because it
+# tolerates jitter for free, not because lowering it is dangerous.
+# See docs/decisions/0001-barrage-pacing.md.
 _GATE_CAPACITY = 2.0
 
 
@@ -223,35 +227,31 @@ def _hold_until_stage_end(
 def _pace_and_gate(bucket: TokenBucket) -> float:
     """Take one token from the rate-gate bucket and return seconds waited.
 
-    Pacing is done by the caller sleeping to an absolute deadline derived
-    from the stage's rate (see the dispatch loops); this bucket is the
-    independent authority that the configured rate is not exceeded. The two
-    are deliberately not the same mechanism. The schedule decides when a
-    request is due; the bucket independently confirms the rate is legal.
-    Collapsing them into one would mean a slow target silently pacing the
-    load down, which is exactly the feedback a load test must not have.
+    The schedule is the pacer. The caller sleeps to an absolute deadline
+    derived from the stage's rate, and this bucket is a check on that: the
+    schedule computes an interval by dividing, the bucket is handed the rate
+    itself, so a mistake in one is not automatically a mistake in the other,
+    and if the dispatch loop ever takes tokens faster than the rate refills,
+    this blocks and the run slows to the configured rate rather than exceeding
+    it. In a correctly paced run this returns exactly 0.0 for every dispatch.
 
-    Because the caller only arrives here once the schedule says a token is
-    earned, the bucket is already in credit and this returns ~0 without
-    waiting.
+    That is a narrower claim than it looks, and worth stating plainly. Both
+    mechanisms read the rate from `stage.rate`, so this does NOT catch a
+    disagreement about the rate; it catches an error in the interval
+    arithmetic. `tests/unit/barrage/test_runner.py` pins both halves: that the
+    gate never waits on a correct run, and that it does block when tokens are
+    taken too fast, which is what makes it a check rather than decoration.
 
-    History, because the shape of this code is surprising otherwise. Until
-    2026-07-27 the bucket could not be trusted to block at all:
-    TokenBucket.acquire() spun forever under an injected, purely additive
-    clock at any rate whose reciprocal is not exactly representable in
-    binary, which is most real rates. Barrage therefore arrived here with
-    the token already earned by construction, because the alternative was a
-    hang. That defect is fixed at the root in core/ratelimit.py (absolute
-    deadline plus a nanosecond floor) and is covered by a swept rate
-    regression in tests/unit/test_ratelimit.py and
-    tests/security/test_rate_limit_gate_contract.py.
+    Why the gate is not the pacer, which is the actual decision here: a
+    blocking gate would throttle the offered load down exactly when the target
+    is slow, and measuring that is the whole point of an open-loop run. See
+    docs/decisions/0001-barrage-pacing.md, which also records the larger
+    finding that the shipped dispatch is serial, so today neither mechanism is
+    what limits throughput.
 
-    The workaround is not being undone here, and the reason is no longer
-    the bug. The design reason stands on its own: an open-loop load test
-    must hold its arrival schedule regardless of how long the target took
-    to answer. Note the asymmetry if this is ever revisited: a closed-loop
-    run has no schedule to hold, so it would be the place where a blocking
-    acquire is actually the right tool.
+    Note the asymmetry if this is ever revisited: a closed-loop run has no
+    arrival schedule to hold, so a blocking acquire would be the right tool
+    there.
     """
     return bucket.acquire()
 
