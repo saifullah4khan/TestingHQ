@@ -73,13 +73,13 @@ def check_rate_ceiling(
         return
     if rate > max_rate:
         raise RateCeilingError(
-            f"refusing to run: rate {rate!r} req/s exceeds the safety ceiling "
+            f"rate {rate!r} req/s exceeds the safety ceiling "
             f"of {max_rate!r} req/s. Pass allow_high_rate=True (CLI: "
             "--allow-high-rate) to run above this ceiling explicitly."
         )
     if duration_seconds > max_duration:
         raise RateCeilingError(
-            f"refusing to run: duration {duration_seconds!r}s exceeds the "
+            f"duration {duration_seconds!r}s exceeds the "
             f"safety ceiling of {max_duration!r}s. Pass allow_high_rate=True "
             "(CLI: --allow-high-rate) to run above this ceiling explicitly."
         )

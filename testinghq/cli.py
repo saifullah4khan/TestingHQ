@@ -331,6 +331,27 @@ def _write_artifact(path: Optional[str], artifact: Dict[str, Any]) -> None:
     Path(path).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
 
 
+def _validate_send_plan(
+    pairs: List[Tuple[InboundEmail, str]], target_name: Optional[str],
+    config_path: str,
+) -> Optional[str]:
+    """Check that a send is permitted, returning the refusal or None.
+
+    Callers run this before announcing anything, so that a command which will
+    be refused does not first print what it was about to do.
+
+    `_run_fire` repeats the same two checks. That duplication is deliberate:
+    `_run_fire` is called directly by tests and by `blast replay`, so it cannot
+    assume its caller validated.
+    """
+    try:
+        _require_synthetic_corpus(pairs)
+        _resolve_target_url(target_name, config_path)
+    except (guardrails.GuardrailError, ConfigError) as exc:
+        return str(exc)
+    return None
+
+
 def _run_fire(
     pairs: List[Tuple[InboundEmail, str]],
     seed: int,
@@ -410,10 +431,23 @@ def _cmd_generate(args) -> int:
 
 
 def _cmd_fire(args) -> int:
+    pairs = _build_corpus(args.seed, args.count)
+
+    # The corpus is built first and a send is validated before anything is
+    # announced, so that a refusal does not follow a line describing what the
+    # command was about to do.
+    #
+    # Only a send is validated. A dry run must not need the target to resolve:
+    # saying "I would send nothing" is the point of a dry run, and requiring a
+    # configured target to say it makes the safe command the inconvenient one.
+    if args.send:
+        refusal = _validate_send_plan(pairs, args.target, args.config)
+        if refusal is not None:
+            print(f"refused: {refusal}", file=sys.stderr)
+            return 1
+
     decision = guardrails.evaluate_send(args.send)
     print(f"fire: {decision.reason}")
-
-    pairs = _build_corpus(args.seed, args.count)
 
     if not decision.will_send:
         _print_dry_run_preview(pairs, args.seed)
@@ -512,6 +546,16 @@ def _cmd_replay(args, client=None) -> int:
         )
         return 1
 
+    # Same rule as `fire`: a dry run needs no target, a send is validated
+    # before anything is announced. The target comes from the saved artifact,
+    # and the blast replay parser has no --target flag, so this cannot read
+    # `args.target`.
+    if args.send:
+        refusal = _validate_send_plan(pairs, target_name, args.config)
+        if refusal is not None:
+            print(f"refused: {refusal}", file=sys.stderr)
+            return 1
+
     decision = guardrails.evaluate_send(args.send)
     print(f"replay: {decision.reason}")
 
@@ -564,25 +608,14 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
 
 
 def _cmd_barrage_fire(args) -> int:
-    decision = guardrails.evaluate_send(args.send)
-    print(f"barrage fire: {decision.reason}")
-
     # An explicitly-passed --concurrency is refused in BOTH modes, here rather
     # than inside build_plan, because this is the layer where an operator is
     # asking for something that will have no effect. build_plan coerces it
     # instead, since the caller there may be `barrage replay` reading an
     # artifact whose stored number predates this being true.
     #
-    # Both modes, not just open. Open mode does not pass the parameter to
-    # _run_open_loop_stages at all. Closed mode does pass it and the slot logic
-    # is correct, but there is no executor, so a send is never more than one
-    # request in flight and the spare slots never hold anything. Measured
-    # against a real target slower than the arrival interval, concurrency 1, 4
-    # and 64 all produced the same throughput in both modes.
-    #
-    # The earlier version of this refusal only covered open mode and told the
-    # user to "use --mode closed", which sent them to the mode where the flag
-    # is equally inert. That was the code contradicting its own decision note.
+    # Arguments are validated before anything is announced, so a refusal does
+    # not follow a line describing what the command was about to do.
     if args.concurrency is not None and args.concurrency != 1:
         print(
             f"refused: --concurrency {args.concurrency} has no effect in "
@@ -606,6 +639,11 @@ def _cmd_barrage_fire(args) -> int:
     except (RateCeilingError, barrage_fire.BarrageError, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return barrage_fire.EXIT_REFUSED
+
+    # Announced only now that the plan is known to be legal. See the note at
+    # the top of this function.
+    decision = guardrails.evaluate_send(args.send)
+    print(f"barrage fire: {decision.reason}")
 
     if not decision.will_send:
         print(barrage_fire.format_dry_run_preview(plan, args.seed, args.pool_size))
