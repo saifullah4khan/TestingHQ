@@ -37,14 +37,24 @@ jobs:
   dependency-audit:
     runs-on: ubuntu-latest
     strategy:
-      # Two interpreters on purpose. The project now has a conditional runtime
+      # Two interpreters on purpose. The project has a conditional runtime
       # dependency, `tomli` below Python 3.11, and pip-audit only sees what is
       # installed. Auditing on a single 3.11 job would never see it, so a
-      # vulnerable pin of tomli would ship unremarked. 3.9 audits the
+      # vulnerable pin of tomli would ship unremarked. 3.10 audits the
       # dependency, 3.11 audits the stdlib-only path.
+      #
+      # 3.10 rather than 3.9, which was the original choice and could not go
+      # green. pip-audit audits the whole environment, and the environment
+      # contains the runner's setuptools. The fix for PYSEC-2026-3447 is
+      # setuptools 83.0.0, and 83.0.0 declares `requires-python >=3.10`, so on
+      # 3.9 pip can install at most 79.0.1, which is the vulnerable version.
+      # The 3.9 audit leg therefore always failed and the only way past it was
+      # --ignore-vuln, which hides real CVEs to buy a green tick. 3.10 gets
+      # `tomli` installed (the marker is `python_version < '3.11'`) and can take
+      # a fixed setuptools, so it audits the dependency honestly.
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.11"]
+        python-version: ["3.10", "3.11"]
     name: dependency-audit (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
@@ -60,11 +70,13 @@ jobs:
           # so without this the job reports only on the toolchain and reds every PR
           # for reasons unrelated to the change under review. setuptools is the one
           # that actually bites: the hosted image ships 79.0.1 (PYSEC-2026-3447,
-          # fixed in 83.0.0). Upgrading fixes the finding. Do not swap this for
+          # fixed in 83.0.0, which needs Python 3.10 and is why 3.9 is not in the
+          # matrix above). Upgrading fixes the finding. Do not swap this for
           # --ignore-vuln, which would hide a real CVE to buy a green tick.
           #
-          # The 3.9 job is not redundant. It is the one that has `tomli`
+          # The 3.10 job is not redundant. It is the one that has `tomli`
           # installed, so it is the only job that would ever audit it.
+
           python -m pip install --upgrade pip setuptools
           pip install -e ".[dev]"
           pip install pip-audit

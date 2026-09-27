@@ -10,7 +10,9 @@ defaults:
     shell: bash
 
 jobs:
-  tests:
+  # The interpreter matrix. Named "test-version" so that the gate below can
+  # keep the name "tests".
+  test-version:
     runs-on: ubuntu-latest
     strategy:
       # Every version pyproject.toml claims, not a sample of them. The claim
@@ -48,3 +50,27 @@ jobs:
         # Guards against the matrix silently not doing what it says, which is
         # the same failure as claiming a version nobody ran.
         run: python -c "import sys; print('tested on', sys.version)"
+
+  # The gate. This job is named exactly "tests" because that is the name the
+  # "protect main" ruleset requires, and it is not a job name that is allowed to
+  # drift: the ruleset matches on the string. When this job was first given a
+  # matrix its name became "tests (py3.11)" and the rule stopped ever being
+  # satisfied, so the PR sat blocked forever with nothing visibly wrong.
+  #
+  # `tests/unit/test_ci_gate_names.py` asserts this job exists under this name
+  # and that it needs the matrix, so the required name cannot quietly disappear
+  # again.
+  tests:
+    name: tests
+    needs: [test-version]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any interpreter leg failed
+        if: >-
+          needs.test-version.result != 'success'
+        run: |
+          echo "at least one interpreter leg did not pass: ${{ needs.test-version.result }}"
+          exit 1
+      - name: All interpreter legs passed
+        run: echo "every claimed Python version passed"
