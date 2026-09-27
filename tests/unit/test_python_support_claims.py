@@ -41,10 +41,11 @@ if _toml is None:  # pragma: no cover - only below 3.11 with tomli missing
         allow_module_level=True,
     )
 
-#: Every version the project says it supports, and the newest it says it does
-#: not. 3.9 is the floor because that is what is claimed; 3.14 does not exist
-#: yet and is here so that claiming it, or dropping 3.13, is caught.
-SUPPORTED = ("3.9", "3.10", "3.11", "3.12", "3.13")
+#: Every version the project says it supports. The floor is 3.10: 3.9 reached
+#: end of life in October 2025 and could not pass the dependency audit, whose
+#: setuptools fix requires 3.10 or newer. See
+#: docs/decisions/0002-python-floor-3-10.md.
+SUPPORTED = ("3.10", "3.11", "3.12", "3.13")
 FLOOR = SUPPORTED[0]
 CEILING = SUPPORTED[-1]
 

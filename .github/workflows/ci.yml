@@ -16,17 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       # Every version pyproject.toml claims, not a sample of them. The claim
-      # used to be >=3.9 while only 3.11 was ever run, which is a promise
-      # nothing was checking, and on 3.9 and 3.10 it would have failed: the
-      # TOML parser is stdlib only from 3.11, so `tomli` is a declared
-      # conditional dependency.
+      # was once >=3.9 while only 3.11 was ever run, which is a promise nothing
+      # was checking, and on 3.9 and 3.10 it was false in a way that mattered:
+      # the TOML parser is stdlib only from 3.11, so `tomli` is a declared
+      # conditional dependency. The floor is 3.10 because 3.9 reached end of
+      # life in October 2025; see docs/decisions/0002-python-floor-3-10.md.
       #
       # fail-fast is off so one broken version does not hide the state of the
       # others. A matrix that cancels itself on the first failure cannot tell
-      # you "3.9 is broken and 3.10 is fine", which is the information you need.
+      # you "3.10 is broken and 3.11 is fine", which is the information you need.
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     name: tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7

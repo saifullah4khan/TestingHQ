@@ -87,12 +87,17 @@ Attack scenarios this project defends against:
    `Good <a@example.com>, Evil <b@real-domain.com>` would be approved on
    the strength of its first recipient while the second went unchecked.
    That is a live bypass of this guardrail on any Python older than
-   3.9.19 / 3.10.14 / 3.11.9 / 3.12.4, all of which this project's
-   `requires-python = ">=3.9"` permits. On newer interpreters parseaddr
-   is not safe either, just differently wrong: it returns an empty result
-   for multi-recipient headers, which fails this guard closed on
-   perfectly valid input. `getaddresses` is correct on every supported
-   version. Both failure modes are pinned by tests in
+   3.9.19 / 3.10.14 / 3.11.9 / 3.12.4. Raising the floor to
+   `requires-python = ">=3.10"` removed 3.9 from the permitted set but did not
+   close this: 3.10.0 through 3.10.13 still predate the fix, so they are still
+   permitted. Only a patch-level floor of `>=3.10.14` would, and that is not
+   declared, because it would exclude patch releases people already run. This
+   is defence in depth for a change nobody has made, not a live vulnerability:
+   the guardrail uses `getaddresses`, so the bypass is not reachable today.
+   On newer interpreters parseaddr is not safe either, just differently wrong:
+   it returns an empty result for multi-recipient headers, which fails this
+   guard closed on perfectly valid input. `getaddresses` is correct on every
+   supported version. Both failure modes are pinned by tests in
    `tests/security/test_synthetic_content.py`.
 
    `is_synthetic_address` itself remains strict and bare-address-only. It
