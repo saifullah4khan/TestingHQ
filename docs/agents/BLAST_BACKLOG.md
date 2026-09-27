@@ -142,6 +142,29 @@ Blast v1 is complete. Landed #16.
   adapter above started building records with the real engine, because the UI's
   records now come from `core/report.py` while this copy keeps classifying them.
   This is now the top open item.
+- [x] [B][S] Fix the self-contradicting web fixture. `sample_run_with_failures.json`
+  declared `by_status_class.5xx: 1` with two 500s in its own records. The defect was
+  known and, worse, encoded: `tests/unit/test_report.py` carried a comment
+  explaining the wrong number and then asserted the corrected one against a
+  hardcoded literal, so the suite stayed green while the artifact the UI demos
+  from stayed wrong. The fixture is corrected and the test now compares against
+  the file. `tests/web/test_fixtures_schema.py` recounts the records by hand, so
+  the file and the records cannot disagree again without going red.
+- [ ] [B][M] Swap `web/adapter.py` from the fixture stand-in to the real engine.
+  NOT DONE and NOT BLOCKED. This is the highest-value Lane B item available.
+  The adapter was deliberately built as a one-seam swap for exactly this, and the
+  engine landed in #10. `web/adapter.py` still imports `web/generator.py`, the
+  deterministic fixture stand-in written when `blast/generate.py` did not exist.
+  Replace those calls with `blast.generate.generate_corpus`, `blast.corrupt.corrupt_corpus`,
+  and `core/transport`. Keep the seam: the point is that this stays a one-file change.
+  Keep `web/generator.py` and the fixtures; `tests/web` uses them and they are
+  what let this lane ship without the engine.
+- [ ] [B][M] Delegate `web/expectations.py` to `core/report.py`. The two copies
+  agree today, verified record by record, and `tests/unit/test_report.py`
+  cross-checks them. That cross-check stops meaning anything the moment the
+  adapter above starts building records with the real engine, because the UI's
+  records would come from `core/report.py` while this copy kept classifying them.
+  Do this AFTER the adapter swap, not before.
 
 ## Barrage v1: DONE
 
