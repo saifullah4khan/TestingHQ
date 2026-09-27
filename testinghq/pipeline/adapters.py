@@ -74,6 +74,11 @@ DEFAULT_FIELD_MAP: Dict[str, str] = {
     "in_reply_to": "in_reply_to",
     "references": "references",
     "tag": "tag",
+    # What a classifier decided, where the system records it. Dotted like
+    # everything else here, because a triager's output is usually nested under
+    # something like `attributes.triage.category` rather than at the top level.
+    "category": "category",
+    "priority": "priority",
 }
 
 
@@ -383,6 +388,8 @@ def readback_from_json(
         in_reply_to=_as_optional_str(values.get("in_reply_to")),
         references=normalize_message_ids(references),
         tag=_as_optional_str(values.get("tag")),
+        category=_as_optional_str(values.get("category")),
+        priority=_as_optional_str(values.get("priority")),
         fields=tuple(present),
     )
 
@@ -600,6 +607,8 @@ class MailboxAdapter:
                 ("message_id", "message_id"),
                 ("in_reply_to", "in_reply_to"),
                 ("references", "references"),
+                ("category", "category"),
+                ("priority", "priority"),
             )
             if key in record
         )
@@ -623,6 +632,8 @@ class MailboxAdapter:
             in_reply_to=record.get("in_reply_to"),
             references=normalize_message_ids(references),
             tag=tag,
+            category=record.get("category"),
+            priority=record.get("priority"),
             fields=present,
         )
 
