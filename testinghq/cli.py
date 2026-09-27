@@ -335,15 +335,14 @@ def _validate_send_plan(
     pairs: List[Tuple[InboundEmail, str]], target_name: Optional[str],
     config_path: str,
 ) -> Optional[str]:
-    """Everything that can refuse a send, checked before anything is announced.
+    """Check that a send is permitted, returning the refusal or None.
 
-    Returns an error message if the plan is not sendable, or None if it is. The
-    same two checks run again in `_run_fire`, and that duplication is
-    deliberate: `_run_fire` is called directly by tests and by `blast replay`,
-    so it cannot assume a caller already validated. Doing the work twice is
-    cheap. Getting the order wrong is what produced "fire: explicit --send flag
-    set" followed by "refused: config file not found", which reads as a command
-    that decided to send and then declined.
+    Callers run this before announcing anything, so that a command which will
+    be refused does not first print what it was about to do.
+
+    `_run_fire` repeats the same two checks. That duplication is deliberate:
+    `_run_fire` is called directly by tests and by `blast replay`, so it cannot
+    assume its caller validated.
     """
     try:
         _require_synthetic_corpus(pairs)
@@ -434,16 +433,13 @@ def _cmd_generate(args) -> int:
 def _cmd_fire(args) -> int:
     pairs = _build_corpus(args.seed, args.count)
 
-    # Build the corpus first, so a bad seed or count fails before anything is
-    # announced, and validate a SEND before announcing it. A refusal printed
-    # after "dry-run default (no --send)" reads as though the command got as far
-    # as deciding it would not send, when in fact it never got that far.
+    # The corpus is built first and a send is validated before anything is
+    # announced, so that a refusal does not follow a line describing what the
+    # command was about to do.
     #
-    # Only a send is validated here. A dry run must NOT need the target to
-    # resolve: previewing what you would send is the point of a dry run, and
-    # requiring a configured target to say "I would send nothing" makes the
-    # safe command the inconvenient one. That is deliberate and several tests
-    # depend on it.
+    # Only a send is validated. A dry run must not need the target to resolve:
+    # saying "I would send nothing" is the point of a dry run, and requiring a
+    # configured target to say it makes the safe command the inconvenient one.
     if args.send:
         refusal = _validate_send_plan(pairs, args.target, args.config)
         if refusal is not None:
@@ -618,8 +614,8 @@ def _cmd_barrage_fire(args) -> int:
     # instead, since the caller there may be `barrage replay` reading an
     # artifact whose stored number predates this being true.
     #
-    # Arguments are validated before anything is announced, so that a refusal
-    # does not follow a line describing what the command was about to do.
+    # Arguments are validated before anything is announced, so a refusal does
+    # not follow a line describing what the command was about to do.
     if args.concurrency is not None and args.concurrency != 1:
         print(
             f"refused: --concurrency {args.concurrency} has no effect in "
