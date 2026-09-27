@@ -44,6 +44,7 @@ from .core.ratelimit import TokenBucket
 from .core.transport import encode_multipart, post
 from .pipeline import adapters as pipeline_adapters
 from .pipeline import common
+from .pipeline import ledger as pipeline_ledger
 from .pipeline import messages as pipeline_messages
 from .pipeline import verify as pipeline_verify
 from .pipeline.adapters import AdapterError
@@ -101,6 +102,7 @@ def build_parser():
 
     _add_barrage_parser(sub)
     _add_verify_parser(sub)
+    _add_ledger_parser(sub)
 
     return parser
 
@@ -171,6 +173,39 @@ def _add_verify_parser(sub) -> None:
     v_check.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(v_check)
     _add_readback_poll_args(v_check)
+
+def _add_ledger_parser(sub) -> None:
+    """The `ledger` subcommand.
+
+    Deliberately without `--allow-high-rate`, for the same reason verify has
+    none: this is a correctness tool sending a few hundred messages at a rate
+    the operator chose. Sustained load is Barrage's job, with the ceiling
+    already in place.
+    """
+    ledger = sub.add_parser(
+        "ledger",
+        help="exactly-once accounting: did we lose any messages?",
+    )
+    ledger_sub = ledger.add_subparsers(dest="command", required=True)
+
+    l_fire = ledger_sub.add_parser(
+        "fire", help="send N uniquely tagged messages and reconcile them"
+    )
+    l_fire.add_argument("--target")
+    l_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    l_fire.add_argument(
+        "--count", type=int, default=pipeline_ledger.DEFAULT_COUNT,
+        help="how many uniquely tagged messages to send",
+    )
+    l_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
+    l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(l_fire)
+    _add_readback_poll_args(l_fire)
 
 def _resolve_readback(args):
     """Build the ReadbackConfig for whichever pipeline command is running.
@@ -977,6 +1012,41 @@ def _cmd_verify_check(args) -> int:
     )
 
 
+
+def _cmd_ledger_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    print(f"ledger fire: {decision.reason}")
+    if not decision.will_send:
+        print(
+            pipeline_ledger.format_dry_run(
+                args.count, args.seed, args.tag_prefix, readback
+            )
+        )
+        return EXIT_DRY_RUN
+
+    return pipeline_ledger.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        route=args.expect_route,
+        quiet_window=args.quiet_window,
+        max_wait=args.max_wait,
+        poll_interval=args.poll_interval,
+    )
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -997,6 +1067,10 @@ def main(argv=None):
         return _not_yet(args.command)
     if args.tool == "compare":
         return _cmd_compare(args)
+    if args.tool == "ledger":
+        if args.command == "fire":
+            return _cmd_ledger_fire(args)
+        return _not_yet(args.command)
     if args.tool == "verify":
         if args.command == "fire":
             return _cmd_verify_fire(args)

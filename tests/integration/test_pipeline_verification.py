@@ -35,6 +35,7 @@ from pipeline_under_test import PipelineUnderTest
 
 from testinghq.core import report
 from testinghq.pipeline import expectations
+from testinghq.pipeline import ledger as ledger_tool
 from testinghq.pipeline import verify as verify_tool
 from testinghq.pipeline.adapters import ReadbackConfig
 from testinghq.pipeline.common import EXIT_MISMATCH, EXIT_OK
@@ -127,6 +128,30 @@ def _artifact(tmp_path, name: str) -> dict:
             f"writes nothing, so the run's own output is the diagnosis."
         )
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _run_ledger(pipeline, config_path, tmp_path, name="ledger.json", **kwargs):
+    lines: list = []
+    code = ledger_tool.execute(
+        SEED,
+        COUNT,
+        TARGET,
+        config_path,
+        str(tmp_path / name),
+        readback=_readback(),
+        client=pipeline,
+        readback_client=pipeline,
+        sleep=_VIRTUAL.sleep,
+        clock=_VIRTUAL,
+        printer=lines.append,
+        **kwargs,
+    )
+    text = "\n".join(lines)
+    try:
+        artifact = _artifact(tmp_path, name)
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}\n--- run output ---\n{text}") from None
+    return code, artifact, text
 
 
 def _run_verify(pipeline, config_path, tmp_path, name="verify.json", **kwargs):
@@ -567,6 +592,141 @@ class _LateDuplicatePipeline:
     def close(self):
         return self.inner.close()
 
+
+def test_a_readback_that_cannot_enumerate_reports_strays_as_not_searched(
+    target_config, tmp_path, with_pipeline
+):
+    """The honest null, not a zero. A ledger that reported 'extra: 0' for a
+    question it never asked would be worse than one that says it did not ask.
+
+    The exit code is non-zero too, which is the strict half of the same rule: a
+    ledger that exits 0 while knowing it could not check for tickets it never
+    sent is a footgun in exactly the pipeline it was bought for."""
+    pipeline = with_pipeline(can_enumerate=False)
+    code, artifact, text = _run_ledger(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_MISMATCH
+    assert artifact["summary"]["strays_searched"] is False
+    assert artifact["summary"]["extra"] is None
+    assert artifact["summary"]["verdict"] == "UNVERIFIED STRAYS"
+    assert "NOT SEARCHED" in text
+    assert "does not count as balanced" in text
+
+def test_a_readback_that_can_enumerate_searches_for_strays(
+    target_config, tmp_path, with_pipeline
+):
+    pipeline = with_pipeline()
+    _code, artifact, _text = _run_ledger(pipeline, target_config, tmp_path)
+    assert artifact["summary"]["strays_searched"] is True
+    assert artifact["summary"]["extra"] == []
+
+def test_a_correct_pipeline_ledgers_balanced(target_config, tmp_path, with_pipeline):
+    """The baseline for the ledger, and the question it exists to answer."""
+    pipeline = with_pipeline()
+    code, artifact, text = _run_ledger(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_OK, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "BALANCED"
+    assert summary["sent"] == COUNT
+    assert summary["produced"] == COUNT
+    assert summary["exactly_once"] == COUNT
+    assert summary["missing"] == []
+    assert summary["duplicated"] == []
+
+def test_the_ledger_reports_a_duplicate_that_appeared_late(
+    target_config, tmp_path, with_pipeline
+):
+    """The case a single read after the last send misses.
+
+    Every message is answered with one ticket on the first read, so a readback
+    that only asked "did it create anything" would finish there and report a
+    balanced ledger. The second ticket lands while the run is still watching.
+    The virtual clock advances by the sleep amount, so this costs no real time
+    and still exercises the real polling loop.
+    """
+    pipeline = _LateDuplicatePipeline(delay_polls=2)
+    with_pipeline.publish(pipeline)
+    code, artifact, text = _run_ledger(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_MISMATCH, text
+    duplicated = artifact["summary"]["duplicated"]
+    assert len(duplicated) == COUNT, duplicated
+    assert all(entry["count"] == 2 for entry in duplicated)
+    assert artifact["summary"]["verdict"] == "UNACCOUNTED"
+    assert "duplicated" in text
+    assert artifact["summary"]["readback"]["stable"] is True
+    assert artifact["summary"]["readback"]["polls"] > 2, (
+        "the run reported a duplicate without ever looking twice"
+    )
+
+def test_a_late_duplicate_is_caught_by_verify_too(
+    target_config, tmp_path, with_pipeline
+):
+    pipeline = _LateDuplicatePipeline(delay_polls=2)
+    with_pipeline.publish(pipeline)
+    code, artifact, text = _run_verify(pipeline, target_config, tmp_path)
+
+    assert code == EXIT_MISMATCH
+    assert any(
+        "records for one message" in mismatch
+        for record in artifact["records"]
+        for mismatch in record["assertion"]["mismatches"]
+    )
+
+class _LateDuplicatePipeline:
+    """A pipeline that creates a second ticket, a few polls after the first.
+
+    Wraps the real one rather than reimplementing it, so the multipart parse
+    and the ticket model stay the ones under test everywhere else and only the
+    timing is new.
+    """
+
+    def __init__(self, delay_polls: int = 2) -> None:
+        self.inner = PipelineUnderTest(duplicate_on_redelivery=True)
+        self.delay_polls = delay_polls
+        self._fetches = 0
+        self.send = self.inner.send
+
+    def fetch(self, probe):
+        self._fetches += 1
+        found = self.inner.fetch(probe)
+        if self._fetches > self.delay_polls and len(found) == 1:
+            # The late second copy. Same Message-ID, so a correct pipeline should
+            # never have produced it, which is the whole finding.
+            return found + [self._second_copy(found[0])]
+        return found
+
+    @staticmethod
+    def _second_copy(record: Readback) -> Readback:
+        """The late duplicate: the same message, on a second ticket, carrying
+        every field the first copy did. A pipeline that produced only this one
+        would look perfectly correct to any check that looked once."""
+        return Readback(
+            exists=True,
+            ticket_id=f"{record.ticket_id}-late",
+            from_addr=record.from_addr,
+            subject=record.subject,
+            body=record.body,
+            attachment_names=record.attachment_names,
+            route=record.route,
+            message_id=record.message_id,
+            in_reply_to=record.in_reply_to,
+            references=record.references,
+            tag=record.tag,
+            fields=record.fields,
+        )
+
+    def list_all(self):
+        return self.inner.list_all()
+
+    def close(self):
+        return self.inner.close()
+
+
+# ---------------------------------------------------------------------------
+# Threading defects, which only the redelivery scenarios can reach
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # The helpers themselves stay honest

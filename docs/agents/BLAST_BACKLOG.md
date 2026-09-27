@@ -275,8 +275,8 @@ arrived whole, that the attachments came through, or that the message was routed
 anywhere useful. This milestone adds the seam those tools are built on: a way to ask a system
 what it produced, and the ground truth to check the answer against. It is the
 first work in this repository that could fail a pipeline which was answering
-200 the whole time. `verify` is built on it here; `ledger` and `redeliver` follow in
-their own pull requests.
+200 the whole time. `verify` and `ledger` are built on it here; `redeliver` follows in its own
+pull request.
 
 This section is being written in the same PR that lands the code, which is the
 house rule and not an accident: the file encodes state `main` already knows, and
@@ -336,6 +336,12 @@ hand-syncing it has rotted twice already.
   grade against, so verifying one would report a failure every time a mutator
   did its job. `verify check` verifies the clean records of a mixed blast run and
   prints how many it skipped and why.
+
+- [x] [A] `ledger` in `pipeline/ledger.py`. Exactly-once accounting over N tagged
+  messages: missing, duplicated, extra, wrong, each a different bug with a
+  different fix and reported separately. `strays_searched` is null rather than
+  false when the adapter cannot enumerate, and an unsearched stray hunt does not
+  count as balanced, so a lookup-only adapter cannot pass a CI gate by accident.
 
 - [x] [A][M] Tests. `tests/integration/pipeline_under_test.py` is a configurable
   intake pipeline, correct by default and breakable one defect at a time, and
