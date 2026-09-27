@@ -8,18 +8,24 @@ suite. For the real hermetic tests, see `tests/integration/`.
 - **`target.example.toml`** -- a sample target configuration, shaped to
   match `testinghq.core.config.Config` (a named table of targets, each with
   a `name` and a `url`). Copy it, rename it, and point `url` at an intake
-  endpoint you own or have explicit permission to test. The TOML loader
-  that reads a file like this is not wired up yet (`docs/agents/BLAST_BACKLOG.md`,
-  M1, Lane A); once it lands, `testinghq blast fire --target <name>` will
-  read a file shaped like this one.
+  endpoint you own or have explicit permission to test. Pass it with
+  `--config <path>`, which defaults to `./target.toml`, so
+  `testinghq blast fire --target <name> --config target.toml` reads a file
+  shaped like this one.
 
-- **`demo.py`** -- not yet wired. It depends on the clean generator
-  (`testinghq/blast/generate.py`) and the transport (`testinghq/core/transport.py`),
-  both still in progress (M1, Lane A). Once those land, this file will
-  generate a clean corpus from a seed and dry-run it end to end against
-  `tests/integration/fake_sink.py`, the same in-process sink the
-  integration tests use to check payloads survive the real wire format
-  intact.
+- **`demo.py`** -- a self-contained dry run: builds a small deterministic
+  clean corpus from a seed with `testinghq.blast.generate`, serializes each
+  payload the way `transport.post` would, and stops there. It never touches
+  the network, so it is safe to run anywhere.
+
+  ```
+  python examples/demo.py
+  python examples/demo.py --count 50 --seed 7
+  ```
+
+  It does not POST. The integration tests in `tests/integration/` are what
+  check payloads survive the real wire format intact, against the in-process
+  sink at `tests/integration/fake_sink.py`.
 
 ## Dry-run versus live
 

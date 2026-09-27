@@ -164,8 +164,14 @@ def _add_barrage_parser(sub) -> None:
 
 
 def _not_yet(command):
+    """Fallback for a subcommand argparse accepted but main() has no handler
+    for. Every current subcommand is implemented, so reaching this means the
+    parser and the dispatcher disagree, which is a bug in this file rather
+    than a missing feature. The message says so instead of describing a
+    milestone that finished long ago."""
     print(
-        f"testinghq blast {command}: not implemented yet (M0 skeleton)",
+        f"testinghq blast {command}: no handler is wired up for this "
+        f"subcommand, which is a bug (argparse offered it anyway)",
         file=sys.stderr,
     )
     return 2

@@ -32,9 +32,26 @@ core: the firing transport, target configuration, guardrails, and rate limiting.
 
 ## Status
 
-This is early. The M0 skeleton is in place: the package installs, the CLI surface
-and safety guardrails exist and are tested, and CI runs on every change. The
-generator, transport, reporting, and web UI land across the milestones below.
+Both tools work end to end. The suite is 529 tests, green on every push, and CI
+runs on every change.
+
+**Blast** ships: seeded deterministic generation, six mutators behind five
+messiness recipes, a 20-case named edge-case catalog, seeded attachments,
+SendGrid Inbound Parse-shaped serialization, the HTTP transport, target
+configuration from a TOML file, rate limiting, the safety guardrails, the run
+artifact, expectation-based reporting with pass/fail assertions, and
+byte-identical replay from a saved run.
+
+**Barrage** ships: closed-loop and open-loop firing, a rate-controlled schedule
+with a warmup ramp, throughput and latency percentile reporting, a run artifact,
+and replay from a saved run.
+
+**The web UI** ships: a dependency-free single-page app that runs the same
+engine, with dry-run as the default action and a configured-target allow-list
+plus an explicit confirm step before anything is sent.
+
+Milestone history and what is still open are tracked in
+`docs/agents/BLAST_BACKLOG.md`.
 
 ## Install
 

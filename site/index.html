@@ -44,11 +44,9 @@
       named edge-case catalog, SendGrid Inbound Parse-shaped serialization,
       an injectable HTTP transport, target configuration, rate limiting, and
       the safety guardrails, backed by a dedicated security test suite. The
-      CLI's argument surface matches that engine, but
-      <code>testinghq blast generate</code>, <code>fire</code>, and
-      <code>replay</code> are not wired up yet and each still prints a "not
-      implemented yet" placeholder. Reporting, the run artifact, replay, and
-      pass/fail assertions, has not been built yet either. See
+      CLI is wired to that engine: <code>testinghq blast generate</code>,
+      <code>fire</code>, and <code>replay</code> all run, as do the run
+      artifact, expectation-based reporting, and pass/fail assertions. See
       <a href="#install">Install and quick start</a> for exactly what runs
       today.
     </div>
@@ -227,27 +225,27 @@ testinghq blast fire --target local --send</code></pre>
 
     <h3>What is real right now</h3>
     <p>
-      The commands above are the actual argument surface defined in the CLI
-      today: <code>testinghq blast generate</code>, <code>testinghq blast
+      All of it. The commands above are the actual argument surface defined in
+      the CLI: <code>testinghq blast generate</code>, <code>testinghq blast
       fire</code> (with <code>--target</code>, <code>--seed</code>,
-      <code>--count</code>, and <code>--send</code>), and <code>testinghq
-      blast replay &lt;run&gt;</code>. Running any of them today prints a "not
-      implemented yet" placeholder and exits non-zero: the CLI is not yet
-      wired to the engine underneath it. The one exception is the dry-run
-      decision inside <code>fire</code>, which really runs before the
-      placeholder: it evaluates and prints whether the run would send, based
-      on whether you passed <code>--send</code>, and that decision is
-      tested.
+      <code>--count</code>, <code>--config</code>, <code>--rate</code>, and
+      <code>--send</code>), and <code>testinghq blast replay &lt;run&gt;</code>.
+      Each one runs against the real engine underneath it. <code>generate</code>
+      writes a corpus and a manifest to disk, <code>fire</code> either previews
+      what it would send or posts it, and <code>replay</code> rebuilds the
+      original corpus from a saved run's seed and config and refuses if the
+      recomputed payload hashes do not match the ones the artifact recorded.
     </p>
     <p>
-      The engine those commands will eventually call is built and tested on
-      its own: deterministic generation, the six mutators and five messiness
-      recipes, seeded attachments, the 20-case catalog, SendGrid-shaped
-      serialization, the HTTP transport, target configuration, and rate
-      limiting. Reporting, the run artifact that would give <code>generate</code>,
-      <code>fire</code>, and <code>replay</code> something to actually produce,
-      has not been built yet. Wiring the CLI to the engine and landing
-      reporting are the next milestones; see <a href="#roadmap">Roadmap</a>.
+      A fire run prints an expectation-based summary: how many payloads landed
+      in each response class, how many broke an expectation, and which ones.
+      A clean payload that did not get a 2xx is a failure. A degenerate payload
+      that got a clean 4xx is a pass. That is the product's whole point, and it
+      is what the run artifact records per record.
+    </p>
+    <p>
+      The local web UI runs the same engine rather than a fixture stand-in. See
+      <a href="#roadmap">Roadmap</a> for what is still open.
     </p>
   </section>
 
@@ -259,29 +257,29 @@ testinghq blast fire --target local --send</code></pre>
     </p>
     <div class="roadmap-grid">
       <div class="roadmap-card">
-        <span class="tag tag-progress">In progress</span>
+        <span class="tag tag-progress">Shipped</span>
         <h3>Blast</h3>
         <p>
           Variety and correctness: proving a parser handles the full
           spectrum of inbound-email messiness. Generation, the six mutators
           and five messiness recipes, attachments, the named catalog,
-          serialization, transport, configuration, rate limiting, and
-          guardrails are built and tested. Reporting, the run artifact,
-          replay, and a pass/fail assertion hook, is landing next; wiring the
-          CLI's <code>generate</code>/<code>fire</code>/<code>replay</code>
-          commands to the engine follows that. A local web UI already
-          previews the intended dry-run and results flow on a fixture
-          stand-in, ahead of that wiring.
+          serialization, transport, configuration, rate limiting, guardrails,
+          the run artifact, expectation-based reporting with pass/fail
+          assertions, and byte-identical replay are all built and tested. The
+          local web UI runs the same engine, not a stand-in.
         </p>
       </div>
       <div class="roadmap-card">
-        <span class="tag tag-next">Next, not available</span>
+        <span class="tag tag-progress">Shipped</span>
         <h3>Barrage</h3>
         <p>
           Volume and throughput. Where Blast proves a parser is correct under
-          messy input, Barrage is planned to prove a pipeline holds under
-          load. Barrage has not been built yet: no code exists for it today,
-          and it is currently design-stage only.
+          messy input, Barrage proves a pipeline holds under load. Both
+          firing modes are built: open-loop holds a fixed arrival rate and
+          finds the breaking point, closed-loop holds concurrency fixed and
+          lets offered load self-limit. Reports throughput against target,
+          p50/p90/p99 latency, and error rate over time, and writes a run
+          artifact that can be replayed later from its seed and config.
         </p>
       </div>
     </div>

@@ -7,12 +7,12 @@ Nothing to build, nothing to `npm install`.
 ## Run it
 
 ```
-cd wt-web-ui
 python -m web.server
 ```
 
 Then open http://127.0.0.1:8765/ in a browser. Use `--port` to pick a
-different port, `--host` to bind elsewhere.
+different port, `--host` to bind elsewhere. Run it from the repository
+root, not from inside `web/`.
 
 ## What it does
 
@@ -34,20 +34,48 @@ different port, `--host` to bind elsewhere.
 
 ## How it's built
 
-- `web/expectations.py` - pure functions implementing the expectation
-  rules above (`classify_record`, `flag_for_record`, `compute_summary`).
-  No I/O, directly unit tested.
-- `web/generator.py` - a deterministic, fixture-backed stand-in for the
-  real Blast engine (`testinghq/blast/generate.py`, which does not exist
-  on this branch yet). Same seed/mix/count always produces the same
-  artifact.
+- `web/expectations.py` - a re-export of the expectation rules from
+  `testinghq/core/report.py`. It defines none of them itself. See the
+  "one definition" section below.
+- `web/generator.py` - a deterministic, fixture-backed generator, retained
+  as the schema corpus the test suite and the shipped fixtures are built
+  around. The UI does not run on it: `web/adapter.py` calls the real engine.
 - `web/adapter.py` - the single seam between the UI and the engine.
   `dry_run()` and `fire()` are the only two functions the rest of the app
-  calls to get a run artifact; when the real engine lands, only this file
-  needs to change.
+  calls to get a run artifact, and both build their corpus with
+  `testinghq.blast.generate` and `testinghq.blast.corrupt`, fire through
+  `testinghq.core.transport`, and build records with
+  `testinghq.core.report`.
 - `web/config.py` / `web/targets.json` - the target allow-list that
   populates the dropdown. Loading fails loudly if a target is malformed,
   is not http(s), or names a host the canonical guardrail refuses.
+- `web/server.py` - the stdlib HTTP server: serves `web/static/` and
+  exposes `POST /api/dry-run` and `POST /api/fire`.
+- `web/static/` - the actual page (`index.html`, `style.css`, `app.js`).
+  `app.js` does not classify anything: the server annotates every record
+  with its `outcome`, computed by the engine, and the browser renders that.
+- `web/tests/fixtures/` - two sample run artifacts matching the documented
+  schema (one clean, one with both highlighted failure classes present),
+  used by the test suite in `tests/web/` as a schema contract check.
+
+## One definition, imported not copied
+
+The expectation rules live in exactly one place, `testinghq/core/report.py`:
+
+- `web/expectations.py` re-exports them and defines none of them.
+- `web/static/app.js` used to carry a second, JavaScript copy that no test
+  in this repo could reach. It is gone. The server annotates each record
+  with the engine's verdict and the browser renders it. The annotation is
+  response-layer only; the on-disk artifact schema is unchanged.
+- `tests/test_lane_hygiene.py` fails the build if a rule body reappears in
+  `web/expectations.py`, or if `classifyRecord` or its `is2xx`/`is5xx`/
+  `isTimeout` helpers reappear in `web/static/app.js`. Both guards were
+  verified red by re-inlining what they forbid.
+
+This is not tidiness. The web lane previously duplicated the *guardrails*,
+the security lane hardened the canonical copy, and the two copies disagreed:
+a target the CLI refused was one the UI would have fired at. Two correct
+copies are worse than one, because nothing in the build notices.
 
 ## Guardrails: one definition, imported not copied
 
@@ -71,25 +99,17 @@ Two things sit on top, both additive and strictly narrowing:
   which is what makes the public-host check actually bite on the real
   destination. `tests/web/test_adapter.py` pins this wiring so it cannot
   silently regress.
-- `web/server.py` - the stdlib HTTP server: serves `web/static/` and
-  exposes `POST /api/dry-run` and `POST /api/fire`.
-- `web/static/` - the actual page (`index.html`, `style.css`, `app.js`).
-  `app.js` intentionally mirrors the classification rules in
-  `expectations.py` so per-row highlighting in the table agrees with the
-  summary panel.
-- `web/tests/fixtures/` - two sample run artifacts matching the documented
-  schema (one clean, one with both highlighted failure classes present),
-  used by the test suite in `tests/web/` as a schema contract check.
 
 ## Run the tests
 
 ```
-cd wt-web-ui
-python -m pytest -q
+python -m pytest -q tests/web
 ```
 
 The server tests bind to `127.0.0.1` on an OS-assigned ephemeral port in a
-background thread; no external network is used anywhere in the suite.
+background thread. The fire path takes an injectable HTTP client, pinned to
+a recording fake by an autouse fixture, so no test in the suite reaches the
+network even though `web/targets.json` lists a localhost URL.
 
 ## Responsible use
 

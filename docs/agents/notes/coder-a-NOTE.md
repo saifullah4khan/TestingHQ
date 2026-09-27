@@ -1,6 +1,12 @@
 branch: agents/coder-a-2026-07-16
 implementing: M1 [A][M] InboundEmail model in blast/payload.py; M1 [A][M] Serialize InboundEmail to SendGrid Inbound Parse multipart fields (parsed mode)
 
+RESOLVED 2026-07-27. Kept as a record, do not act on it. Every "not yet
+built" and "left for a later session" note below was true on 2026-07-16 and
+is now false: `blast/generate.py` and `core/transport.py` both landed, the
+CLI is wired to the engine, and M3 reporting reads the ground-truth metadata
+this note describes. The backlog is `docs/agents/BLAST_BACKLOG.md`.
+
 Scope: these two backlog items are a natural pair (model, then its wire
 serialization) and both land under testinghq/blast/**. Left the transport,
 generator, and determinism-test items for a later Lane A session so this run
