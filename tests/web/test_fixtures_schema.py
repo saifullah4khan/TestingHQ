@@ -1,4 +1,4 @@
-﻿"""Validate the sample fixtures under web/tests/fixtures/ against the
+"""Validate the sample fixtures under web/tests/fixtures/ against the
 documented RUN ARTIFACT SCHEMA, and cross-check the "failures" fixture
 against web/expectations.py so the two stay in agreement.
 
