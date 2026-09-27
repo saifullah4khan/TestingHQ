@@ -114,6 +114,14 @@ Blast v1 is complete. Landed #16.
 - [x] [B] Branded `web/` shell over the engine. Landed #11. Controls, streaming
   results table, category-versus-outcome panel, dry-run default, explicit confirm.
   Guardrails delegate to `core/guardrails.py`; do not reintroduce a local copy.
+- [x] [B][S] Fix the self-contradicting web fixture. `sample_run_with_failures.json`
+  declared `by_status_class.5xx: 1` with two 500s in its own records. The defect was
+  known and, worse, encoded: `tests/unit/test_report.py` carried a comment
+  explaining the wrong number and then asserted the corrected one against a
+  hardcoded literal, so the suite stayed green while the artifact the UI demos
+  from stayed wrong. The fixture is corrected and the test now compares against
+  the file. `tests/web/test_fixtures_schema.py` recounts the records by hand, so
+  the file and the records cannot disagree again without going red.
 - [ ] [B][M] Swap `web/adapter.py` from the fixture stand-in to the real engine.
   NOT DONE and NOT BLOCKED. This is the highest-value Lane B item available.
   The adapter was deliberately built as a one-seam swap for exactly this, and the
@@ -123,6 +131,12 @@ Blast v1 is complete. Landed #16.
   and `core/transport`. Keep the seam: the point is that this stays a one-file change.
   Keep `web/generator.py` and the fixtures; `tests/web` uses them and they are
   what let this lane ship without the engine.
+- [ ] [B][M] Delegate `web/expectations.py` to `core/report.py`. The two copies
+  agree today, verified record by record, and `tests/unit/test_report.py`
+  cross-checks them. That cross-check stops meaning anything the moment the
+  adapter above starts building records with the real engine, because the UI's
+  records would come from `core/report.py` while this copy kept classifying them.
+  Do this AFTER the adapter swap, not before.
 
 ## Barrage v1: DONE
 

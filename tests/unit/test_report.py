@@ -135,29 +135,25 @@ def test_build_artifact_matches_sample_run_clean():
 
 
 def test_build_artifact_matches_sample_run_with_failures():
-    # NOTE: web/tests/fixtures/sample_run_with_failures.json's checked-in
-    # summary.by_status_class["5xx"] is 1, but two records in that fixture
-    # have response.status == 500 (clean-7-0001 and degenerate-7-0000), so
-    # the correct count is 2. This is confirmed to be a defect in the
-    # fixture itself, not a rule disagreement: running web/expectations.py's
-    # own compute_summary() against this same fixture also yields 2, not
-    # the 1 baked into the file. See the engine M3 report for the flagged
-    # defect. This test asserts against the correctly-recomputed summary
-    # (by_status_class only) rather than byte-matching the fixture's stale
-    # inline summary block, so it does not silently encode the bug.
+    # This used to carry a ten-line comment explaining that the fixture's
+    # checked-in by_status_class said 5xx: 1 when two of its six records were
+    # 500s, and then assert the corrected value instead of the file's, so the
+    # suite would stay green while the shipped artifact stayed wrong. The
+    # fixture was the defect. It is corrected, and this compares the whole
+    # summary byte for byte exactly as the clean fixture's test above does.
+    #
+    # Comparing against the file rather than against a hardcoded literal is
+    # the point. A hardcoded copy is a second place to be wrong, and it is
+    # how the original test came to pass while the artifact it described was
+    # incorrect.
     fixture = _load_fixture("sample_run_with_failures.json")
     artifact = report.build_artifact(
         fixture["seed"], fixture["config"], fixture["records"]
     )
+    assert artifact["summary"] == fixture["summary"]
+    assert artifact["seed"] == fixture["seed"]
+    assert artifact["config"] == fixture["config"]
     assert artifact["records"] == fixture["records"]
-    assert artifact["summary"]["by_category"] == fixture["summary"]["by_category"]
-    assert artifact["summary"]["flags"] == fixture["summary"]["flags"]
-    assert artifact["summary"]["by_status_class"] == {
-        "2xx": 1,
-        "4xx": 2,
-        "5xx": 2,
-        "timeout": 1,
-    }
 
 
 # ---------------------------------------------------------------------------
