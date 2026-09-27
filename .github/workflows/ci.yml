@@ -12,11 +12,25 @@ defaults:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      # Every version pyproject.toml claims, not a sample of them. The claim
+      # used to be >=3.9 while only 3.11 was ever run, which is a promise
+      # nothing was checking, and on 3.9 and 3.10 it would have failed: the
+      # TOML parser is stdlib only from 3.11, so `tomli` is a declared
+      # conditional dependency.
+      #
+      # fail-fast is off so one broken version does not hide the state of the
+      # others. A matrix that cancels itself on the first failure cannot tell
+      # you "3.9 is broken and 3.10 is fine", which is the information you need.
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    name: tests (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
       - name: Run tests
@@ -30,3 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           pytest -q -m "not allow_network"
+      - name: Report the interpreter actually used
+        # Guards against the matrix silently not doing what it says, which is
+        # the same failure as claiming a version nobody ran.
+        run: python -c "import sys; print('tested on', sys.version)"
