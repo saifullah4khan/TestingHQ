@@ -44,7 +44,12 @@ byte-identical replay from a saved run.
 
 **Barrage** ships: closed-loop and open-loop firing, a rate-controlled schedule
 with a warmup ramp, throughput and latency percentile reporting, a run artifact,
-and replay from a saved run.
+and replay from a saved run. **It has no executor yet**, so requests are
+dispatched serially in both modes, one in flight at a time, and `--concurrency`
+is refused in open mode because it cannot mean anything there. Against a target
+slower than the arrival interval, achieved throughput is capped by the target's
+response time rather than by the rate you asked for. Tracked in
+[issue #38](https://github.com/saifullah4khan/TestingHQ/issues/38).
 
 **The web UI** ships: a dependency-free single-page app that runs the same
 engine, with dry-run as the default action and a configured-target allow-list

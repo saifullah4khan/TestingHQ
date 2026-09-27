@@ -118,16 +118,44 @@ def require_synthetic_pool(pool: List[InboundEmail]) -> None:
 
 
 def build_plan(
-    mode: str, rate: float, duration: float, concurrency: int, warmup: float
+    mode: str,
+    rate: float,
+    duration: float,
+    concurrency: Optional[int],
+    warmup: float,
 ) -> RunPlan:
     """Turn CLI-shaped arguments into a RunPlan. `duration` is the TOTAL
     run length; `warmup` is the ramp portion of it, so the steady-state
-    hold is `duration - warmup`."""
+    hold is `duration - warmup`.
+
+    `concurrency` may be None, meaning "not specified", which resolves to the
+    default for the mode.
+
+    Open mode always records a concurrency of 1, because it has no executor
+    and dispatches serially: one request is issued, read, and only then is the
+    next dispatched. Any other value would be written into the run artifact
+    and printed by the dry-run preview while having no effect. Measured, not
+    assumed: against a real target slower than the arrival interval,
+    concurrency 1, 4 and 64 all produced the same throughput, and
+    `_run_open_loop_stages` does not take the parameter at all.
+
+    This coerces rather than raises, on purpose. The CLI refuses an
+    explicitly-passed `--concurrency` in open mode, because there an operator
+    is asking for something inert and should be told. Here, the caller may be
+    `barrage replay` reading an artifact written before this was true, whose
+    stored number was always meaningless; refusing that would break replay of
+    every open-mode run this tool has ever produced. The artifact is a record
+    of what ran, and what ran was serial.
+    """
     if duration <= warmup:
         raise BarrageError(
             f"duration ({duration}s) must be greater than warmup ({warmup}s): "
             "there would be no steady-state hold to measure"
         )
+    if mode == "open":
+        concurrency = 1
+    elif concurrency is None:
+        concurrency = DEFAULT_CONCURRENCY
     return RunPlan(
         mode=mode,
         rate=rate,
@@ -211,7 +239,15 @@ def write_artifact(path: Optional[str], artifact: Dict[str, Any]) -> None:
 def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
     """What a dry run prints instead of firing. Describes exactly what
     WOULD be sent, so an operator can check the plan before committing to
-    it, and states plainly that nothing was sent."""
+    it, and states plainly that nothing was sent.
+
+    The dispatch note is not decoration. A dry run that prints a rate and a
+    concurrency without saying how many requests are actually in flight
+    describes a plan this build cannot execute: there is no executor, so every
+    mode is a serial send, and against a target slower than the arrival
+    interval the achieved rate is capped by the target's response time rather
+    than by anything the operator asked for. See issue #38.
+    """
     total = round(plan.rate * plan.hold_seconds)
     lines = [
         f"dry-run preview: seed={seed}, {pool_size} distinct payload(s) in the pool",
@@ -220,6 +256,9 @@ def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
         f"  warmup ramp: {plan.warmup_seconds:g}s, steady-state hold: {plan.hold_seconds:g}s",
         f"  concurrency: {plan.concurrency}",
         f"  approx requests at steady state: {total}",
+        "  dispatch: SERIAL, one request in flight at a time (no executor yet)",
+        "    a target slower than the arrival interval will cap the achieved",
+        "    rate below the target above; the run will not hold its schedule",
         "no network calls were made (pass --send to fire for real)",
     ]
     return "\n".join(lines)
