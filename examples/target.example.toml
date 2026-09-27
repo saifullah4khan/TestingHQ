@@ -20,3 +20,93 @@ url = "http://127.0.0.1:8000/intake"
 [targets.staging]
 name = "staging"
 url = "https://staging.example.com/intake/testinghq"
+
+# ---------------------------------------------------------------------------
+# Readback: where the pipeline's own output can be read back from.
+#
+# Optional. `testinghq blast fire`, `testinghq barrage fire` and
+# `testinghq compare` do not need it. `testinghq verify`, `testinghq ledger`
+# and `testinghq redeliver` do: without a way to ask the system what it made of
+# a message, they can only report what it answered, which is a 200.
+#
+# The url below is gated by the same guardrail as a firing target. A public
+# host is refused unless you pass --allow-public-readback, because on a real
+# deployment this is a ticket store or a mail sink that may hold other
+# people's data. 127.0.0.1 and example.com pass without a flag.
+#
+# Override per run with --readback http|mailbox|module:attribute.
+# ---------------------------------------------------------------------------
+
+[readback]
+kind = "http"
+
+# Queried as <url>?tag=<the tag on this payload>. A 404, an empty list, or an
+# empty body all mean "the system holds no record of this message", which is a
+# finding and not an error. Any other non-2xx is a refusal.
+url = "http://127.0.0.1:8000/tickets"
+
+# Name of the query parameter carrying the tag, if your API expects something
+# other than `tag`.
+# tag_param = "tag"
+
+# The key a list of records is nested under, when the response is an object
+# wrapping one. A bare list, or a bare object, also work.
+# items_key = "items"
+
+# Seconds before a GET gives up.
+# timeout = 10.0
+
+# How a JSON record maps onto the things TestingHQ checks. Dotted paths reach
+# into nested objects. Only name what your API actually returns: a field left
+# unmapped is reported as NOT CHECKED rather than as passing, which is the
+# whole point.
+#
+#   from_addr  is normalized, so "Alice <a@example.com>" and "a@example.com"
+#              are both fine.
+#   subject    compared case- and whitespace-insensitively.
+#   body       the payload's substantive text has to appear inside it. Use
+#              `body_exact` on the command line only if your system stores one
+#              field verbatim.
+#   route      compared case-insensitively. Without an --expect-route, the
+#              expected value is the message's own recipient address.
+[readback.fields]
+ticket_id = "id"
+from_addr = "from"
+subject = "subject"
+body = "body"
+attachment_names = "attachment_names"
+route = "queue"
+message_id = "message_id"
+in_reply_to = "in_reply_to"
+references = "references"
+tag = "tag"
+
+# The alternative to an API: an outbound mail sink, as JSON Lines, one
+# delivered message per line. Nothing to install, and it opens no socket.
+#
+#   [readback]
+#   kind = "mailbox"
+#   path = "./mail-sink.jsonl"
+#
+# The file is re-read on every lookup, because the pipeline is still writing to
+# it while the run is in flight, and it is absent-means-empty rather than an
+# error, which is what makes `--settle` work. Records are matched on the tag,
+# which TestingHQ stamped into the message before sending it.
+#
+# The sink line format:
+#
+#   {"id": "M1", "tag": "hq-1-0000", "from": "a@example.com",
+#    "to": "support@example.com", "subject": "...", "body": "...",
+#    "attachments": ["invoice.pdf"], "route": "queue:support",
+#    "message_id": "...", "in_reply_to": null, "references": []}
+#
+# Only `id` (or a `message_id`) has to be there; the rest is what the checks
+# can see, and anything absent is reported as NOT CHECKED.
+#
+# The third option, for anything else including a database:
+#
+#   testinghq verify fire --send --readback mypkg.myadapters:build
+#
+# The target may be a ReadbackAdapter, a factory taking this table, or a plain
+# function taking a Probe, in which case a one-line lambda is a complete
+# adapter.

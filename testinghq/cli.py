@@ -21,6 +21,25 @@ can be judged as an improvement or a regression rather than eyeballed at. It
 reads two JSON files and prints. It never resolves a target, never opens a
 socket, and has no --send, so there is nothing to gate. Exits non-zero when
 the candidate introduced a regression, which makes it usable as a CI step.
+
+verify fire: fires the clean corpus at a configured target and then asks the
+system under test, through a readback adapter, what it actually made of each
+message. Answers the question a status code cannot: was a ticket created, is
+the sender right, is the subject right, is the body intact, are the
+attachments there, was it routed correctly.
+verify check: the same readback, applied to a run that already happened. Sends
+nothing, so it has no --send and no dry-run mode, in the same way compare has
+neither.
+
+ledger: sends N uniquely tagged messages and reconciles them against what the
+system holds. Missing, extra, duplicated, wrong. This is the "did we lose any
+customer emails during the spike?" tool, and its exit code is the answer.
+
+redeliver: tests delivery semantics. A provider retrying, delivering the same
+message twice, and delivering a reply before its original. Checks for duplicate
+tickets and correct threading. Not an email sender and not a way to hammer an
+endpoint: it sends a couple of dozen payloads, paced, at infrastructure you
+own.
 """
 from __future__ import annotations
 
@@ -42,6 +61,12 @@ from .core import guardrails, report
 from .core.config import ConfigError, load_config
 from .core.ratelimit import TokenBucket
 from .core.transport import encode_multipart, post
+from .pipeline import adapters as pipeline_adapters
+from .pipeline import ledger as pipeline_ledger
+from .pipeline import messages as pipeline_messages
+from .pipeline import redeliver as pipeline_redeliver
+from .pipeline import verify as pipeline_verify
+from .pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
 
 DEFAULT_TARGET_CONFIG = "target.toml"
 DEFAULT_RATE = 5.0
@@ -94,8 +119,180 @@ def build_parser():
     )
 
     _add_barrage_parser(sub)
+    _add_pipeline_parsers(sub)
 
     return parser
+
+
+def _add_readback_args(parser) -> None:
+    """The arguments every pipeline tool needs to find a system to read.
+
+    `--readback` is how the adapter is chosen, and it has three shapes because
+    there are three honest options: a built-in kind, an import path for a
+    custom adapter, or nothing, in which case the `[readback]` table in the
+    target config is used. The precedence is flag over config, and a flag that
+    names an import path is the only way to bring your own, because a Python
+    object cannot be spelled on a command line.
+    """
+    parser.add_argument(
+        "--readback",
+        help=(
+            "how to read the system under test: 'http', 'mailbox', or "
+            "'module:attribute' for a custom adapter. Overrides the "
+            "[readback] table in the target config."
+        ),
+    )
+    parser.add_argument(
+        "--allow-public-readback",
+        action="store_true",
+        help=(
+            "allow the readback URL to be a public host. Refused by default, "
+            "because on a real deployment the readback is a ticket store or a "
+            "mail sink that may hold other people's data"
+        ),
+    )
+    parser.add_argument(
+        "--expect-route",
+        help=(
+            "the route every message should have been routed to, checked "
+            "against what the system recorded. Without it, the expected route "
+            "is the message's own recipient, and with no notion of routing the "
+            "check reports as not-checked rather than passing"
+        ),
+    )
+
+
+def _add_pipeline_parsers(sub) -> None:
+    """The three pipeline tools. They share a shape deliberately: they all
+    resolve a target, all take a readback adapter, and all share the exit code
+    convention, so an operator who has learned one has learned the argument
+    grammar of the other two.
+
+    `--allow-high-rate` is deliberately absent. These are correctness tools
+    sending a few hundred messages at a rate an operator chose; the thing that
+    needs a hard ceiling is sustained load, and that is Barrage's job, with the
+    ceiling already in place.
+    """
+    verify = sub.add_parser(
+        "verify",
+        help="check what the pipeline actually produced, not what it answered",
+    )
+    verify_sub = verify.add_subparsers(dest="command", required=True)
+
+    v_fire = verify_sub.add_parser(
+        "fire", help="fire the clean corpus, then read back what the system made of it"
+    )
+    v_fire.add_argument("--target")
+    v_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    v_fire.add_argument("--count", type=int, default=pipeline_verify.DEFAULT_COUNT)
+    v_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    v_fire.add_argument(
+        "--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
+        help="max requests per second",
+    )
+    v_fire.add_argument(
+        "--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX,
+        help=(
+            "prefix for the per-message tag. Change it when two runs hit the "
+            "same system at once, so neither reads the other's records"
+        ),
+    )
+    v_fire.add_argument(
+        "--settle", type=float, default=pipeline_verify.DEFAULT_SETTLE,
+        help=(
+            "seconds to wait between the last send and the first read. For a "
+            "pipeline that creates the ticket on a queue consumer rather than "
+            "inside the request"
+        ),
+    )
+    v_fire.add_argument(
+        "--body-exact", action="store_true",
+        help=(
+            "require the body to match exactly rather than contain the "
+            "substantive text. Off by default because a pipeline that reads the "
+            "HTML part returns an equivalent body, not an identical one"
+        ),
+    )
+    v_fire.add_argument("--out", help="path to write the verification artifact JSON")
+    v_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(v_fire)
+
+    v_check = verify_sub.add_parser(
+        "check",
+        help="read back a run that already happened, sending nothing",
+    )
+    v_check.add_argument("run", help="path to a run artifact written by `verify fire`")
+    v_check.add_argument(
+        "--tag-prefix", default=None,
+        help="override the tag prefix recorded in the artifact",
+    )
+    v_check.add_argument("--body-exact", action="store_true")
+    v_check.add_argument("--out", help="path to write the verification artifact JSON")
+    v_check.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(v_check)
+
+    ledger = sub.add_parser(
+        "ledger",
+        help="exactly-once accounting: did we lose any messages?",
+    )
+    ledger_sub = ledger.add_subparsers(dest="command", required=True)
+
+    l_fire = ledger_sub.add_parser(
+        "fire", help="send N uniquely tagged messages and reconcile them"
+    )
+    l_fire.add_argument("--target")
+    l_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    l_fire.add_argument(
+        "--count", type=int, default=pipeline_ledger.DEFAULT_COUNT,
+        help="how many uniquely tagged messages to send",
+    )
+    l_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    l_fire.add_argument("--settle", type=float, default=pipeline_verify.DEFAULT_SETTLE)
+    l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
+    l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(l_fire)
+
+    redeliver = sub.add_parser(
+        "redeliver",
+        help="test delivery semantics: retries, duplicates, and out-of-order replies",
+    )
+    redeliver_sub = redeliver.add_subparsers(dest="command", required=True)
+
+    r_fire = redeliver_sub.add_parser(
+        "fire", help="run the redelivery scenarios and check for duplicate tickets"
+    )
+    r_fire.add_argument("--target")
+    r_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    r_fire.add_argument(
+        "--count", type=int, default=pipeline_redeliver.DEFAULT_MESSAGES,
+        help="how many messages the duplicate scenarios redeliver",
+    )
+    r_fire.add_argument(
+        "--scenario", action="append", choices=list(pipeline_redeliver.SCENARIOS),
+        help="run only this scenario; repeatable. Default is all of them",
+    )
+    r_fire.add_argument(
+        "--retry-after", type=float, default=pipeline_redeliver.DEFAULT_RETRY_AFTER,
+        help=(
+            "seconds before the slow-retry redelivery. A pipeline with a short "
+            "deduplication cache survives an immediate duplicate and fails the "
+            "same duplicate a minute later"
+        ),
+    )
+    r_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    r_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    r_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
+    r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(r_fire)
 
 
 def _add_barrage_parser(sub) -> None:
@@ -729,6 +926,190 @@ def _cmd_compare(args) -> int:
     return compare_runs.EXIT_NO_REGRESSION
 
 
+# ---------------------------------------------------------------------------
+# verify / ledger / redeliver
+#
+# Thin on purpose, exactly as the barrage handlers are. Each handler decides
+# only two things that belong at this layer: whether a dry run is happening,
+# and which readback adapter to build. Everything safety-relevant lives in
+# pipeline/common.py and pipeline/adapters.py, so there is one guardrail call
+# site per concern rather than one per command.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_readback(args):
+    """Build the ReadbackConfig for a pipeline command.
+
+    Precedence is flag over config file, and the two ways of naming a custom
+    adapter are kept distinct rather than merged, because they are different
+    things: `http` and `mailbox` are built-in kinds with settings that can come
+    from the config file, while `module:attribute` is a Python object that only
+    a flag can carry.
+
+    A custom adapter still gets the config file's `[readback]` table. The flag
+    says HOW to read the system and the file says WHAT the system's url, field
+    names and timeout are, and a factory handed only a spec has nothing to
+    connect to. The first version dropped the table, and a factory that wanted
+    the url could not be written at all.
+
+    A missing adapter is a refusal, not a default. There is no sensible
+    fallback, and silently proceeding without a readback would produce a
+    verification run that verified nothing and said nothing, which is the exact
+    false green this package was built to eliminate.
+    """
+    spec = getattr(args, "readback", None)
+    override = getattr(args, "allow_public_readback", False)
+
+    try:
+        config = load_config(getattr(args, "config", DEFAULT_TARGET_CONFIG))
+    except ConfigError:
+        config = None
+    raw = config.readback_table() if config is not None else None
+
+    if spec:
+        if isinstance(raw, dict):
+            merged = dict(raw)
+            merged["kind"] = spec
+            merged.setdefault("allow_public_hosts", override)
+            return pipeline_adapters.parse_readback_config(merged)
+        return pipeline_adapters.parse_readback_config(
+            {"kind": spec, "allow_public_hosts": override}
+        )
+
+    if raw is None:
+        raise pipeline_adapters.AdapterError(
+            "no readback adapter configured. Pass --readback http, --readback "
+            "mailbox, or --readback module:attribute, or declare a [readback] "
+            "table in the target config."
+        )
+    if override and isinstance(raw, dict):
+        raw = dict(raw)
+        raw["allow_public_hosts"] = True
+    return pipeline_adapters.parse_readback_config(raw)
+
+
+def _cmd_verify_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (pipeline_adapters.AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    corpus = pipeline_verify.build_tagged_corpus(
+        args.seed, args.count, args.tag_prefix
+    )
+
+    print(f"verify fire: {decision.reason}")
+    if not decision.will_send:
+        print(pipeline_verify.format_dry_run(corpus, readback, args.tag_prefix))
+        return EXIT_DRY_RUN
+
+    return pipeline_verify.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        route=args.expect_route,
+        body_exact=args.body_exact,
+        settle=args.settle,
+    )
+
+
+def _cmd_verify_check(args) -> int:
+    """Read back a finished run. No --send and no dry-run mode, because this
+    path cannot put anything on a wire, so there is nothing to gate. That
+    absence is deliberate and matches `compare`."""
+    try:
+        readback = _resolve_readback(args)
+    except (pipeline_adapters.AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    return pipeline_verify.check_saved_run(
+        args.run,
+        args.config,
+        args.out,
+        readback=readback,
+        route=args.expect_route,
+        body_exact=args.body_exact,
+        tag_prefix=args.tag_prefix,
+    )
+
+
+def _cmd_ledger_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (pipeline_adapters.AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    print(f"ledger fire: {decision.reason}")
+    if not decision.will_send:
+        print(
+            pipeline_ledger.format_dry_run(
+                args.count, args.seed, args.tag_prefix, readback
+            )
+        )
+        return EXIT_DRY_RUN
+
+    return pipeline_ledger.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        route=args.expect_route,
+        settle=args.settle,
+    )
+
+
+def _cmd_redeliver_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (pipeline_adapters.AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    try:
+        scenarios = pipeline_redeliver.build_scenarios(
+            args.seed, args.count, args.tag_prefix, args.retry_after, args.scenario
+        )
+    except pipeline_redeliver.ScenarioError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    print(f"redeliver fire: {decision.reason}")
+    if not decision.will_send:
+        print(pipeline_redeliver.format_dry_run(scenarios, readback, args.tag_prefix))
+        return EXIT_DRY_RUN
+
+    return pipeline_redeliver.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        scenarios=args.scenario,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        retry_after=args.retry_after,
+    )
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -749,6 +1130,20 @@ def main(argv=None):
         return _not_yet(args.command)
     if args.tool == "compare":
         return _cmd_compare(args)
+    if args.tool == "verify":
+        if args.command == "fire":
+            return _cmd_verify_fire(args)
+        if args.command == "check":
+            return _cmd_verify_check(args)
+        return _not_yet(args.command)
+    if args.tool == "ledger":
+        if args.command == "fire":
+            return _cmd_ledger_fire(args)
+        return _not_yet(args.command)
+    if args.tool == "redeliver":
+        if args.command == "fire":
+            return _cmd_redeliver_fire(args)
+        return _not_yet(args.command)
     return _not_yet(args.tool)
 
 

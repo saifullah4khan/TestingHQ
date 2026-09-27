@@ -117,7 +117,12 @@ class UrllibHttpClient:
     def send(self, request: PreparedRequest) -> ClientResponse:
         req = urllib.request.Request(
             request.url,
-            data=request.body,
+            # `None` rather than `b""` for an empty body. urllib treats an empty
+            # bytes body as a body to send, and puts a Content-Length: 0 on a
+            # GET, which is legal and which some HTTP servers reject. The
+            # readback adapter issues GETs, so this is on a live path rather
+            # than a hypothetical one.
+            data=request.body if request.body else None,
             headers=request.headers,
             method=request.method,
         )

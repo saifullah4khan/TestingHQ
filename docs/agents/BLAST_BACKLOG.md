@@ -265,3 +265,151 @@ proves the parser is correct under messy input, Barrage proves the pipeline hold
 under load. The rate ceiling, the configured-target rule, and the dry-run default
 are what keep it a load tester against your own infrastructure and not a flooding
 tool. That framing goes in every prompt, README, and doc.
+
+## M4 - the pipeline's actual output: DONE
+
+The blind spot the three finished tools share. Blast and Barrage both judge a run
+by the HTTP status, and a 200 only means the endpoint accepted the POST. It does
+not mean a ticket was created, that the sender survived parsing, that the body
+arrived whole, that the attachments came through, or that the message was routed
+anywhere useful. This milestone added the readback seam and the three tools built
+on it, and it is the first work in this repository that could fail a pipeline
+which was answering 200 the whole time.
+
+This section is being written in the same PR that lands the code, which is the
+house rule and not an accident: the file encodes state `main` already knows, and
+hand-syncing it has rotted twice already.
+
+- [x] [A] The readback seam in `pipeline/readback.py`. A `ReadbackAdapter` is
+  `fetch(probe) -> Sequence[Readback]`, and the sequence is the point: one record
+  is normal, none is a loss, several is a duplicated message, which is a real
+  intake bug and not an error condition. `list_all` is optional, because not every
+  system can be enumerated, and the tools say "not searched" rather than "none
+  found" when it is absent.
+- [x] [A] Per-message tagging in `pipeline/messages.py`. A tag stamped into a
+  header, the body, the HTML and the Message-ID, derived from (prefix, seed,
+  index) and nothing else. Deliberately NOT the subject: a subject carrying a
+  synthetic suffix is not the subject that was sent, so verifying it would compare
+  a mangled expectation against a mangled result and pass. The prefix exists so
+  two concurrent runs against one system cannot read each other's records.
+- [x] [A] The check layer in `pipeline/expectations.py`. Six checks (ticket
+  created, sender, subject, body, attachments, routing) plus the two threading
+  checks, each resolving to PASSED, FAILED or SKIPPED. SKIPPED is the load-bearing
+  one: a field the adapter could not see is never reported as passing, because a
+  check that cannot report "unknown" is a check that will eventually report "fine"
+  about something it never read. `ticket_created` is the single exception and never
+  skips, since a lookup that found nothing is the most consequential thing these
+  tools can report.
+- [x] [A] `GroundTruthMatcher`, a `core.report.Matcher` that grades on content.
+  The join with everything Blast already does: the same three-argument `match`
+  signature, so a verify artifact is a blast artifact with a stricter assertion.
+  It does not re-grade status, which is `core/report.py`'s job, because a third
+  copy of the expectation rules is exactly what `tests/test_lane_hygiene.py`
+  exists to prevent.
+- [x] [A] Adapters in `pipeline/adapters.py`. `http` and `mailbox` need no code,
+  anything else is `--readback module:attribute`, and a plain function taking a
+  Probe is a complete adapter. The readback URL is gated through the canonical
+  guardrail in one call site, because on a real deployment the readback is a
+  ticket store or a mail sink that may hold other people's data.
+- [x] [A] `verify` in `pipeline/verify.py`, plus `verify check` for a run that
+  already happened. Fires the CLEAN corpus only, for a structural reason: verify
+  grades results, and a deliberately mangled payload has no correct parse to grade
+  against, so verifying one would report a failure every time a mutator did its
+  job. `verify check` verifies the clean records of a mixed blast run and prints
+  how many it skipped and why.
+- [x] [A] `ledger` in `pipeline/ledger.py`. Exactly-once accounting over N tagged
+  messages: missing, duplicated, extra, wrong, each a different bug with a
+  different fix and reported separately. `strays_searched` is null rather than
+  false when the adapter cannot enumerate, and an unsearched stray hunt does not
+  count as balanced, so a lookup-only adapter cannot pass a CI gate by accident.
+- [x] [A] `redeliver` in `pipeline/redeliver.py`. Four scenarios: duplicate,
+  slow-retry, reply-first, references. Threading is two checks, `thread_link` for
+  the headers and `thread_together` for whether the reply ended up on its
+  parent's ticket, because correct headers on two separate tickets is a real and
+  common outcome and the two have different fixes.
+- [x] [A] `[readback]` in `core/config.py`, carried through unparsed. Validated
+  only as a table; the shape and meaning of it belong to the tools that read it,
+  and parsing it in the security lane's file would make the core loader know
+  about a tool that did not exist when it was written.
+- [x] [A][M] Tests. `tests/integration/pipeline_under_test.py` is a configurable
+  intake pipeline, correct by default and breakable one defect at a time, and
+  `tests/integration/test_pipeline_verification.py` drives the real transport
+  through it. Every test starts from a correct pipeline and breaks exactly one
+  thing, because a test that started from a broken one and looked for any
+  non-zero exit would pass against a tool that returned 3 at random.
+- [x] [A][M] Lane hygiene. `tests/unit/test_cli_pipeline.py` asserts structurally
+  that no module in `testinghq/pipeline/` defines its own `require_synthetic_content`,
+  `require_configured_target` or `evaluate_send`, and that the exit codes are
+  defined in one place. Structural rather than behavioural on purpose: comparing
+  two implementations would pass happily while they drifted, which is the failure
+  this repository has already paid for once.
+
+### Five defects this milestone's own tests found
+
+Recorded because each one was in the new code, each was found by running the
+thing rather than by reading it, and none would have been caught by the tools
+working correctly.
+
+1. **`blast/generate.py` never attaches anything.** The attachment check was
+   named as one of the six things verify would check, and in the tool whose whole
+   purpose is to run it, it could never have run: the clean corpus is always
+   attachment-free. `pipeline/verify.py` now builds its own corpus with a
+   deterministic subset carrying seeded attachments, seeded per (seed, index)
+   rather than from one stream so a payload does not depend on how many were
+   generated before it. Without this the sixth check was decorative.
+2. **The redelivery scenarios contaminated each other through Message-ID.** They
+   share the generated corpus, a generated payload carries a Message-ID, and a
+   correct pipeline deduplicates on Message-ID. So the slow-retry scenario
+   delivered messages the duplicate scenario had already delivered, the pipeline
+   correctly recognised them as redeliveries, and the scenario reported that the
+   system held no record of any of its own messages. Nothing was wrong with any
+   component. Each scenario now carries a Message-ID prefix as well as a tag
+   prefix, so the payload bytes stay shared (one parse bug should show up four
+   ways, not four ways plus three unrelated findings) while identity is scoped.
+3. **`messages.stamp` changed the subject but not the ground truth.** A reply
+   stamped with a `Re: ` prefix kept the parent's `ground_truth.subject`, so the
+   subject check compared a reply's real subject against its parent's and both
+   threaded scenarios failed on a mismatch the test had manufactured. The ground
+   truth's job is to describe what went on the wire; a stamped payload whose
+   subject and ground truth disagree have every check grading against something
+   nobody sent.
+4. **`--readback module:attribute` threw the config file's `[readback]` table
+   away.** The flag says HOW to read the system and the file says WHAT its url,
+   field names and timeout are, and a factory handed only a spec has nothing to
+   connect to. Found by `examples/pipeline_demo.py`, which is the only thing in
+   the tree that runs the CLI the way a user would rather than through an
+   injected client.
+5. **The http adapter could not enumerate, so every ledger run over an API
+   reported strays as not searched.** It had no `list_all` at all, and a ledger
+   that can never search for tickets it never sent can never report "extra".
+   Most ticket APIs already answer their lookup url with everything when the tag
+   parameter is absent, so it does that by default, with `list_path` for the
+   ones that need a separate listing endpoint and `enumerate = false` for the
+   ones that genuinely cannot. The strict `balanced` rule stayed: a lookup-only
+   adapter still does not count as balanced.
+
+`examples/pipeline_demo.py` was written for this and is worth keeping. Every
+test in the suite is hermetic, and the injectable-client seam that buys that
+also means nothing in the suite proves the real transport, the real serializer
+and the real readback client can talk to a real server. It found three of the
+five above and the first run failed four different ways before it demonstrated
+anything at all, which is a fair measure of how untested a socket path is.
+
+### Known limitations
+
+- The readback is one poll per tag, taken once after every send has been sent.
+  A pipeline that takes minutes to process a message needs `--settle` large
+  enough, and there is no retry-on-empty. A tool that polled until a timeout
+  would be right for an async pipeline and wrong for a synchronous one, and
+  there is no way to tell those apart from the outside.
+- There is no database adapter, only a URL or an import path. The reason is
+  dependencies, not principle: a driver is a heavy thing to add to a package
+  whose whole design goal is that it has none.
+- The redelivery scenarios send the same payload bytes, and differ only in
+  delivery semantics, so a corpus whose *size* is sensitive to a parse bug shows
+  that bug four times rather than once. Deliberate: one bug reported four ways
+  is one bug with corroboration, and four unrelated findings would not be.
+- `verify check` needs the run's corpus to still be reproducible from its seed.
+  A change to the generator's shape makes an old artifact uncheckable, and the
+  tool refuses with that explanation rather than looking records up against tags
+  that never existed.

@@ -26,14 +26,80 @@ endpoint starts shedding or slowing. Barrage is a load tester against your own
 infrastructure. It is not an email sender, not a flooding tool, and not for
 endpoints you do not own.
 
+**Verify.** What the pipeline actually produced. Every tool above judges a run by
+the HTTP status, and a 200 only means the endpoint accepted the POST. It does
+not mean a ticket was created, that the sender survived parsing, that the body
+arrived whole, that the attachments came through, or that the message went to the
+right place. Verify gives it a small adapter that reads your system's own output
+(its API, its database, an outbound mail sink) and checks each payload against
+ground truth Blast already generates: was a ticket created, is the sender right,
+is the subject right, is the body intact, are the attachments there, was it
+routed correctly. That turns "did it crash" into "did it parse correctly", which
+is the question anyone actually has.
+
+**Ledger.** Exactly-once accounting. Sends N messages, each carrying a tag no
+other run could produce, then counts what the pipeline made of them: missing
+(an email your customer sent and you lost), extra (a ticket nobody sent), and
+duplicated (two tickets for one email). Point it at a system under Barrage load,
+or with a dependency failing, and it answers the question every intake owner
+asks and nobody has a tool for: did we lose anything?
+
+**Redeliver.** Delivery semantics. Webhook providers retry, deliver the same
+message twice, and deliver out of order. Redeliver does all three: the same
+Message-ID sent twice, re-sent after a delay the way a provider's retry would be,
+and a reply delivered before the message it answers. It then checks for no
+duplicate tickets and for correct threading, separately, so a report that says
+"the headers were right but the reply went to its own ticket" says something
+different from one that says the headers were wrong.
+
 The suite ships as one installable package, `testinghq`, with subcommands
-(`testinghq blast ...`, `testinghq barrage ...`). Blast and Barrage share a common
+(`testinghq blast ...`, `testinghq barrage ...`, `testinghq verify ...`,
+`testinghq ledger ...`, `testinghq redeliver ...`). All of them share a common
 core: the firing transport, target configuration, guardrails, and rate limiting.
+The last three share one more: the readback seam, described below.
+
+### The readback seam
+
+Verify, ledger and redeliver all need the same thing from you, and it is small: an
+adapter that can read your system's output.
+
+```
+# a JSON API: GET the url with the tag as a query parameter, read the records
+[readback]
+kind = "http"
+url = "http://localhost:8000/tickets"
+
+# an outbound mail sink: a JSON Lines file, one delivered message per line
+[readback]
+kind = "mailbox"
+path = "./mail-sink.jsonl"
+```
+
+Anything else, including a database, is one import path:
+
+```
+testinghq verify fire --send --readback mypkg.myadapters:build
+```
+
+The target may be a `ReadbackAdapter`, a factory taking the `[readback]` config
+table, or a plain function taking a `Probe`. A one-line lambda is a complete
+adapter, which is what makes the seam cheap enough that nobody skips verification
+and goes back to trusting the status code.
+
+**A check that could not run says so.** A field your adapter cannot see is
+reported as NOT CHECKED, never as passed. A verification run that verified
+nothing says so too. This is the property that makes a green result mean
+something, and it is why the reports print what they skipped as prominently as
+what they found.
+
+Readback URLs go through the same guardrail as firing targets, and a public host
+is refused unless you pass `--allow-public-readback`. On a real deployment the
+readback is a ticket store or a mail sink that may hold other people's data.
 
 ## Status
 
-Both tools work end to end. The suite is 529 tests, green on every push, and CI
-runs on every change.
+All five tools work end to end. The suite is 1043 tests, green on every push, and
+CI runs on every change.
 
 **Blast** ships: seeded deterministic generation, six mutators behind five
 messiness recipes, a 20-case named edge-case catalog, seeded attachments,
@@ -50,6 +116,14 @@ is refused in open mode because it cannot mean anything there. Against a target
 slower than the arrival interval, achieved throughput is capped by the target's
 response time rather than by the rate you asked for. Tracked in
 [issue #38](https://github.com/saifullah4khan/TestingHQ/issues/38).
+
+**Verify, ledger and redeliver** ship: the readback seam with three adapters
+(http, mailbox, and any import path), six per-field checks plus the two threading
+checks, per-message tagging so a run is reproducible and two concurrent runs
+cannot read each other's records, a readback phase that runs after every send so
+an asynchronous pipeline is not reported as lossy, and three tools on top of it.
+Their artifacts are blast artifacts with an extra block on each record, so
+`testinghq compare` reads them like any other run.
 
 **The web UI** ships: a dependency-free single-page app that runs the same
 engine, with dry-run as the default action and a configured-target allow-list
@@ -102,9 +176,52 @@ testinghq barrage fire --target local --send --out load.json
 testinghq barrage replay load.json --send
 ```
 
+Verify, for what the pipeline made of the payloads rather than what it answered:
+
+```
+# dry run by default: previews the corpus and the adapter, makes no calls
+testinghq verify fire --target local
+
+# fire the clean corpus, then read your system's output back and check it
+testinghq verify fire --target local --send
+
+# say where your system should have routed each message, if it has its own
+# routing taxonomy; without it, the expected route is the message's recipient
+testinghq verify fire --target local --send --expect-route queue/support
+
+# for a pipeline that creates the ticket on a queue consumer rather than inside
+# the request, wait between the last send and the first read
+testinghq verify fire --target local --send --settle 5
+
+# check a run that already happened. Sends nothing, so it has no --send.
+testinghq verify check verify.json
+```
+
+Ledger, for exactly-once accounting:
+
+```
+# 50 uniquely tagged messages, then reconcile them against what the system holds
+testinghq ledger fire --target local --send --count 50
+
+# change the tag prefix when two runs hit the same system at once
+testinghq ledger fire --target local --send --tag-prefix spike-2026-09
+```
+
+Redeliver, for what your pipeline does when the provider misbehaves:
+
+```
+# four scenarios: duplicate, slow-retry, reply-first, references
+testinghq redeliver fire --target local --send
+
+# just one of them, and with a longer retry gap than the default 5s
+testinghq redeliver fire --target local --send --scenario slow-retry --retry-after 30
+```
+
 Every `testinghq` command in this file is executed as a dry run by
 `tests/unit/test_readme_examples.py`, so an example cannot rot into a command
-that exits non-zero without the suite noticing.
+that exits non-zero without the suite noticing. The three pipeline commands are
+run with a mail-sink adapter the harness supplies, because they refuse to run
+without one by design.
 
 ## Responsible use
 
@@ -136,6 +253,24 @@ than a weapon, and none of them are cosmetic:
 Barrage fires clean, valid payloads only. It reuses Blast's seeded generator for
 realistic bodies and deliberately never garbles them: Barrage is about volume, not
 malformed input. That is Blast's job.
+
+Verify, ledger and redeliver are held to the same standard, with one thing
+added. They are correctness tools, not load tools, so they send a few hundred
+payloads at a rate you chose and they do not carry `--allow-high-rate` at all:
+the thing that needs a hard ceiling is sustained load, and that is Barrage's job
+with the ceiling already in place. Verify's dry run is the default and
+`verify check` cannot send anything at all, so it has no `--send` to gate.
+
+Verify also fires clean payloads only, for the same structural reason Barrage
+does and for a different one: verify grades results, and a deliberately mangled
+payload has no correct parse to grade against. Blast owns messy input.
+
+One safety rule is new to this set. A readback adapter connects to and reads
+from your system, which on a real deployment is a ticket store or a mail sink
+that may hold other people's data, so its URL is checked against the same
+canonical guardrail as a firing target and a public host is refused unless you
+pass `--allow-public-readback` deliberately. A mail-sink adapter reads a local
+file instead and opens no socket at all.
 
 ## License
 
