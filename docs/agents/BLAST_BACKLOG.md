@@ -142,9 +142,8 @@ Blast v1 is complete. Landed #16.
   `blast.generate` + `blast.corrupt`, put it on the wire with `core.transport`,
   and build records with `core.report`. The seam held: the change is confined
   to `web/adapter.py` plus a client parameter, and nothing else in `web/`
-  learned anything new. `web/generator.py` and the fixtures are kept, because
-  `tests/web/test_generator.py` still exercises the fixture path directly and
-  because the fixtures are the cross-check corpus the engine lane depends on.
+  learned anything new. `web/generator.py` and `tests/web/test_generator.py`
+  were kept at the time, and have since been deleted; see the entry below.
   Two things this exposed, both now guarded:
   - The fire path could open a real socket, and `web/targets.json`'s first
     entry is a localhost URL, so a test that forgot to inject a client made a
@@ -181,6 +180,22 @@ Blast v1 is complete. Landed #16.
   existed to catch, and with one implementation it was vacuous. It is now an
   identity check plus a data-level check that the fixtures classify to the flags
   they claim.
+- [x] [B] Delete `web/generator.py` and `tests/web/test_generator.py`. DONE. It was
+  the deterministic stand-in for the real engine, and once #22 moved the adapter
+  onto the engine it became dead code that still looked authoritative: a
+  `generate_run()` that produced convincing artifacts, a category list, and its
+  own `GeneratorError`. Nothing would have complained if some later piece of code
+  had imported it and quietly served the UI fixtures instead of the engine, which
+  is the exact failure mode this repo has already suffered from three times with
+  duplicated rules.
+  The only live surface was `GeneratorError` and `CATEGORIES`. The error moved to
+  `web/adapter.py`, keeping its name and its `ValueError` base so `web/server.py`'s
+  HTTP 400 mapping did not have to change, and the category list comes from
+  `core.report` directly. `tests/test_lane_hygiene.py` now fails if anything
+  imports the module, verified red by adding a stray import.
+  The shipped run artifacts under `web/tests/fixtures/` are kept: they are data,
+  not a generator, and nothing in the tree produces them any more, so a guard
+  pins their presence.
 - [x] [B][S] Fix the self-contradicting web fixture. `sample_run_with_failures.json`
   declared `by_status_class.5xx: 1` with two 500s in its own records. The defect was
   known and, worse, encoded: `tests/unit/test_report.py` carried a comment

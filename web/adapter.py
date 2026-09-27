@@ -9,9 +9,12 @@ This module owns no generation logic of its own.
 Before that, `dry_run()` and `fire()` were backed by `web/generator.py`, a
 deterministic fixture stand-in written when the engine modules did not exist.
 The swap was always the plan: the file was shaped as a single seam precisely
-so nothing outside it would need to know. `web/generator.py` is kept, because
-`tests/web` still uses it and because it is what let this lane ship before the
-engine landed, but the UI no longer runs on it.
+so nothing outside it would need to know. `web/generator.py` is gone as of
+2026-09-27. Nothing imported it but the three places that needed an error
+class and a category list, and both now come from here and from
+`core.report`. The shipped run artifacts under `web/tests/fixtures/` are
+unaffected; they are data, not a generator, and they remain the schema corpus
+the test suite checks against.
 
 GUARDRAILS: this module owns no guardrail rules of its own. The canonical
 rules live in `testinghq.core.guardrails` and are imported, never
@@ -45,7 +48,6 @@ from testinghq.core import guardrails, report
 from testinghq.core.transport import post
 
 from . import config as config_module
-from . import generator
 
 # recipe name (underscored, blast/corrupt.py's own naming) -> schema label
 _LABEL_TO_RECIPE = {
@@ -53,11 +55,27 @@ _LABEL_TO_RECIPE = {
 }
 
 
+class GeneratorError(ValueError):
+    """The caller asked for something this seam cannot do.
+
+    A `ValueError` subclass, which is what it always was: `web/server.py`
+    maps it to HTTP 400, and a bad request body is exactly what it is. The
+    name survives from `web/generator.py`, where it lived before this module
+    ran the real engine and the "generator" was local. It is still accurate,
+    since generating the corpus is this module's job, and keeping it means
+    the server's error mapping did not have to change for a deletion.
+
+    It is deliberately *not* a guardrail error. A guardrail error means "no"
+    and maps to 403; this means "not like that" and maps to 400. Collapsing
+    the two would let a malformed mix look like a safety refusal.
+    """
+
+
 def _validate(count, seed):
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        raise generator.GeneratorError("count must be a non-negative integer")
+        raise GeneratorError("count must be a non-negative integer")
     if not isinstance(seed, int) or isinstance(seed, bool):
-        raise generator.GeneratorError("seed must be an integer")
+        raise GeneratorError("seed must be an integer")
 
 
 def _select_mix(mix):
@@ -80,7 +98,7 @@ def _select_mix(mix):
         return dict(DEFAULT_MIX)
     unknown = [c for c in mix if c not in report.CATEGORIES]
     if unknown:
-        raise generator.GeneratorError(f"unknown categories in mix: {unknown!r}")
+        raise GeneratorError(f"unknown categories in mix: {unknown!r}")
     return {
         _LABEL_TO_RECIPE[label]: DEFAULT_MIX[_LABEL_TO_RECIPE[label]]
         for label in report.CATEGORIES
