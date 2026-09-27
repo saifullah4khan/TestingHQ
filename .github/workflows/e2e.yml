@@ -1,0 +1,57 @@
+name: End to end
+
+# The one job that opens a network socket.
+#
+# It is a separate workflow rather than a job inside CI for a specific reason:
+# the hermetic job in ci.yml has the suite-wide network block on, and a test
+# that needs a real socket has to opt out of it. Keeping the opt-out in its own
+# file means the exemption covers one directory and one purpose, and reviewing
+# "what is allowed to touch the network" is a question about this file alone.
+#
+# What it runs: the real installed binary, over a real loopback socket, against
+# a real HTTP server, and then checks the bytes that arrived against what the run
+# artifact says was sent. Every other test in this repository injects a fake
+# HTTP client, which is correct for most things and blind to everything that only
+# appears when a socket is real.
+#
+# The tests assert from inside themselves that every connection they made went to
+# loopback, so the exemption is self-policing rather than a blank cheque.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      # Floor and ceiling only. These tests exercise the wire format and the
+      # process boundary, neither of which varies by interpreter, and the full
+      # matrix lives in ci.yml.
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
+    name: end-to-end (py${{ matrix.python-version }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        # The tests spawn the installed `testinghq` console script, so this must
+        # be an install and not just an importable source tree.
+        run: pip install -e ".[dev]"
+      - name: Run end-to-end tests against a real loopback socket
+        run: |
+          set -euo pipefail
+          pytest -q tests/e2e
+      - name: Prove the binary these tests drove is the one CI installed
+        run: |
+          set -euo pipefail
+          command -v testinghq
+          testinghq --version

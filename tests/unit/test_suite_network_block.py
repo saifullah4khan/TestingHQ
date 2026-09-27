@@ -198,10 +198,17 @@ def test_the_barrage_send_path_raises_too(network_guard):
         send_fn(0)
 
 
-def test_the_only_module_that_opts_out_is_the_one_that_binds_loopback():
-    """The opt-out should be rare and visible. If this fails, some other file
-    has started taking loopback, which is a decision someone should make
-    deliberately rather than inherit from a copy-pasted marker."""
+def test_the_only_modules_that_opt_out_are_the_ones_that_bind_loopback():
+    """The opt-out should be rare and visible.
+
+    Two modules legitimately need it, and both start a real server:
+    `tests/web/test_server.py`, which exercises the HTTP layer through an
+    actual socket, and `tests/e2e/test_real_sockets.py`, which is the only
+    place the product is driven over a real socket end to end. Anything else
+    taking the exemption is a decision someone should argue for rather than
+    inherit from a copy-pasted marker.
+    """
+    expected = ["tests/e2e/test_real_sockets.py", "tests/web/test_server.py"]
     offenders = []
     for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
@@ -220,9 +227,9 @@ def test_the_only_module_that_opts_out_is_the_one_that_binds_loopback():
         if marked:
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
-    assert offenders == ["tests/web/test_server.py"], (
+    assert sorted(offenders) == expected, (
         f"unexpected modules taking the allow_network exemption: {offenders}. "
-        "Only tests that genuinely need loopback should be exempt."
+        "Only the two modules that start a real server may."
     )
 
 
