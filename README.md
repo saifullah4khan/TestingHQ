@@ -265,6 +265,33 @@ that exits non-zero without the suite noticing. The three pipeline commands are
 run with a mail-sink adapter the harness supplies, because they refuse to run
 without one by design.
 
+## Exit codes
+
+Every subcommand returns a process exit code, and the code is the answer a
+script reads. There is one convention, across every tool:
+
+| Code | Meaning | A script should |
+| --- | --- | --- |
+| 0 | ran, answer was yes | carry on |
+| 1 | refused: guardrail, bad config, bad usage, unreadable file | fix the invocation; nothing was sent |
+| 2 | ran, sent nothing (no `--send`) | carry on; this was a dry run |
+| 3 | ran, answer was no | look at the report |
+
+The three non-zero codes call for three different responses, which is why they
+are three different numbers. A refusal means nothing ran and the command has to
+change. A dry run is a successful run that was asked to hold back. A finding is
+a successful run that found something.
+
+`compare` used to report a regression as 1 and a usage error as 2, so a script
+reading 1 as "refused" read a regression as the tool declining to run. It now
+follows the table: a regression is 3, a usage error is 1. **This is a breaking
+change for any script that calls `compare` and checks its exit code**, and it is
+the reason this table exists.
+
+The numbers are defined once, in `testinghq/core/exit_codes.py`, and
+`tests/unit/test_exit_codes.py` fails if any module defines its own or returns a
+code outside the set.
+
 ## Responsible use
 
 Blast is a fuzzer and self-testing tool for endpoints you control. It POSTs

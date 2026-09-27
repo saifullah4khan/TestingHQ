@@ -37,9 +37,22 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..core import report
 
-EXIT_NO_REGRESSION = 0
-EXIT_REGRESSION = 1
-EXIT_USAGE = 2
+# Compare used to report 0 no-regression, 1 regression, 2 usage error. That
+# collides with every other tool, where 1 is a refusal and 2 is a dry run, so a
+# script that read 1 as "refused" reported a regression as the tool declining to
+# run. It now shares the package convention: a regression is a finding (3) and a
+# usage error is a refusal (1).
+#
+# The three names stay, because they say what this tool means by each code, but
+# they are the shared values and not a second set of numbers.
+from ..core.exit_codes import (
+    EXIT_FINDING,
+    EXIT_NO_REGRESSION,
+    EXIT_OK,
+    EXIT_REFUSED,
+    EXIT_REGRESSION,
+    EXIT_USAGE,
+)
 
 # Transitions that mean the candidate is strictly worse than the baseline.
 REGRESSION = "regression"

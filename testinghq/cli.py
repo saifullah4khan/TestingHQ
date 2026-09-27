@@ -50,15 +50,52 @@ from .pipeline import redeliver as pipeline_redeliver
 from .pipeline import verify as pipeline_verify
 from .pipeline.adapters import AdapterError
 from .pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
+from .core.exit_codes import MEANINGS as _EXIT_MEANINGS
+from .core.exit_codes import EXIT_FINDING as _EXIT_FINDING
+from .core.exit_codes import EXIT_OK as _EXIT_OK
 
 DEFAULT_TARGET_CONFIG = "target.toml"
 DEFAULT_RATE = 5.0
 
+#: Shown by every subcommand's --help, because the exit code is the answer a
+#: script reads and there are seven tools. Generated from the shared table so it
+#: cannot describe a convention the code no longer uses.
+_EXIT_CODE_HELP = (
+    "exit codes: "
+    + "; ".join(
+        f"{code} {text}" for code, text in sorted(_EXIT_MEANINGS.items())
+    )
+)
+
+
+class _Parser(argparse.ArgumentParser):
+    """Argparse, with one change: a usage error exits 1, not 2.
+
+    Argparse exits 2 for a bad command line, and in this package 2 is a dry
+    run. So `testinghq blast fire --typo` would report "ran, sent nothing" to
+    any script checking whether the tool did something, which is exactly the
+    misreading the shared exit-code convention exists to prevent. A command
+    line the tool cannot parse is a refusal to do what was asked.
+
+    Argparse itself is not modified: `--help` and `--version` still exit 0, and
+    anything else in the ecosystem that uses argparse keeps its standard
+    behaviour. Only this parser's usage errors change.
+    """
+
+    def error(self, message):  # pragma: no cover - exercised via parse_args
+        self.print_usage(sys.stderr)
+        self.exit(
+            EXIT_REFUSED,
+            f"{self.prog}: error: {message}\n"
+            f"({_EXIT_CODE_HELP})\n",
+        )
+
 
 def build_parser():
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="testinghq",
         description="Self-testing tools for intake pipelines.",
+        epilog=_EXIT_CODE_HELP,
     )
     parser.add_argument(
         "--version", action="version", version=f"testinghq {__version__}"
