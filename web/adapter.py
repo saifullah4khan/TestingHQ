@@ -1,15 +1,17 @@
 """The one seam between the web UI and the Blast engine.
 
-Every other module in `web/` calls into this file to get a run artifact -
-never into `web/generator.py` directly, and never (yet) into the engine
-modules. Today, `dry_run()` and `fire()` are both backed by the
-deterministic fixture generator in `web/generator.py`, because
-`testinghq/blast/generate.py` and `testinghq/core/transport.py` still do
-not exist on this branch.
+Every other module in `web/` calls into this file to get a run artifact, never
+into the engine directly. Since 2026-09-27 that means the real engine:
+`blast.generate` builds the corpus, `blast.corrupt` garbles it,
+`core.transport` puts it on the wire, and `core.report` builds the records.
+This module owns no generation logic of its own.
 
-When the engine lane merges, swap the body of `dry_run()` and `fire()` to
-call into the real engine. That is the one-line change the rest of this app
-was built around; nothing outside this file should need to know.
+Before that, `dry_run()` and `fire()` were backed by `web/generator.py`, a
+deterministic fixture stand-in written when the engine modules did not exist.
+The swap was always the plan: the file was shaped as a single seam precisely
+so nothing outside it would need to know. `web/generator.py` is kept, because
+`tests/web` still uses it and because it is what let this lane ship before the
+engine landed, but the UI no longer runs on it.
 
 GUARDRAILS: this module owns no guardrail rules of its own. The canonical
 rules live in `testinghq.core.guardrails` and are imported, never
@@ -30,13 +32,119 @@ and strictly narrowing; neither can relax a canonical rule:
    classifies it as an internal host and always passes it. So the resolved
    URL is passed through the canonical guard too. That second call is what
    makes the public-host hardening actually bite on the real destination.
+
+`client` is injectable on `fire()` for the same reason the CLI's fire path
+takes one: a test must be able to exercise the real transport without opening
+a socket. It defaults to None, which is the real network path.
 """
 from __future__ import annotations
 
-from testinghq.core import guardrails
+from testinghq.blast.corrupt import DEFAULT_MIX, corrupt_corpus
+from testinghq.blast.generate import generate_corpus
+from testinghq.core import guardrails, report
+from testinghq.core.transport import post
 
 from . import config as config_module
 from . import generator
+
+# recipe name (underscored, blast/corrupt.py's own naming) -> schema label
+_LABEL_TO_RECIPE = {
+    label: recipe for recipe, label in report.CORRUPT_CATEGORY_LABELS.items()
+}
+
+
+def _validate(count, seed):
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise generator.GeneratorError("count must be a non-negative integer")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        raise generator.GeneratorError("seed must be an integer")
+
+
+def _select_mix(mix):
+    """Translate the UI's selected category labels into the weight mapping
+    `corrupt_corpus` wants.
+
+    The UI deals in schema labels ("messy-but-valid"); the corruptor deals in
+    its own recipe names ("messy_but_valid"). `core.report` already owns that
+    translation in one direction, so this uses the same table rather than
+    hand-maintaining a second one.
+
+    An empty selection means "all five", exactly as it did against the
+    fixture generator. A partial selection keeps the engine's own default
+    weights restricted to those categories, which is deliberately NOT the
+    same as an even split: the weights encode how common each kind of mess
+    is in the wild, and flattening them would quietly make the UI
+    misrepresent the distribution the CLI fires.
+    """
+    if not mix:
+        return dict(DEFAULT_MIX)
+    unknown = [c for c in mix if c not in report.CATEGORIES]
+    if unknown:
+        raise generator.GeneratorError(f"unknown categories in mix: {unknown!r}")
+    return {
+        _LABEL_TO_RECIPE[label]: DEFAULT_MIX[_LABEL_TO_RECIPE[label]]
+        for label in report.CATEGORIES
+        if label in mix
+    }
+
+
+def _build_corpus(mix, count, seed):
+    """(InboundEmail, schema_label) pairs from the real engine, in order."""
+    clean = generate_corpus(seed, count)
+    corrupted = corrupt_corpus(clean, seed, _select_mix(mix))
+    return [(email, report.category_label(recipe)) for email, recipe in corrupted]
+
+
+def _category_tally(pairs):
+    tally = {label: 0 for label in report.CATEGORIES}
+    for _email, label in pairs:
+        if label in tally:
+            tally[label] += 1
+    return tally
+
+
+def _build_dry_run_artifact(pairs, seed, count, mix):
+    """A run artifact for a run that deliberately sent nothing.
+
+    The summary is built by hand rather than by `report.compute_summary`, and
+    that is not a shortcut. A dry run has no responses, so every record's
+    status is None, and compute_summary would faithfully report every
+    payload as a timeout while `classify_record` marked every degenerate
+    payload as a failure. Both would be true and both would be nonsense: the
+    endpoint was never asked. So the assertions are cleared and the response
+    classes are reported as zero, and the category tally is real because the
+    corpus really was built. This mirrors the CLI's dry-run path, which
+    reaches the same conclusion independently.
+    """
+    records = []
+    for index, (email, label) in enumerate(pairs):
+        response = {"status": None, "latency_ms": None, "body_snippet": ""}
+        record = report.build_record(email, label, seed, index, response)
+        record["assertion"] = {"passed": True, "mismatches": []}
+        records.append(record)
+
+    return {
+        "seed": seed,
+        "config": {
+            "mix": _selected_labels(mix),
+            "count": count,
+            "seed": seed,
+            "dry_run": True,
+            "target": None,
+        },
+        "summary": {
+            "by_status_class": {"2xx": 0, "4xx": 0, "5xx": 0, "timeout": 0},
+            "by_category": _category_tally(pairs),
+            "flags": [],
+        },
+        "records": records,
+    }
+
+
+def _selected_labels(mix):
+    if not mix:
+        return list(report.CATEGORIES)
+    return [label for label in report.CATEGORIES if label in mix]
 
 
 def dry_run(mix, count, seed):
@@ -45,16 +153,21 @@ def dry_run(mix, count, seed):
     Dry-run is the default action and needs no target: there is nothing to
     refuse, because nothing is ever sent.
     """
-    return generator.generate_run(mix, count, seed, target=None, dry_run=True)
+    _validate(count, seed)
+    pairs = _build_corpus(mix, count, seed)
+    return _build_dry_run_artifact(pairs, seed, count, mix)
 
 
-def fire(target, mix, count, seed, confirm, targets=None):
+def fire(target, mix, count, seed, confirm, targets=None, client=None):
     """Return a run artifact for a fire request, after enforcing guardrails.
 
     Raises `guardrails.GuardrailError` (the canonical error) if the send was
     not explicitly confirmed, if `target` is not in the configured
     allow-list, or if the target's URL is not a host the canonical guardrail
     considers safe to fire at.
+
+    `client` is the injectable HTTP client. None means a real network call
+    through the default transport client; tests must pass a fake.
     """
     # Canonical send gate. `confirm is True` is the UI-layer narrowing
     # described above: only an actual boolean True counts as consent.
@@ -77,8 +190,28 @@ def fire(target, mix, count, seed, confirm, targets=None):
     url = allowed[target].url
     guardrails.require_configured_target(url, (url,))
 
-    # NOTE: this still does not make a network call. There is no transport
-    # yet (testinghq/core/transport.py does not exist on this branch). Once
-    # it lands, this is the call site that posts records instead of
-    # synthesizing them, keeping the guardrail checks above unchanged.
-    return generator.generate_run(mix, count, seed, target=target, dry_run=False)
+    _validate(count, seed)
+    pairs = _build_corpus(mix, count, seed)
+
+    records = []
+    for index, (email, label) in enumerate(pairs):
+        result = post(email, url, client=client)
+        response = {
+            "status": result.status,
+            "latency_ms": result.latency_ms,
+            "body_snippet": result.body_snippet,
+        }
+        records.append(report.build_record(email, label, seed, index, response))
+
+    artifact = report.build_artifact(
+        seed,
+        {
+            "mix": _selected_labels(mix),
+            "count": count,
+            "seed": seed,
+            "dry_run": False,
+            "target": target,
+        },
+        records,
+    )
+    return artifact
