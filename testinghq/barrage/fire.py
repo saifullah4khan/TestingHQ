@@ -139,13 +139,18 @@ def build_plan(
     concurrency 1, 4 and 64 all produced the same throughput, and
     `_run_open_loop_stages` does not take the parameter at all.
 
-    This coerces rather than raises, on purpose. The CLI refuses an
-    explicitly-passed `--concurrency` in open mode, because there an operator
-    is asking for something inert and should be told. Here, the caller may be
-    `barrage replay` reading an artifact written before this was true, whose
-    stored number was always meaningless; refusing that would break replay of
-    every open-mode run this tool has ever produced. The artifact is a record
-    of what ran, and what ran was serial.
+    Closed mode is recorded as given, and separately refused at the CLI. The
+    distinction matters: closed mode genuinely threads the number into its slot
+    allocation, so the value is meaningful the moment an executor exists and
+    coercing it here would throw that away. Until then the CLI refuses an
+    explicit `--concurrency` above 1 in both modes, because a value that has no
+    effect should not be accepted quietly in either.
+
+    Coercion rather than raising is deliberate on both paths. The caller here
+    may be `barrage replay` reading an artifact written before this was true,
+    whose stored number was always meaningless, and refusing that would break
+    replay of every run this tool has ever produced. The artifact is a record
+    of what ran.
     """
     if duration <= warmup:
         raise BarrageError(
