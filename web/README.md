@@ -37,15 +37,13 @@ root, not from inside `web/`.
 - `web/expectations.py` - a re-export of the expectation rules from
   `testinghq/core/report.py`. It defines none of them itself. See the
   "one definition" section below.
-- `web/generator.py` - a deterministic, fixture-backed generator, retained
-  as the schema corpus the test suite and the shipped fixtures are built
-  around. The UI does not run on it: `web/adapter.py` calls the real engine.
 - `web/adapter.py` - the single seam between the UI and the engine.
   `dry_run()` and `fire()` are the only two functions the rest of the app
   calls to get a run artifact, and both build their corpus with
   `testinghq.blast.generate` and `testinghq.blast.corrupt`, fire through
   `testinghq.core.transport`, and build records with
-  `testinghq.core.report`.
+  `testinghq.core.report`. It also owns `GeneratorError`, the 400-mapped
+  error for a malformed mix, count, or seed.
 - `web/config.py` / `web/targets.json` - the target allow-list that
   populates the dropdown. Loading fails loudly if a target is malformed,
   is not http(s), or names a host the canonical guardrail refuses.
@@ -57,6 +55,14 @@ root, not from inside `web/`.
 - `web/tests/fixtures/` - two sample run artifacts matching the documented
   schema (one clean, one with both highlighted failure classes present),
   used by the test suite in `tests/web/` as a schema contract check.
+
+There is no local generator. There used to be: `web/generator.py` was a
+deterministic stand-in written when the engine modules did not exist, and it
+was deleted once the adapter moved onto the real engine. It had a
+`generate_run()` that produced convincing artifacts and its own error class,
+which is precisely what makes a stale stand-in dangerous: it keeps working,
+and nothing complains when something is wired to it. `tests/test_lane_hygiene.py`
+now fails if anything imports it, and the fixtures survive as data.
 
 ## One definition, imported not copied
 

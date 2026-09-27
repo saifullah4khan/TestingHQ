@@ -187,3 +187,63 @@ def test_web_static_has_no_copy_of_the_expectation_rules():
     assert "record.outcome" in source, (
         "web/static/app.js should read the outcome the server annotated"
     )
+
+
+def test_nothing_imports_the_deleted_web_generator():
+    """web/generator.py is gone, and it should stay gone.
+
+    It was a deterministic stand-in for the real engine, written when
+    blast/generate.py did not exist. When the adapter moved onto the real
+    engine in #22, the file became dead weight that still looked authoritative:
+    it had a `generate_run()` that produced convincing artifacts, a category
+    list, and its own `GeneratorError`, and nothing would have complained if
+    some later piece of code had imported it and quietly served the UI
+    fixtures instead of the engine.
+
+    That is the failure this guards. The check is on imports rather than on
+    behaviour because the whole risk is that a caller is wired to the wrong
+    module, not that the wrong module misbehaves.
+    """
+    generator = REPO_ROOT / "web" / "generator.py"
+    assert not generator.exists(), (
+        "web/generator.py is the deleted fixture stand-in; if it is genuinely "
+        "needed again it should be rebuilt on top of the engine, not restored"
+    )
+    test_file = REPO_ROOT / "tests" / "web" / "test_generator.py"
+    assert not test_file.exists(), (
+        "tests/web/test_generator.py tested the deleted stand-in; the engine's "
+        "own tests are tests/unit/test_corrupt.py and "
+        "tests/integration/test_corpus_generation.py"
+    )
+
+    forbidden = ("web.generator", "web import generator", "from . import generator")
+    offenders = []
+    for path in sorted(REPO_ROOT.rglob("*.py")):
+        relative = path.relative_to(REPO_ROOT)
+        if ".git" in relative.parts or ".venv" in relative.parts:
+            continue
+        if relative.as_posix() in (
+            "tests/test_lane_hygiene.py",
+        ):
+            continue  # this file names them in order to forbid them
+        source = path.read_text(encoding="utf-8-sig")
+        for needle in forbidden:
+            if needle in source:
+                offenders.append(f"{relative.as_posix()}: {needle!r}")
+    assert not offenders, (
+        f"nothing may import the deleted web.generator: {offenders}"
+    )
+
+
+def test_the_fixtures_survive_the_deletion_of_the_generator_that_made_them():
+    """The run artifacts under web/tests/fixtures/ are data, not a generator,
+    and they are still the schema corpus the suite checks against. Worth
+    pinning, because deleting the stand-in is exactly the kind of cleanup that
+    takes the fixtures with it by accident, and they cannot be regenerated
+    from the tree because nothing generates them any more.
+    """
+    fixtures = REPO_ROOT / "web" / "tests" / "fixtures"
+    names = sorted(p.name for p in fixtures.glob("*.json"))
+    assert names == ["sample_run_clean.json", "sample_run_with_failures.json"], (
+        f"the shipped run artifacts changed: {names}"
+    )

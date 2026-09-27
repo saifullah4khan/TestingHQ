@@ -24,7 +24,7 @@ import pytest
 from testinghq.core import guardrails, report
 from testinghq.core.transport import ClientResponse
 
-from web import adapter, config, generator
+from web import adapter, config
 
 
 class _RecordingClient:
@@ -126,14 +126,14 @@ def test_dry_run_summary_reports_no_phantom_timeouts():
 
 def test_dry_run_rejects_a_bad_count_or_seed():
     for bad_count in (-1, "5", 1.5, True):
-        with pytest.raises(generator.GeneratorError):
+        with pytest.raises(adapter.GeneratorError):
             adapter.dry_run(["clean"], bad_count, seed=0)
-    with pytest.raises(generator.GeneratorError):
+    with pytest.raises(adapter.GeneratorError):
         adapter.dry_run(["clean"], 5, seed="0")
 
 
 def test_dry_run_rejects_an_unknown_category():
-    with pytest.raises(generator.GeneratorError):
+    with pytest.raises(adapter.GeneratorError):
         adapter.dry_run(["clean", "not-a-category"], 5, seed=0)
 
 

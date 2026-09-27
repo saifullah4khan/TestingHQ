@@ -24,9 +24,9 @@ from urllib.parse import urlparse
 
 if __package__ in (None, ""):  # allows `python web/server.py` directly
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from web import adapter, config as config_module, generator
+    from web import adapter, config as config_module
 else:
-    from . import adapter, config as config_module, generator
+    from . import adapter, config as config_module
 
 from testinghq.core import guardrails, report
 
@@ -201,7 +201,7 @@ class Handler(BaseHTTPRequestHandler):
             200,
             {
                 "targets": [{"name": t.name} for t in targets.values()],
-                "categories": list(generator.CATEGORIES),
+                "categories": list(report.CATEGORIES),
             },
         )
 
@@ -216,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
         seed = body.get("seed", 0)
         try:
             artifact = adapter.dry_run(mix, count, seed)
-        except generator.GeneratorError as exc:
+        except adapter.GeneratorError as exc:
             self._send_json(400, {"error": str(exc)})
             return
         self._send_json(200, _annotate_outcomes(artifact))
@@ -244,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
         except config_module.ConfigError as exc:
             self._send_json(500, {"error": str(exc)})
             return
-        except generator.GeneratorError as exc:
+        except adapter.GeneratorError as exc:
             self._send_json(400, {"error": str(exc)})
             return
         self._send_json(200, _annotate_outcomes(artifact))
