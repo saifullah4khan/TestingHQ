@@ -79,7 +79,7 @@ false, so a human can check in one glance.
 - [x] [B][S] `examples/target.example.toml` plus `examples/README.md`. Landed #5.
 - [x] [A][S] Determinism test. Landed #10. Verified byte-identical on a fixed seed.
 
-## M2 - chaos: DONE except one Lane B item
+## M2 - chaos: DONE
 
 - [x] [A] Messiness levels and the mutator pipeline in `blast/corrupt.py`. Landed #10.
   The five categories are weighted recipes over one mutator set, not separate code paths.
@@ -114,21 +114,6 @@ Blast v1 is complete. Landed #16.
 - [x] [A] Category-versus-outcome summary, expectation-based. A degenerate input
   returning a clean 4xx is a PASS; a 5xx or a timeout is a FAIL; a clean input not
   returning 2xx is a FAIL. The summary points at bugs, not statuses.
-- [x] [B][M] Mutator and category-mix integration tests under `tests/integration/`.
-  DONE, in `tests/integration/test_corpus_generation.py`. A fixed-seed corpus is
-  generated, corrupted per `DEFAULT_MIX`, serialized, and posted to the fake sink.
-  Covers: every mutator is referenced by at least one recipe and vice versa; each
-  recipe can be built in isolation; `clean` leaves payloads byte-identical; every
-  non-clean recipe actually changes something; all five categories are reachable
-  from the default mix; the observed distribution tracks the configured weights
-  (loosely, since these are random draws); and every payload survives the real
-  wire format.
-  Writing it found that the ground-truth contract is subtler than the existing
-  happy-path test assumed. The generator puts the RFC 5322 display-name form in
-  the header and the bare addr-spec in ground truth, and puts a full message in
-  `text` but only the substantive sentence in `body_core`. The hand-built list in
-  `test_intake_happy_path.py` used bare addresses and set `body_core == text`, so
-  its equalities held only for a shape the generator never emits.
 - [x] [A] Matcher protocol and StatusOnlyMatcher.
 - [x] [B][M] Reporting and replay integration tests. DONE, in
   `tests/integration/test_reporting_and_replay.py`. Drives the real CLI send and
@@ -147,7 +132,7 @@ Blast v1 is complete. Landed #16.
   docstring calls out that `client` exists for hermetic tests; replay had no
   equivalent and no one had noticed because no test existed.
 
-## UI v1: DONE, with one real follow-up
+## UI v1: DONE
 
 - [x] [B] Branded `web/` shell over the engine. Landed #11. Controls, streaming
   results table, category-versus-outcome panel, dry-run default, explicit confirm.
@@ -196,12 +181,6 @@ Blast v1 is complete. Landed #16.
   existed to catch, and with one implementation it was vacuous. It is now an
   identity check plus a data-level check that the fixtures classify to the flags
   they claim.
-- [ ] [B][M] Delegate `web/expectations.py` to `core/report.py`. The two copies
-  agree today, verified record by record, and `tests/unit/test_report.py`
-  cross-checks them. That cross-check stops meaning anything the moment the
-  adapter above started building records with the real engine, because the UI's
-  records now come from `core/report.py` while this copy keeps classifying them.
-  This is now the top open item.
 - [x] [B][S] Fix the self-contradicting web fixture. `sample_run_with_failures.json`
   declared `by_status_class.5xx: 1` with two 500s in its own records. The defect was
   known and, worse, encoded: `tests/unit/test_report.py` carried a comment
@@ -210,21 +189,7 @@ Blast v1 is complete. Landed #16.
   from stayed wrong. The fixture is corrected and the test now compares against
   the file. `tests/web/test_fixtures_schema.py` recounts the records by hand, so
   the file and the records cannot disagree again without going red.
-- [ ] [B][M] Swap `web/adapter.py` from the fixture stand-in to the real engine.
-  NOT DONE and NOT BLOCKED. This is the highest-value Lane B item available.
-  The adapter was deliberately built as a one-seam swap for exactly this, and the
-  engine landed in #10. `web/adapter.py` still imports `web/generator.py`, the
-  deterministic fixture stand-in written when `blast/generate.py` did not exist.
-  Replace those calls with `blast.generate.generate_corpus`, `blast.corrupt.corrupt_corpus`,
-  and `core/transport`. Keep the seam: the point is that this stays a one-file change.
-  Keep `web/generator.py` and the fixtures; `tests/web` uses them and they are
-  what let this lane ship without the engine.
-- [ ] [B][M] Delegate `web/expectations.py` to `core/report.py`. The two copies
-  agree today, verified record by record, and `tests/unit/test_report.py`
-  cross-checks them. That cross-check stops meaning anything the moment the
-  adapter above starts building records with the real engine, because the UI's
-  records would come from `core/report.py` while this copy kept classifying them.
-  Do this AFTER the adapter swap, not before.
+
 
 ## Barrage v1: DONE
 
