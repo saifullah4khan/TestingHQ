@@ -20,6 +20,13 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
       - name: Run tests
+        # -m "not allow_network" is what keeps this job hermetic. `testpaths`
+        # is "tests", so a bare `pytest -q` collects every test marked
+        # allow_network, and those open real sockets. Selecting on the marker
+        # rather than ignoring a directory: tests/web/test_server.py is also
+        # exempt and is not under tests/e2e, so a directory ignore would leave
+        # a dozen socket tests running here. A local `pytest -q` deliberately
+        # still runs them.
         run: |
           set -euo pipefail
-          pytest -q
+          pytest -q -m "not allow_network"

@@ -55,3 +55,4 @@ jobs:
           set -euo pipefail
           command -v testinghq
           testinghq --version
+

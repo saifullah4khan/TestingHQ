@@ -14,13 +14,18 @@ loopback port. The tool runs as a real subprocess. The transport is
 artifact, which is the assertion that matters: not "it did not crash" but "the
 bytes that arrived are the payloads the artifact says were sent".
 
-WHY THIS IS A SEPARATE CI JOB. The suite-wide network block in
+WHY THIS IS A SEPARATE WORKFLOW. The suite-wide network block in
 `tests/conftest.py` is on by default, and it blocks `socket.socket.connect`. A
-real end-to-end test has to connect. So this file is marked
-`allow_network` and `.github/workflows/ci.yml` runs it in its own job, leaving
-the hermetic job hermetic. The exemption is a whole module rather than a
-per-test marker, so a new test here inherits it deliberately rather than by
-copy-paste.
+real end-to-end test has to connect. So this file is marked `allow_network` and
+`.github/workflows/e2e.yml` runs it, while `ci.yml` excludes this directory
+with `--ignore=tests/e2e` so the hermetic job stays hermetic. The exemption is a
+whole module rather than a per-test marker, so a new test here inherits it
+deliberately rather than by copy-paste.
+
+`testpaths` is `tests`, so a bare `pytest -q` collects this directory. That is
+intended for a local run, where running the socket tests is the point, and it is
+why the CI exclusion has to be an explicit `--ignore` rather than something that
+also changes local behaviour.
 
 THE EXEMPTION IS NOT TRUSTED. `allow_network` lifts the block, which means a
 mistake in this file could reach anything on the internet. So this file
