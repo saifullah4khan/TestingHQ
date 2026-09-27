@@ -42,6 +42,9 @@ from .core import guardrails, report
 from .core.config import ConfigError, load_config
 from .core.ratelimit import TokenBucket
 from .core.transport import encode_multipart, post
+from .pipeline import adapters as pipeline_adapters
+from .pipeline import common
+from .pipeline.adapters import AdapterError
 
 DEFAULT_TARGET_CONFIG = "target.toml"
 DEFAULT_RATE = 5.0
@@ -96,6 +99,121 @@ def build_parser():
     _add_barrage_parser(sub)
 
     return parser
+
+
+def _resolve_readback(args):
+    """Build the ReadbackConfig for whichever pipeline command is running.
+
+    Precedence is flag over config file. A custom adapter still gets the config
+    file's `[readback]` table: the flag says HOW to read the system and the file
+    says WHAT its url, field names and timeout are, and a factory handed only a
+    spec has nothing to connect to.
+
+    A missing adapter is a refusal, not a default. There is no sensible
+    fallback, and silently proceeding without a readback would produce a
+    verification run that verified nothing and said nothing, which is the exact
+    false green this package was built to eliminate.
+    """
+    spec = getattr(args, "readback", None)
+    override = getattr(args, "allow_public_readback", False)
+
+    try:
+        config = load_config(getattr(args, "config", DEFAULT_TARGET_CONFIG))
+    except ConfigError:
+        config = None
+    raw = config.readback_table() if config is not None else None
+
+    if spec:
+        if isinstance(raw, dict):
+            merged = dict(raw)
+            merged["kind"] = spec
+            merged.setdefault("allow_public_hosts", override)
+            return pipeline_adapters.parse_readback_config(merged)
+        return pipeline_adapters.parse_readback_config(
+            {"kind": spec, "allow_public_hosts": override}
+        )
+
+    if raw is None:
+        raise AdapterError(
+            "no readback adapter configured. Pass --readback http, --readback "
+            "mailbox, or --readback module:attribute, or declare a [readback] "
+            "table in the target config."
+        )
+    if override and isinstance(raw, dict):
+        raw = dict(raw)
+        raw["allow_public_hosts"] = True
+    return pipeline_adapters.parse_readback_config(raw)
+
+
+def _add_readback_poll_args(parser) -> None:
+    """How long to keep asking the system what it produced.
+
+    A fixed sleep before looking once is wrong in both directions: too short and
+    a queue consumer's output is reported as a loss, too long and every run pays
+    for the slowest pipeline that ever was. Polling until the counts stop moving
+    is the version that adapts, and the counts rather than the messages are what
+    it waits on, so a duplicate that lands late is still caught.
+    """
+    parser.add_argument(
+        "--quiet-window",
+        type=float,
+        default=common.DEFAULT_QUIET_WINDOW,
+        help=(
+            "seconds the record counts must hold steady before a read is "
+            "believed. Not a timeout: a longer window costs a slower run, not a "
+            "wrong one"
+        ),
+    )
+    parser.add_argument(
+        "--max-wait",
+        type=float,
+        default=common.DEFAULT_MAX_WAIT,
+        help="seconds to keep polling before reporting whatever was seen",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=common.DEFAULT_POLL_INTERVAL,
+        help="seconds between lookups while waiting",
+    )
+
+
+def _add_readback_args(parser) -> None:
+    """The arguments every pipeline tool needs to find a system to read.
+
+    `--readback` is how the adapter is chosen, and it has three shapes because
+    there are three honest options: a built-in kind, an import path for a
+    custom adapter, or nothing, in which case the `[readback]` table in the
+    target config is used. The precedence is flag over config, and a flag that
+    names an import path is the only way to bring your own, because a Python
+    object cannot be spelled on a command line.
+    """
+    parser.add_argument(
+        "--readback",
+        help=(
+            "how to read the system under test: 'http', 'mailbox', or "
+            "'module:attribute' for a custom adapter. Overrides the "
+            "[readback] table in the target config."
+        ),
+    )
+    parser.add_argument(
+        "--allow-public-readback",
+        action="store_true",
+        help=(
+            "allow the readback URL to be a public host. Refused by default, "
+            "because on a real deployment the readback is a ticket store or a "
+            "mail sink that may hold other people's data"
+        ),
+    )
+    parser.add_argument(
+        "--expect-route",
+        help=(
+            "the route every message should have been routed to, checked "
+            "against what the system recorded. Without it, the expected route "
+            "is the message's own recipient, and with no notion of routing the "
+            "check reports as not-checked rather than passing"
+        ),
+    )
 
 
 def _add_barrage_parser(sub) -> None:
