@@ -33,6 +33,23 @@ from web import config, server
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "web" / "tests" / "fixtures"
 
+# Opt out of the suite-wide network block in tests/conftest.py, which is on by
+# default for every test in the repo.
+#
+# This module is the one place that genuinely needs it: `running_server` starts
+# a real stdlib HTTP server on 127.0.0.1 and these tests speak to it over an
+# actual socket with urllib, which is the point, since they exist to exercise
+# the HTTP layer rather than to call handler methods directly.
+#
+# Applied at module level on purpose. pytest does not inherit markers from a
+# conftest `pytestmark`, so this is the honest way to say "every test in this
+# file"; scattering the marker test by test would invite a new test here
+# silently failing for want of it. Note what is still blocked even inside this
+# exemption: only the loopback server. A test here that reached any other host
+# would still have to pass the three patched doors if the port were not
+# reachable, and in practice the transport is faked by `fake_transport` anyway.
+pytestmark = pytest.mark.allow_network
+
 
 class _RecordingClient:
     def __init__(self, status=200, body=b"ok"):

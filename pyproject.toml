@@ -30,3 +30,6 @@ testpaths = ["tests"]
 # from the tree. Do not remove without making `pytest -q` green from a clean
 # clone first.
 pythonpath = ["."]
+markers = [
+  "allow_network: opt out of the suite-wide network block in tests/conftest.py. Only for tests that genuinely need loopback, such as the ones that start a real HTTP server. Registering it matters: an unregistered marker is silently ignored, so a typo would leave the test blocked rather than the misspelling being an error.",
+]
