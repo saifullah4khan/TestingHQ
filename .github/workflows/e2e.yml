@@ -56,6 +56,20 @@ jobs:
         run: |
           set -euo pipefail
           pytest -q -m allow_network
+      - name: Run the pipeline demo against a real local sink
+        # The demo drives the whole CLI over real loopback sockets against a real
+        # intake pipeline it starts itself, and exits non-zero if any of its seven
+        # runs disagrees with its readback. It is here rather than in the hermetic
+        # suite because every one of those seven sends for real, and because the
+        # injectable-client seam the rest of the suite relies on means nothing
+        # else in CI proves the real transport, the real serializer and the real
+        # readback client can talk to a real server.
+        #
+        # Binds to 127.0.0.1 only. The demo's own assertions are the second layer:
+        # it fails rather than prints if a run's exit code is not the expected one.
+        run: |
+          set -euo pipefail
+          python examples/pipeline_demo.py
       - name: Prove the binary these tests drove is the one CI installed
         run: |
           set -euo pipefail

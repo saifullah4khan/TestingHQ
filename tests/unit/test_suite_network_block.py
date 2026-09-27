@@ -233,6 +233,56 @@ def test_the_only_modules_that_opt_out_are_the_ones_that_bind_loopback():
     )
 
 
+def test_the_e2e_job_runs_the_pipeline_demo():
+    """The demo joins the e2e job deliberately, and the list above stays at two
+    on purpose.
+
+    `examples/pipeline_demo.py` opens real loopback sockets for seven runs of
+    the whole CLI, which is the same thing the exemption exists for and none of
+    what the hermetic suite can do. It is not in `expected` above because it is
+    not a test module: it takes no `allow_network` marker, so the marker scan
+    cannot see it and should not be widened to pretend otherwise. The two lists
+    are different kinds of thing, and this test is what keeps the e2e job from
+    quietly losing the demo: deleting the step would leave every other guard in
+    this file green, because the demo is invisible to all of them.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "e2e.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "examples/pipeline_demo.py" in workflow, (
+        "the e2e job no longer runs the pipeline demo, so nothing in CI drives "
+        "the real transport, serializer and readback client against a real "
+        "server. Every other guard here stays green without it, because the "
+        "demo is not a test module and takes no allow_network marker."
+    )
+    assert "set -euo pipefail" in workflow, (
+        "the demo step must be in a shell that fails on a non-zero exit, or a "
+        "run that disagrees with its readback would print and pass"
+    )
+
+    demo = (REPO_ROOT / "examples" / "pipeline_demo.py").read_text(encoding="utf-8")
+    assert "127.0.0.1" in demo, "the demo must bind to loopback and nothing else"
+    assert "allow_network" not in demo, (
+        "the demo is not a test module and must not claim the marker; the "
+        "exemption for it is the e2e job running it directly"
+    )
+    for host in ("0.0.0.0", "http://example.com", "https://"):
+        assert host not in demo, f"the demo names a non-loopback destination: {host}"
+
+
+def test_the_pipeline_demo_fails_on_an_unexpected_exit():
+    """The claim the e2e job relies on. A demo that printed a failure and exited
+    0 would satisfy `set -e` and prove nothing."""
+    demo = (REPO_ROOT / "examples" / "pipeline_demo.py").read_text(encoding="utf-8")
+    assert "sys.exit(code)" in demo or "raise SystemExit(main())" in demo, (
+        "the demo must propagate a non-zero exit; returning it and falling off "
+        "the end would exit 0 on failure"
+    )
+    assert "failures.append" in demo, (
+        "the demo appears to have lost the thing that records an unexpected exit"
+    )
+
+
 def test_the_loopback_exemption_is_actually_load_bearing():
     """The module-level marker on test_server.py is only honest if the tests in
     it really do connect. If they stopped needing loopback, the exemption

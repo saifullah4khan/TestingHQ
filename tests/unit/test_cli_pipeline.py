@@ -1,4 +1,4 @@
-"""The CLI surface for verify and ledger.
+"""The CLI surface for verify, ledger and redeliver.
 
 These tests are about the wiring, not the tools. The tools are covered in
 depth elsewhere; what has to be true here is narrower and just as important:
@@ -458,3 +458,71 @@ def test_ledger_fire_does_nothing_without_send(target_config, capsys):
     assert code == EXIT_DRY_RUN
     assert "hq-0-0000 .. hq-0-0004" in out
     assert "no network calls were made" in out
+
+
+def test_the_scenario_flag_is_repeatable_and_constrained():
+    parser = cli.build_parser()
+    args = parser.parse_args(["redeliver", "fire", "--scenario", "duplicate", "--scenario", "references"])
+    assert args.scenario == ["duplicate", "references"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["redeliver", "fire", "--scenario", "telepathy"])
+
+
+def test_no_pipeline_tool_carries_the_high_rate_escape_hatch():
+    """The thing that needs a hard ceiling is sustained load, and that is
+    Barrage's job, with the ceiling already in place. Offering it here would
+    be a way to bypass a guardrail by picking a different tool."""
+    parser = cli.build_parser()
+    for argv in (["verify", "fire"], ["ledger", "fire"], ["redeliver", "fire"]):
+        assert not hasattr(parser.parse_args(argv), "allow_high_rate")
+
+
+# ---------------------------------------------------------------------------
+# Dry run: the default
+# ---------------------------------------------------------------------------
+
+
+def test_redeliver_fire_does_nothing_without_send(target_config, capsys):
+    code = cli.main(
+        ["redeliver", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--count", "2"]
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    for scenario in ("duplicate", "slow-retry", "reply-first", "references"):
+        assert scenario in out
+    assert "no network calls were made" in out
+
+
+def test_a_dry_run_prints_the_plan_for_the_scenario_you_asked_for(target_config, capsys):
+    cli.main(
+        ["redeliver", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--scenario", "references"]
+    )
+    out = capsys.readouterr().out
+    assert "references" in out
+    assert "duplicate" not in out
+
+
+# ---------------------------------------------------------------------------
+# Missing adapter: refused, never defaulted
+# ---------------------------------------------------------------------------
+
+
+def test_the_exit_codes_are_defined_in_exactly_one_place():
+    """All three tools share them so they script the same way. A second
+    definition would be two sets of numbers that agree today."""
+    from testinghq.pipeline import common
+
+    for name in ("verify", "ledger", "redeliver"):
+        source = (pathlib.Path(cli.__file__).resolve().parent / "pipeline" / f"{name}.py")
+        text = source.read_text(encoding="utf-8")
+        for code in ("EXIT_OK =", "EXIT_REFUSED =", "EXIT_DRY_RUN =", "EXIT_MISMATCH ="):
+            assert code not in text, f"{name}.py redefines {code}"
+    assert common.EXIT_MISMATCH == 3
+    assert common.EXIT_OK == 0
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
