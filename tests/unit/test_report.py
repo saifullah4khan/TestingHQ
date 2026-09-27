@@ -348,27 +348,40 @@ def test_payload_sha256_deterministic_and_content_sensitive():
     assert len(hash_a) == 64
 
 
-def test_agrees_with_web_expectations_on_both_fixtures():
+def test_web_expectations_is_this_module_not_a_second_copy():
+    """This used to be a cross-check: run both implementations over both
+    fixtures and assert they agreed.
+
+    That test was the reason the duplication felt safe, and it was the worst
+    possible shape for the job. A behavioural comparison passes happily while
+    two implementations drift, which is exactly the failure it was meant to
+    catch. It could only ever have gone red on a fixture that happened to
+    exercise a changed rule.
+
+    Now there is one implementation, so the invariant is not "they agree" but
+    "they are the same function". That cannot be satisfied by two correct but
+    separate bodies, which is the point.
+    """
     from web import expectations as web_expectations
 
+    assert web_expectations.classify_record is report.classify_record
+    assert web_expectations.flag_for_record is report.flag_for_record
+    assert web_expectations.compute_summary is report.compute_summary
+    assert web_expectations.CATEGORIES is report.CATEGORIES
+
+
+def test_the_fixtures_still_classify_to_the_outcomes_they_record():
+    """What the cross-check was actually for: the shipped fixtures must
+    classify to the flags they claim. Not a comparison between two
+    implementations, just a claim about the data, which cannot go vacuous."""
     for fixture_name in ("sample_run_clean.json", "sample_run_with_failures.json"):
         fixture = _load_fixture(fixture_name)
-        for record in fixture["records"]:
-            ours = report.classify_record(record)
-            theirs = web_expectations.classify_record(record)
-            assert ours == theirs, (
-                f"{fixture_name} record {record['id']!r}: "
-                f"report.classify_record={ours!r} vs "
-                f"web.expectations.classify_record={theirs!r}"
-            )
-            assert report.flag_for_record(record) == web_expectations.flag_for_record(
-                record
-            )
-
-        our_summary = report.compute_summary(
-            fixture["records"], fixture["seed"], fixture["config"]
+        recomputed = [
+            flag
+            for record in fixture["records"]
+            if (flag := report.flag_for_record(record)) is not None
+        ]
+        assert recomputed == fixture["summary"]["flags"], (
+            f"{fixture_name}: the flags core/report.py derives from the records "
+            "do not match the flags the fixture claims"
         )
-        their_summary = web_expectations.compute_summary(
-            fixture["records"], fixture["seed"], fixture["config"]
-        )
-        assert our_summary == their_summary

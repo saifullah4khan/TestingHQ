@@ -5,11 +5,16 @@
 // sends) and POST /api/fire (requires a configured target and an explicit
 // confirm step).
 //
-// classifyRecord() below intentionally mirrors the expectation rules in
-// web/expectations.py: this is the product insight ("expectation-based
-// reading, not a status dump") and the UI must apply the same rules the
-// server used to build the flags list, so per-row highlighting agrees with
-// the summary panel.
+// The expectation rules are NOT duplicated here. This file used to carry its
+// own classifyRecord(), re-deriving the outcome from the status code, which
+// made the browser a third copy of testinghq/core/report.py's rules. The
+// server now annotates every record with `outcome`, computed by the engine,
+// and this file renders it. A rule change belongs in core/report.py alone.
+//
+// The `outcomeOf` fallback below only covers a response from a server older
+// than the annotation. It is deliberately not a reimplementation: if it ever
+// runs, the UI is visibly misconfigured and should not quietly agree with a
+// stale server.
 
 (function () {
   "use strict";
@@ -23,33 +28,11 @@
     return document.getElementById(id);
   }
 
-  function isTimeout(status) {
-    return status === null || status === undefined;
-  }
-
-  function is2xx(status) {
-    return !isTimeout(status) && status >= 200 && status < 300;
-  }
-
-  function is5xx(status) {
-    return !isTimeout(status) && status >= 500 && status < 600;
-  }
-
-  // Mirrors web/expectations.py classify_record().
-  function classifyRecord(record) {
-    const category = record.category;
-    const status = record.response ? record.response.status : null;
-
-    if (category === "clean" && !is2xx(status)) {
-      return "clean_failed";
+  function outcomeOf(record) {
+    if (record.outcome) {
+      return record.outcome;
     }
-    if (category === "degenerate" && (is5xx(status) || isTimeout(status))) {
-      return "degenerate_failed";
-    }
-    if (record.assertion && record.assertion.passed === false) {
-      return "assertion_failed";
-    }
-    return "ok";
+    return "unknown";
   }
 
   async function fetchConfig() {
@@ -126,10 +109,10 @@
 
     const records = artifact.records || [];
     const cleanFailed = records.filter(
-      (r) => classifyRecord(r) === "clean_failed"
+      (r) => outcomeOf(r) === "clean_failed"
     );
     const degenerateFailed = records.filter(
-      (r) => classifyRecord(r) === "degenerate_failed"
+      (r) => outcomeOf(r) === "degenerate_failed"
     );
 
     $("count-clean-failed").textContent = cleanFailed.length;
@@ -188,7 +171,7 @@
 
     records.forEach((record, i) => {
       window.setTimeout(() => {
-        const outcome = classifyRecord(record);
+        const outcome = outcomeOf(record);
         const tr = document.createElement("tr");
         tr.className = rowClassFor(outcome);
         const status = record.response ? record.response.status : null;
