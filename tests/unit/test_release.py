@@ -80,37 +80,6 @@ def _run(argv, cwd=REPO_ROOT):
     )
 
 
-def _bash(script: str):
-    """Run a shell script, or skip if there is no bash worth having.
-
-    Not used by the current tests, and kept only because the release workflow's
-    guards are bash. It is here for the day someone wants to execute them.
-
-    It is a trap on Windows, and that is why nothing calls it. The only `bash`
-    reachable from here is the WSL launcher, which accepts a script and then
-    mangles the regex through the Windows command line: the tag guard reported a
-    refusal for every tag, including valid ones. An assertion that a guard
-    rejects everything trivially satisfies a check that expects some acceptances,
-    so the test that used this passed for the wrong reason and was removed rather
-    than fixed. The guards are checked hermetically instead, and the bash itself
-    runs in CI on Linux.
-
-    Calling it on Windows skips rather than returning a wrong answer, so a future
-    test cannot be fooled by it the way that one was.
-    """
-    import shutil
-
-    if shutil.which("bash") is None:
-        pytest.skip("no bash on this machine")
-    result = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, cwd=REPO_ROOT,
-        timeout=600,
-    )
-    if result.returncode != 0 and not result.stdout.strip():
-        pytest.skip("bash here did not run the script")
-    return result
-
-
 # ---------------------------------------------------------------------------
 # The version
 # ---------------------------------------------------------------------------
@@ -423,18 +392,24 @@ def _tag_pattern() -> str:
     return match.group(1)
 
 
-# The workflow's bash guards are NOT executed here.
+# The workflow's bash guards are NOT executed here, and there is no helper to
+# do it with on purpose.
 #
-# The first version of this file ran them, and the test passed for the wrong
-# reason: on this Windows machine `bash` is the WSL launcher, which accepts the
-# script and then mangles the regex through the Windows command line, so it
-# reported a refusal for every tag including valid ones. An assertion that a
-# guard rejects everything trivially satisfies a check that expects some
+# The first version of this file ran them through subprocess, and the test
+# passed for the wrong reason: on a Windows machine `bash` is the WSL launcher,
+# which accepts the script and then mangles the regex through the Windows command
+# line, so it reported a refusal for every tag including valid ones. An assertion
+# that a guard rejects everything trivially satisfies a check that expects some
 # acceptances, and it would have gone on guarding nothing.
 #
 # So the guards are checked by reading the workflow for their presence and by
-# running their logic against the cases that matter, both hermetically. The
-# bash itself runs in CI, on Linux, where bash is bash.
+# running their logic against the cases that matter, both hermetically. The tag
+# pattern is read OUT of release.yml so it cannot drift from the one that ships.
+# The real bash runs in CI, on Linux.
+#
+# If you are about to add a `_bash` helper back: it has to skip rather than
+# return a wrong answer on a machine whose `bash` is the WSL launcher, and a skip
+# is not a pass. Check what your `bash` actually is before trusting its output.
 
 
 
