@@ -34,6 +34,23 @@ guardrails, and rate limiting.
 A readback seam is built on that core, described below, and `verify` and
 `ledger` and `redeliver` are the tools on it.
 
+**Loop.** Auto-reply and mail-loop detection. Two auto-responders answering each
+other create thousands of tickets overnight. `loop` sends a corpus a correct
+pipeline must recognise as machine-originated and must not act on
+(`Auto-Submitted` per RFC 3834, `Precedence: bulk|list|junk`, out-of-office
+replies, bounces, `noreply@` senders, list mail) plus one loop bait: an
+auto-reply addressed to the pipeline's own reply address, carrying the
+`In-Reply-To` of a message the pipeline would itself have sent. It then reports
+which header marked each message as machine mail, whether a ticket was opened,
+and whether anything was emitted outbound. It reproduces the single-hop shape of
+a loop, not a live two-party loop.
+
+The auto-reply check needs somewhere to read what the pipeline tried to send.
+Configure `[loop.outbound]` and it becomes a finding; without it the check
+reports **SKIPPED, never passed**, because a tool that cannot see whether a
+reply was sent has no evidence that one was not, and the report says so in its
+own headline line.
+
 **Verify.** What the pipeline actually produced. Every tool above judges a run by
 the HTTP status, and a 200 only means the endpoint accepted the POST. It does
 not mean a ticket was created, that the sender survived parsing, that the body
@@ -252,6 +269,36 @@ testinghq ledger fire --target local --send --count 50
 testinghq ledger fire --target local --send --tag-prefix spike-2026-09
 ```
 
+
+Loop, for auto-replies and mail loops:
+
+```
+# dry run by default: lists every machine-mail shape it would send
+testinghq loop fire --target local
+
+# send them and check the pipeline ignored all of them
+testinghq loop fire --target local --send
+
+# tickets for machine mail are findings by default. Allowing them keeps only
+# the auto-reply check, and answering the loop bait is still a finding.
+testinghq loop fire --target local --send --ticket-policy allowed
+```
+
+`loop` reads its outbound sink from config rather than a flag, because the sink
+is where your pipeline writes, which is a property of your deployment rather
+than of the run:
+
+```toml
+[loop.outbound]
+kind = "mailbox"
+path = "./outbound-sink.jsonl"
+
+[loop]
+reply_address = "no-reply@example.com"
+```
+
+Without `[loop.outbound]` the auto-reply check reports **SKIPPED, never passed**,
+and the verdict line says so.
 
 Redeliver, for what your pipeline does when the provider misbehaves:
 

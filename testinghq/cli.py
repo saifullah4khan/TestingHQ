@@ -47,6 +47,7 @@ from .core.transport import encode_multipart, post
 from .pipeline import adapters as pipeline_adapters
 from .pipeline import common
 from .pipeline import ledger as pipeline_ledger
+from .pipeline import loop as pipeline_loop
 from .pipeline import messages as pipeline_messages
 from .pipeline import redeliver as pipeline_redeliver
 from .pipeline import verify as pipeline_verify
@@ -142,6 +143,7 @@ def build_parser():
     _add_barrage_parser(sub)
     _add_verify_parser(sub)
     _add_ledger_parser(sub)
+    _add_loop_parser(sub)
     _add_redeliver_parser(sub)
     _add_report_parser(sub)
     _add_config_parser(sub)
@@ -1209,6 +1211,103 @@ def _cmd_ledger_fire(args) -> int:
 
 
 
+def _add_loop_parser(sub) -> None:
+    """The `loop` subcommand.
+
+    Reads two things back: what the pipeline produced, and what it tried to send.
+    The second is a separate adapter configured in `[loop.outbound]`, and it is
+    optional on purpose. Without it the auto-reply check reports SKIPPED rather
+    than passing, because a tool that cannot see whether a reply was sent has no
+    evidence that one was not.
+    """
+    loop = sub.add_parser(
+        "loop",
+        help="auto-reply and mail-loop detection",
+    )
+    loop_sub = loop.add_subparsers(dest="command", required=True)
+
+    l_fire = loop_sub.add_parser(
+        "fire",
+        help="send machine-generated mail and check the pipeline ignored it",
+    )
+    l_fire.add_argument("--target")
+    l_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    l_fire.add_argument(
+        "--count", type=int, default=12,
+        help="how many machine-generated messages to send",
+    )
+    l_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    l_fire.add_argument("--out", help="path to write the loop artifact JSON")
+    l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    l_fire.add_argument(
+        "--ticket-policy", choices=list(pipeline_loop.TICKET_POLICIES),
+        default=pipeline_loop.TICKET_POLICY_NONE,
+        help=(
+            "whether opening a ticket for machine mail is a finding. 'none' "
+            "reports every one; 'allowed' makes them informational and keeps "
+            "only the auto-reply check. The loop bait is a finding under both"
+        ),
+    )
+    l_fire.add_argument(
+        "--reply-address",
+        default=pipeline_loop.DEFAULT_REPLY_ADDRESS,
+        help=(
+            "the pipeline's own reply address, so the loop bait aims at "
+            "something real. Read from [loop].reply_address when set here"
+        ),
+    )
+    _add_readback_args(l_fire)
+    _add_readback_poll_args(l_fire)
+
+
+def _cmd_loop_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+        # `core/config.py` is owned elsewhere, so the `[loop]` table is read by
+        # the tool. One read, reused for the outbound adapter and the reply
+        # address, rather than parsing the file twice.
+        section = pipeline_loop.load_loop_config(args.config)
+        outbound = pipeline_loop.build_outbound_config(section, args.config)
+        reply_address = section.get("reply_address") or args.reply_address
+    except (AdapterError, pipeline_loop.LoopConfigError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    corpus = pipeline_loop.build_machine_corpus(
+        args.seed, args.count, args.tag_prefix, reply_address
+    )
+
+    print(f"loop fire: {decision.reason}")
+    if not decision.will_send:
+        print(
+            pipeline_loop.format_dry_run(corpus, readback, args.ticket_policy)
+        )
+        return EXIT_DRY_RUN
+
+    return pipeline_loop.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        outbound=outbound,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        ticket_policy=args.ticket_policy,
+        reply_address=reply_address,
+        quiet_window=args.quiet_window,
+        max_wait=args.max_wait,
+        poll_interval=args.poll_interval,
+    )
+
+
 def _cmd_redeliver_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
 
@@ -1333,6 +1432,10 @@ def main(argv=None):
     if args.tool == "redeliver":
         if args.command == "fire":
             return _cmd_redeliver_fire(args)
+        return _not_yet(args.command)
+    if args.tool == "loop":
+        if args.command == "fire":
+            return _cmd_loop_fire(args)
         return _not_yet(args.command)
     if args.tool == "ledger":
         if args.command == "fire":
