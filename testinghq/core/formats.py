@@ -46,7 +46,6 @@ from ..blast.serialize import (
     attachment_info_json,
     charsets_json,
     envelope_json,
-    headers_text,
     to_multipart_parts,
 )
 
@@ -115,51 +114,64 @@ class SendgridFormat(WireFormat):
 
 
 class MailgunFormat(WireFormat):
-    """Mailgun inbound routing, which also posts multipart/form-data but with a
-    different field vocabulary.
+    """Mailgun inbound routing: multipart/form-data with Mailgun's field names.
 
-    Written from Mailgun's published inbound-routing field list. The naming
-    differences from SendGrid are the whole reason this exists and the easy
-    things to get wrong:
+    Field list taken from Mailgun's "receive and forward over HTTP" docs:
+    https://documentation.mailgun.com/docs/mailgun/user-manual/receive-forward-store/receive-http.md
 
-    - The body parts are `body-plain` and `body-html`, not `text` and `html`.
-    - Mailgun calls the envelope sender `sender` and keeps `from` for the From
-      header, so a payload whose real envelope sender differs from its From
-      header lands in the right place for the first time.
-    - The recipient is `recipient`; SendGrid's `to` is the To header, which is
-      a different value when a message was Bcc'd.
-    - Headers arrive as one `message-headers` blob, not as `headers`.
-    - `stripped-text` and `stripped-html` are Mailgun's quote-stripped
-      variants. Not sent here: they are derived by Mailgun's own parser, and
-      inventing them from the full body would be fabricating a value that the
-      receiving pipeline might reasonably prefer.
+    - `recipient` is the envelope recipient, `sender` the envelope sender, and
+      `from` the From header. They differ for a relayed or Bcc'd message.
+    - The body parts are `body-plain` and `body-html`.
+    - `message-headers` is the full header list as a JSON-encoded string of
+      `[name, value]` pairs, in order. It is not raw header text.
+    - Attachments are sent as `attachment-1` .. `attachment-N`, numbered from 1,
+      with `attachment-count` alongside when there are any.
+    - `stripped-text`, `stripped-html` and `stripped-signature` are produced by
+      Mailgun's own parser, so they are not sent here.
+    - `timestamp`, `token` and `signature` authenticate the request. They are
+      only sent when `signature_fields` is given, because a value computed
+      without the operator's signing key would be a fabricated signature.
+      `sigcheck` supplies them.
+
+    Not fired at a live Mailgun account; checked against the field list above.
     """
 
     name = "mailgun"
 
-    def __init__(self, boundary: str) -> None:
+    def __init__(
+        self, boundary: str, signature_fields: Optional[Dict[str, str]] = None
+    ) -> None:
         self._boundary = boundary
+        if signature_fields is not None:
+            missing = {"timestamp", "token", "signature"} - set(signature_fields)
+            if missing:
+                raise ValueError(
+                    f"mailgun signature_fields is missing {sorted(missing)}"
+                )
+        self._signature_fields = signature_fields
 
     def encode(self, payload: InboundEmail) -> EncodedBody:
         from .transport import encode_multipart
 
+        header_pairs = [[name, value] for name, value in payload.headers.items()]
         parts: List[FormPart] = [
             FormField("recipient", payload.to),
             FormField("sender", payload.envelope.from_addr),
             FormField("from", payload.from_addr),
-            FormField("to", payload.to),
             FormField("subject", payload.subject),
             FormField("body-plain", payload.text),
             FormField("body-html", payload.html),
-            FormField("Content-Type", "text/plain"),
-            FormField("message-headers", headers_text(payload.headers)),
-            FormField("Message-Id", _first_header(payload.headers, "Message-Id") or ""),
-            FormField("attachments", str(len(payload.attachments))),
+            FormField("message-headers", json.dumps(header_pairs, ensure_ascii=False)),
         ]
+        if payload.attachments:
+            parts.append(FormField("attachment-count", str(len(payload.attachments))))
+        if self._signature_fields is not None:
+            for key in ("timestamp", "token", "signature"):
+                parts.append(FormField(key, self._signature_fields[key]))
         for index, attachment in enumerate(payload.attachments, start=1):
             parts.append(
                 FormFile(
-                    name=f"attachment{index}",
+                    name=f"attachment-{index}",
                     filename=attachment.filename,
                     content_type=attachment.content_type,
                     content=attachment.content,
@@ -177,8 +189,8 @@ def _first_header(headers, name: str) -> Optional[str]:
 
     HTTP header names are case-insensitive, and a generator that wrote
     `Message-ID` against one that expects `Message-Id` should not silently lose
-    the value. A missing header returns None, which the caller turns into the
-    empty field Mailgun itself sends.
+    the value. A missing header returns None, which the caller turns into an
+    empty field.
     """
     wanted = name.casefold()
     for key, value in headers.items():

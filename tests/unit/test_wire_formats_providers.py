@@ -99,6 +99,24 @@ def get_format_names():
 # ---------------------------------------------------------------------------
 
 
+#: Mailgun's documented POST parameters for a forwarded inbound message, from
+#: https://documentation.mailgun.com/docs/mailgun/user-manual/receive-forward-store/receive-http.md
+#: Copied as a list so a test can say "nothing outside it".
+MAILGUN_DOCUMENTED = {
+    "recipient", "sender", "from", "subject",
+    "body-plain", "body-html", "message-headers",
+    "stripped-text", "stripped-signature", "stripped-html",
+    "attachment-count", "content-id-map",
+    "timestamp", "token", "signature",
+}
+
+
+def _is_documented(name):
+    return name in MAILGUN_DOCUMENTED or (
+        name.startswith("attachment-") and name[len("attachment-"):].isdigit()
+    )
+
+
 def test_mailgun_uses_the_documented_field_names():
     """The vocabulary is the point. SendGrid's `text` and `html` become
     `body-plain` and `body-html`."""
@@ -108,14 +126,22 @@ def test_mailgun_uses_the_documented_field_names():
         "recipient",
         "sender",
         "from",
-        "to",
         "subject",
         "body-plain",
         "body-html",
         "message-headers",
-        "attachments",
     ):
         assert name in fields, f"mailgun sends {name!r}; got {sorted(fields)}"
+
+
+def test_mailgun_sends_no_field_mailgun_does_not_document():
+    """The earlier version sent `to`, `Content-Type`, `Message-Id` and
+    `attachments`, none of which Mailgun sends. A pipeline that looked for them
+    would work against TestingHQ and fail against Mailgun."""
+    payload = _email(attachments=(Attachment("a.txt", "text/plain", b"one"),))
+    names = [n for n, _ in _parts(get_format("mailgun", DEFAULT_BOUNDARY).encode(payload).body)]
+    undocumented = [n for n in names if not _is_documented(n)]
+    assert not undocumented, f"not in Mailgun's field list: {undocumented}"
 
 
 def test_mailgun_keeps_the_envelope_sender_out_of_from():
@@ -129,16 +155,21 @@ def test_mailgun_keeps_the_envelope_sender_out_of_from():
     assert fields["sender"] != fields["from"]
 
 
-def test_mailgun_sends_the_recipient_and_the_to_header_separately():
+def test_mailgun_sends_the_envelope_recipient():
     fields = _fields(get_format("mailgun", DEFAULT_BOUNDARY).encode(_email()).body)
     assert fields["recipient"] == b"support@example.com"
-    assert fields["to"] == b"support@example.com"
 
 
-def test_mailgun_sends_the_raw_headers_as_one_blob():
+def test_mailgun_sends_the_headers_as_a_json_list_of_pairs():
+    """Mailgun's `message-headers` is a JSON-encoded list of [name, value]
+    pairs in the original order, not raw header text."""
     payload = _email()
     fields = _fields(get_format("mailgun", DEFAULT_BOUNDARY).encode(payload).body)
-    assert b"Message-ID: <m1@example.com>" in fields["message-headers"]
+    decoded = json.loads(fields["message-headers"].decode("utf-8"))
+    assert decoded == [
+        ["Message-ID", "<m1@example.com>"],
+        ["X-TestingHQ-Tag", "hq-1-0000"],
+    ]
 
 
 def test_mailgun_does_not_invent_the_stripped_variants():
@@ -157,18 +188,43 @@ def test_mailgun_sends_each_attachment_as_a_numbered_file_part():
     ))
     encoded = get_format("mailgun", DEFAULT_BOUNDARY).encode(payload)
     names = [name for name, _ in _parts(encoded.body)]
-    assert names[-2:] == ["attachment1", "attachment2"]
-    assert _fields(encoded.body)["attachments"] == b"2"
+    assert names[-2:] == ["attachment-1", "attachment-2"]
+    assert _fields(encoded.body)["attachment-count"] == b"2"
 
 
 def test_mailgun_sends_no_attachment_parts_for_a_message_with_none():
     payload = _email()
     names = [name for name, _ in _parts(
         get_format("mailgun", DEFAULT_BOUNDARY).encode(payload).body)]
-    assert not any(n and n.startswith("attachment") and n != "attachments" for n in names)
-    assert _fields(
-        get_format("mailgun", DEFAULT_BOUNDARY).encode(payload).body
-    )["attachments"] == b"0"
+    assert not any(n and n.startswith("attachment") for n in names)
+
+
+def test_mailgun_sends_no_signature_unless_given_one():
+    """A signature computed without the operator's signing key would be a
+    fabricated value, so the plain format sends none."""
+    fields = _fields(get_format("mailgun", DEFAULT_BOUNDARY).encode(_email()).body)
+    for name in ("timestamp", "token", "signature"):
+        assert name not in fields
+
+
+def test_mailgun_sends_the_signature_fields_it_is_given():
+    from testinghq.core.formats import MailgunFormat
+
+    signed = MailgunFormat(
+        DEFAULT_BOUNDARY,
+        signature_fields={"timestamp": "1700000000", "token": "tok", "signature": "abc"},
+    )
+    fields = _fields(signed.encode(_email()).body)
+    assert fields["timestamp"] == b"1700000000"
+    assert fields["token"] == b"tok"
+    assert fields["signature"] == b"abc"
+
+
+def test_mailgun_refuses_an_incomplete_signature():
+    from testinghq.core.formats import MailgunFormat
+
+    with pytest.raises(ValueError):
+        MailgunFormat(DEFAULT_BOUNDARY, signature_fields={"timestamp": "1"})
 
 
 def test_mailgun_is_multipart_and_announces_its_boundary():
