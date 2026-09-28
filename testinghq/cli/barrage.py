@@ -139,24 +139,19 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
 
 
 def _cmd_barrage_fire(args) -> int:
-    # An explicitly-passed --concurrency is refused in BOTH modes, here rather
-    # than inside build_plan, because this is the layer where an operator is
-    # asking for something that will have no effect. build_plan coerces it
-    # instead, since the caller there may be `barrage replay` reading an
-    # artifact whose stored number predates this being true.
+    # There is no longer a refusal of --concurrency here. It was refused in both
+    # modes because Barrage had no executor, so the flag could not mean
+    # anything; that was issue #38 and it is fixed. A run now dispatches
+    # through a pool of plan.concurrency workers, and the flag is the one
+    # control that decides how much load is in flight at once.
+    #
+    # The cap that remains is the rate-and-duration ceiling, checked below,
+    # and the number of workers is bounded by the thread cost rather than by a
+    # separate rule: see testinghq/barrage/executor.py on why a high
+    # concurrency is a memory cost and not a free setting.
     #
     # Arguments are validated before anything is announced, so a refusal does
     # not follow a line describing what the command was about to do.
-    if args.concurrency is not None and args.concurrency != 1:
-        print(
-            f"refused: --concurrency {args.concurrency} has no effect in "
-            f"--mode {args.mode}. Barrage has no executor yet, so requests are "
-            f"dispatched one at a time in both modes and the real concurrency "
-            f"is 1. Drop the flag. Tracked in issue #38.",
-            file=sys.stderr,
-        )
-        return barrage_fire.EXIT_REFUSED
-
     try:
         plan = barrage_fire.build_plan(
             args.mode, args.rate, args.duration, args.concurrency, args.warmup
