@@ -158,9 +158,20 @@ Milestone history and what is still open are tracked in
 
 ## Install
 
+From PyPI, once the first release is published:
+
+```
+pip install testinghq
+```
+
+From a clone, for development:
+
 ```
 pip install -e ".[dev]"
 ```
+
+TestingHQ needs Python 3.10 or newer. It has one runtime dependency, `tomli`,
+and only on Python 3.10: the TOML parser is in the standard library from 3.11.
 
 ## Quick start
 

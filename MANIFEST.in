@@ -1,0 +1,33 @@
+# What goes in the sdist, which is not the same as what goes in the wheel.
+#
+# A wheel carries only the importable package, so a user who installs from one
+# gets the code and nothing else. An sdist is the source, and the point of one
+# is that someone can read the project as well as install it.
+#
+# setuptools includes README.md and LICENSE on its own, and it did not include
+# CHANGELOG.md, so the sdist built for 0.1.0 shipped without the record of what
+# 0.1.0 contained. Found by building the package and listing the archive, which
+# is the only way to notice: the file is plainly in the repository and the
+# release looks complete.
+
+include CHANGELOG.md
+include LICENSE
+include README.md
+
+# The generated configuration reference. docs/CONFIG.md is produced by
+# `python -m testinghq.config_doc` and is checked by a test, so an sdist that
+# shipped a stale one would be worse than one that shipped none.
+include docs/CONFIG.md
+
+# The readback recipes. They are the fastest route from "I have a ticket API" to
+# a working config, and they are not importable, so nothing else would carry
+# them.
+recursive-include examples *.toml *.py *.md
+
+# The suite. An sdist is the source distribution, and a user who has to clone
+# the repository to run the tests has not received the source.
+recursive-include tests *.py
+
+# The web UI, which is served from the tree and is not part of the importable
+# package.
+recursive-include web *.py *.js *.html *.css *.json
