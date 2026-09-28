@@ -20,10 +20,17 @@ import dataclasses
 import json
 import random
 import time
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - exercised only on Python < 3.11
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ModuleNotFoundError:  # pragma: no cover
+        tomllib = None  # type: ignore[assignment]
 
 from ..blast.payload import Envelope, GroundTruth, InboundEmail
 from .adapters import ReadbackConfig, build_adapter, parse_readback_config
@@ -516,6 +523,11 @@ def load_loop_config(path: str) -> Dict[str, Any]:
     is only worth paying for as long as the file is owned elsewhere.
     """
     try:
+        if tomllib is None:  # pragma: no cover - only on a build with no TOML
+            raise LoopConfigError(
+                "no TOML reader is available: this interpreter has neither "
+                "tomllib (3.11+) nor tomli installed"
+            )
         with open(path, "rb") as handle:
             raw = tomllib.load(handle)
     except FileNotFoundError as exc:
