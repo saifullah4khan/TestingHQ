@@ -337,6 +337,32 @@ def test_the_loop_bait_is_a_finding_even_when_tickets_are_allowed():
     assert result.is_loop_bait is True
 
 
+def test_the_baits_ticket_follows_the_policy_like_any_other_message():
+    """The brief makes ANSWERING the bait unconditional and makes ticketing
+    follow the policy. An earlier version exempted the bait's ticket too, which
+    was an invention beyond the brief, and an integration test caught it: a run
+    with `--ticket-policy allowed` still reported a ticket finding, and the
+    reader had no way to act on either answer."""
+    allowed = tool.judge_one(
+        _message(bait=True), readbacks=_ticketed(), outbound=[], ticket_policy="allowed"
+    )
+    assert allowed.passed
+    assert allowed.ticked is True, "the fact is still reported"
+    assert any("ticket-policy allowed" in n for n in allowed.notes)
+
+    strict = tool.judge_one(
+        _message(bait=True), readbacks=_ticketed(), outbound=[], ticket_policy="none"
+    )
+    assert not strict.passed
+    assert any("a ticket was opened" in f for f in strict.findings)
+    assert not any(
+        "the loop bait was answered" in f for f in strict.findings
+    ), (
+        "a ticket is not an answer; conflating them would make a pipeline that "
+        "ticketed the bait look like one that replied to it"
+    )
+
+
 def test_an_untouched_loop_bait_is_clean_under_every_policy():
     for policy in tool.TICKET_POLICIES:
         result = tool.judge_one(

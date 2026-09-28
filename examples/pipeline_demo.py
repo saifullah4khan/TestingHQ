@@ -51,6 +51,16 @@ url = "http://127.0.0.1:{port}/intake"
 kind = "http"
 url = "http://127.0.0.1:{port}/tickets"
 tag_param = "tag"
+
+# The outbound sink loop reads to check whether the pipeline auto-replied.
+# It points at the file the demo's pipeline appends to, so the tool is checking
+# the same thing the pipeline did rather than a file nothing writes to.
+[loop.outbound]
+kind = "mailbox"
+path = "{sink}"
+
+[loop]
+reply_address = "no-reply@example.com"
 """
 
 
@@ -131,13 +141,23 @@ class IntakeHandler(BaseHTTPRequestHandler):
 
     One ticket per Message-ID, so a provider's retry produces no second ticket.
     A reply is filed on its parent's ticket, so an out-of-order reply still ends
-    up in the right conversation. Every field the readback can see is kept.
+    up in the right conversation. Machine-generated mail is recognised and
+    nothing further happens: no ticket, no reply. Every field the readback can
+    see is kept.
+
+    `auto_reply` and `ticket_machine_mail` turn the machine-mail behaviour into
+    the two defects `loop` is for. Both default off, so the handler is a correct
+    pipeline until a run says otherwise.
     """
 
     protocol_version = "HTTP/1.1"
     records: list = []
     by_message_id: dict = {}
     counter = [0]
+    auto_reply = [False]
+    ticket_machine_mail = [False]
+    outbound_path = [None]
+    outbound: list = []
 
     def do_POST(self):  # noqa: N802 - the name the stdlib requires
         length = int(self.headers.get("Content-Length") or 0)
@@ -145,6 +165,9 @@ class IntakeHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         fields = _parse_multipart(raw, content_type)
         headers = _headers_blob(fields)
+
+        if self._handle_machine_mail(fields, headers, raw):
+            return self._json({"ok": True, "suppressed": True})
 
         message_id = _bare(headers.get("Message-ID", ""))
         if message_id and message_id in self.by_message_id:
@@ -183,6 +206,42 @@ class IntakeHandler(BaseHTTPRequestHandler):
         _reconcile_orphans(self.records)
         return self._json({"ok": True, "id": record["id"]})
 
+    def _handle_machine_mail(self, fields, headers, raw) -> bool:
+        """Recognise machine mail and, unless a defect is switched on, drop it.
+
+        Returns True when the message was recognised and did not become a ticket.
+        The auto-reply and the ticket are two independent defects, decided
+        separately, so a pipeline that does both reports both.
+        """
+        from testinghq.pipeline.loop import machine_mail_marker
+
+        marker = machine_mail_marker(
+            headers, _text_field(fields, "subject"), _text_field(fields, "from")
+        )
+        if marker is None:
+            return False
+        if self.auto_reply[0]:
+            self._emit(fields, marker)
+        return not self.ticket_machine_mail[0]
+
+    def _emit(self, fields, marker) -> None:
+        """One outbound auto-reply, in memory and appended to the sink file."""
+        line = {
+            "id": f"OUT{len(self.outbound) + 1:04d}",
+            "tag": _tag_of(_text_field(fields, "headers")),
+            "to": _text_field(fields, "to"),
+            "from": _text_field(fields, "from"),
+            "subject": f"Re: {_text_field(fields, 'subject')}",
+            "body": "This is an automatic reply.",
+            "attachments": [],
+            "message_id": f"outbound-{len(self.outbound) + 1}@example.test",
+            "triggered_by": marker,
+        }
+        self.outbound.append(line)
+        if self.outbound_path[0]:
+            with open(self.outbound_path[0], "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line) + "\n")
+
     def do_GET(self):  # noqa: N802
         """The readback endpoint. `?tag=` looks one payload up; no tag
         enumerates everything, which is what the ledger's stray check needs."""
@@ -208,10 +267,16 @@ class IntakeHandler(BaseHTTPRequestHandler):
 
 
 def reset() -> None:
-    """Forget every ticket, as a fresh deployment would be."""
+    """Forget every ticket, as a fresh deployment would be.
+
+    The machine-mail switches go back to correct too, so one run's defect does
+    not leak into the next."""
     IntakeHandler.records = []
     IntakeHandler.by_message_id = {}
     IntakeHandler.counter[0] = 0
+    IntakeHandler.auto_reply[0] = False
+    IntakeHandler.ticket_machine_mail[0] = False
+    IntakeHandler.outbound = []
 
 
 def _reconcile_orphans(records: list) -> None:
@@ -296,7 +361,11 @@ def main() -> int:
 
     work = Path(tempfile.mkdtemp(prefix="testinghq-demo-"))
     config = work / "target.toml"
-    config.write_text(CONFIG.format(port=_PORT[0]), encoding="utf-8")
+    sink = work / "outbound-sink.jsonl"
+    config.write_text(
+        CONFIG.format(port=_PORT[0], sink=sink.as_posix()), encoding="utf-8"
+    )
+    IntakeHandler.outbound_path[0] = str(sink)
     failures = []
 
     def run(argv, expected, label):
@@ -384,6 +453,39 @@ def main() -> int:
          "--out", str(work / "check.json"), *quick_poll],
         0,
         "verify check on that artifact",
+    )
+
+    _rule("loop: machine-generated mail against a pipeline that ignores it")
+    reset()
+    run(
+        ["loop", "fire", "--config", str(config), "--target", "local", "--send",
+         "--count", "10", "--out", str(work / "loop.json"), *quick_poll],
+        0,
+        "loop against a pipeline that ignores machine mail",
+    )
+
+    _rule("loop: the same run, against a pipeline that auto-replies to all of it")
+    _rule("         and opens a ticket for each one, which is how a loop starts")
+    reset()
+    IntakeHandler.auto_reply[0] = True
+    IntakeHandler.ticket_machine_mail[0] = True
+    run(
+        ["loop", "fire", "--config", str(config), "--target", "local", "--send",
+         "--count", "10", "--out", str(work / "loop-bad.json"), *quick_poll],
+        3,
+        "loop against a pipeline that auto-replies to machine mail",
+    )
+
+    _rule("loop: the same pipeline, with --ticket-policy allowed")
+    _rule("         the auto-reply check still fails; only the tickets go quiet")
+    reset()
+    IntakeHandler.auto_reply[0] = True
+    run(
+        ["loop", "fire", "--config", str(config), "--target", "local", "--send",
+         "--count", "10", "--ticket-policy", "allowed",
+         "--out", str(work / "loop-allowed.json"), *quick_poll],
+        3,
+        "loop with tickets allowed against a pipeline that auto-replies",
     )
 
     _rule("result")

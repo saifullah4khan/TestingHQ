@@ -175,6 +175,15 @@ class PipelineUnderTest:
         drop_threading_headers: bool = False,
         split_thread: bool = False,
         drop_late_parent: bool = False,
+        # Machine-mail defects, for `loop`. The defaults are the correct
+        # behaviour: a pipeline suppresses machine mail and never answers it.
+        ticket_machine_mail: bool = False,
+        auto_reply_machine_mail: bool = False,
+        answer_loop_bait: bool = False,
+        #: Where to append outbound auto-replies, as JSON Lines. None means the
+        #: pipeline emits nothing observable, which is the same as no defect and
+        #: is what a correct pipeline does.
+        outbound_sink: Optional[str] = None,
         # Shape the response, not the record.
         status: int = 200,
     ) -> None:
@@ -189,10 +198,17 @@ class PipelineUnderTest:
         self.drop_threading_headers = drop_threading_headers
         self.split_thread = split_thread
         self.drop_late_parent = drop_late_parent
+        self.ticket_machine_mail = ticket_machine_mail
+        self.auto_reply_machine_mail = auto_reply_machine_mail
+        self.answer_loop_bait = answer_loop_bait
+        self.outbound_sink = outbound_sink
         self.status = status
 
         self.messages: List[MessageRecord] = []
         self.received: List[Dict[str, Any]] = []
+        #: Every outbound message this pipeline emitted, in order. The sink file
+        #: is the same list written out, so a test can assert on either.
+        self.outbound: List[Dict[str, Any]] = []
         self._by_message_id: Dict[str, MessageRecord] = {}
         #: Message-IDs whose parent had not arrived when they did. The
         #: out-of-order case: a reply that lands first is filed provisionally
@@ -232,6 +248,9 @@ class PipelineUnderTest:
         if message_id and message_id in self.drop_message_ids:
             return None
 
+        if self._act_on_machine_mail(fields):
+            return None
+
         if message_id and message_id in self._by_message_id:
             existing = self._by_message_id[message_id]
             existing.deliveries += 1
@@ -247,6 +266,51 @@ class PipelineUnderTest:
         ticket = f"T{self._next_ticket:05d}"
         self._next_ticket += 1
         return ticket
+
+    def _act_on_machine_mail(self, fields: Dict[str, Any]) -> bool:
+        """The machine-mail policy. Returns True to stop here, meaning the
+        message was recognised as machine mail and not ticketed.
+
+        Replying and ticketing are two independent defects, so they are decided
+        separately. An earlier version returned "not will_reply" here, which made
+        a pipeline that auto-replied stop ticketing as well and hid half the bug:
+        the ticket check passed and only the reply check fired, so a pipeline
+        that both replied and ticketed looked like it only replied.
+        """
+        from testinghq.pipeline.loop import machine_mail_marker
+
+        headers = _headers_of(fields)
+        marker = machine_mail_marker(
+            headers, fields.get("subject") or "", fields.get("from") or ""
+        )
+        if marker is None:
+            return False
+
+        is_bait = fields.get("to", "").strip() == fields.get("from", "").strip()
+        if self.auto_reply_machine_mail or (self.answer_loop_bait and is_bait):
+            self._emit(fields, marker, is_bait)
+        return not self.ticket_machine_mail
+
+    def _emit(self, fields: Dict[str, Any], marker: str, is_bait: bool) -> None:
+        """Append one outbound auto-reply, to the list and to the sink file."""
+        headers = _headers_of(fields)
+        line = {
+            "id": f"OUT{len(self.outbound) + 1:04d}",
+            "tag": _tag_of(fields),
+            "to": fields.get("to") or "",
+            "from": fields.get("from") or "",
+            "subject": f"Re: {fields.get('subject') or ''}",
+            "body": "This is an automatic reply.",
+            "attachments": [],
+            "message_id": f"outbound-{len(self.outbound) + 1}@example.test",
+            "auto_submitted": "auto-replied",
+            "triggered_by": marker,
+            "in_reply_to": headers.get("In-Reply-To", ""),
+        }
+        self.outbound.append(line)
+        if self.outbound_sink:
+            with open(self.outbound_sink, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line) + "\n")
 
     def _create(
         self,

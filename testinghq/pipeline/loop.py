@@ -17,11 +17,29 @@ against a pipeline the tool considers broken.
 from __future__ import annotations
 
 import dataclasses
+import json
 import random
+import time
+import tomllib
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import Envelope, GroundTruth, InboundEmail
+from .adapters import ReadbackConfig, build_adapter, parse_readback_config
+from .common import (
+    DEFAULT_MAX_WAIT,
+    DEFAULT_POLL_INTERVAL,
+    DEFAULT_QUIET_WINDOW,
+    EXIT_MISMATCH,
+    EXIT_OK,
+    EXIT_REFUSED,
+    close_adapter,
+    read_back_all,
+    require_synthetic,
+    resolve_target_url,
+    send_all,
+)
 from .messages import Probe, build_chain_message_id, make_tag, stamp
 
 #: The sender locals a bulk pipeline should never reply to.
@@ -411,7 +429,7 @@ def judge_one(
     notes: List[str] = []
 
     ticked = bool(readbacks)
-    if ticked and ticket_policy == TICKET_POLICY_ALLOWED and not message.is_loop_bait:
+    if ticked and ticket_policy == TICKET_POLICY_ALLOWED:
         notes.append(
             "a ticket was opened for machine mail, which the current "
             "--ticket-policy allowed"
@@ -436,8 +454,12 @@ def judge_one(
             )
 
     if message.is_loop_bait and replied:
-        # Always a finding, whatever the policy: answering a message addressed to
-        # your own reply address is the loop, and no policy makes it acceptable.
+        # Unconditional, and about ANSWERING rather than about ticketing. The
+        # brief makes answering the bait a finding under every policy, and makes
+        # ticketing follow the policy like any other message. An earlier version
+        # also exempted the bait's ticket, which was an invention beyond the
+        # brief: `--ticket-policy allowed` means allowed, and a reader who sets
+        # it and still gets a ticket finding has no way to act on either answer.
         findings.append("the loop bait was answered, which is a live mail loop")
 
     return LoopResult(
@@ -468,3 +490,356 @@ def judge(
         )
         for message in messages_
     ]
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+#: Prefix for this tool's table. Separate from `[readback]` because the two
+#: answer different questions: `[readback]` is what the pipeline produced,
+#: `[loop.outbound]` is what the pipeline tried to send.
+CONFIG_SECTION = "loop"
+
+
+class LoopConfigError(ValueError):
+    """A malformed `[loop]` table. A caller error, never a pipeline finding."""
+
+
+def load_loop_config(path: str) -> Dict[str, Any]:
+    """The `[loop]` table, read here rather than in `core/config.py`.
+
+    That file is owned by the backlog agent and the brief says not to edit it,
+    so this reader is deliberately local and deliberately temporary: when the
+    central loader grows a `[loop]` section, this function should be deleted and
+    replaced by a call. A second TOML reader in the tree is a real cost and it
+    is only worth paying for as long as the file is owned elsewhere.
+    """
+    try:
+        with open(path, "rb") as handle:
+            raw = tomllib.load(handle)
+    except FileNotFoundError as exc:
+        raise LoopConfigError(f"no such config file: {path!r}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise LoopConfigError(f"{path} is not valid TOML: {exc}") from exc
+
+    section = raw.get(CONFIG_SECTION)
+    if section is None:
+        return {}
+    if not isinstance(section, dict):
+        raise LoopConfigError(
+            f"[{CONFIG_SECTION}] must be a table, got {type(section).__name__}"
+        )
+    reply = section.get("reply_address")
+    if reply is not None and not isinstance(reply, str):
+        # Checked here rather than left to the guardrail. An integer reply
+        # address produces "no addresses could be extracted", which points at the
+        # content rather than at the config key that is wrong, and that is a
+        # much worse thing to hand someone.
+        raise LoopConfigError(
+            f"[{CONFIG_SECTION}].reply_address must be a string, got "
+            f"{type(reply).__name__}"
+        )
+    policy = section.get("ticket_policy")
+    if policy is not None and policy not in TICKET_POLICIES:
+        raise LoopConfigError(
+            f"[{CONFIG_SECTION}].ticket_policy must be one of "
+            f"{list(TICKET_POLICIES)}, got {policy!r}"
+        )
+    return section
+
+
+def build_outbound_config(section: Dict[str, Any], base_path: str) -> Optional[ReadbackConfig]:
+    """The `[loop.outbound]` table as a readback config, or None if absent.
+
+    Takes the same keys as `[readback]`, so an operator points it at their
+    outbound sink with the configuration they already know rather than a second
+    dialect. A relative `path` resolves against the config file's directory,
+    which is the same rule the main readback config follows.
+
+    None, not an empty config, is the absent case, and the difference decides
+    whether the auto-reply check is SKIPPED or genuinely answered.
+    """
+    outbound = section.get("outbound")
+    if outbound is None:
+        return None
+    if not isinstance(outbound, dict):
+        raise LoopConfigError(
+            f"[{CONFIG_SECTION}.outbound] must be a table, got "
+            f"{type(outbound).__name__}"
+        )
+    config = parse_readback_config(outbound)
+    if config.kind == "mailbox" and config.path and not Path(config.path).is_absolute():
+        config = dataclasses.replace(
+            config, path=str(Path(base_path).resolve().parent / config.path)
+        )
+    return config
+
+
+def run_config(
+    seed: int,
+    count: int,
+    tag_prefix: str,
+    target_name: Optional[str],
+    readback: ReadbackConfig,
+    outbound: Optional[ReadbackConfig],
+    ticket_policy: str,
+    reply_address: str,
+    poll: Dict[str, float],
+) -> Dict[str, Any]:
+    """Everything needed to reproduce the run, and nothing that varies between
+    two runs of the same command. No latency, no wall clock."""
+    return {
+        "tool": "loop",
+        "seed": seed,
+        "count": count,
+        "tag_prefix": tag_prefix,
+        "target": target_name,
+        "readback": readback.to_json(),
+        "outbound": outbound.to_json() if outbound is not None else None,
+        "ticket_policy": ticket_policy,
+        "reply_address": reply_address,
+        "readback_poll": dict(poll),
+        "dry_run": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+
+def summarize(
+    results: Sequence[LoopResult], sent: Sequence[Any], ticket_policy: str
+) -> Dict[str, Any]:
+    """Counts, and the two numbers that decide whether a run proved anything.
+
+    `auto_reply_checked` is the important one. A run with no `[loop.outbound]`
+    sink has not established that the pipeline stayed quiet, only that nobody was
+    listening, and a report that reads the same as a clean run is the false
+    green this package keeps refusing to ship.
+    """
+    ticked = [r for r in results if r.ticked]
+    replied = [r for r in results if r.replied]
+    failing = [r for r in results if not r.passed]
+    checked = [r for r in results if r.replied is not None]
+    return {
+        "sent": len(sent),
+        "checked": len(results),
+        "findings": len(failing),
+        "ticket_policy": ticket_policy,
+        "tickets_opened": len(ticked),
+        "auto_replies_emitted": len(replied),
+        "auto_reply_checked": len(checked),
+        "auto_reply_skipped": len(results) - len(checked),
+        "loop_bait_answered": sum(
+            1 for r in results if r.is_loop_bait and r.replied
+        ),
+    }
+
+
+def format_results(results: Sequence[LoopResult], summary: Dict[str, Any]) -> str:
+    """The per-message table the spec asks for: tag, the header that marked it
+    as machine mail, ticket yes or no, reply yes, no, or not checked."""
+    verdict = "LOOP-SAFE" if summary["findings"] == 0 else "LOOPS-DETECTED"
+    if summary["auto_reply_skipped"]:
+        # In the headline, not only in a block further down. A reader who sees
+        # one line has to know that the most important check did not run, because
+        # a run that skipped it and a run that passed it look identical on the
+        # single line that most reports get reduced to.
+        verdict = f"{verdict} (auto-reply NOT CHECKED)"
+    lines = [
+        f"loop: {verdict}  ({summary['checked']} machine-generated message(s) sent)",
+        "",
+        f"  sent:                {summary['sent']}",
+        f"  tickets opened:      {summary['tickets_opened']}",
+        f"  auto-replies sent:   {summary['auto_replies_emitted']}",
+        f"  loop bait answered:  {summary['loop_bait_answered']}",
+    ]
+
+    if summary["auto_reply_skipped"]:
+        lines.append("")
+        lines.append(
+            f"  NOT CHECKED, by why ({summary['auto_reply_skipped']} message):"
+        )
+        lines.append(
+            "    adapter cannot see field: no [loop.outbound] sink is configured, so "
+            "whether an"
+        )
+        lines.append(
+            "    auto-reply was sent is unknown. This run does NOT establish that "
+            "the pipeline"
+        )
+        lines.append("    stayed quiet. Add [loop.outbound] to check it.")
+
+    lines.append("")
+    lines.append(
+        f"  {'tag':18} {'marked by':44} {'ticket':7} {'reply':12} verdict"
+    )
+    for result in results:
+        reply = (
+            "yes" if result.replied else "no" if result.replied is False else "not checked"
+        )
+        mark = "OK" if result.passed else "FINDING"
+        lines.append(
+            f"  {result.tag:18} {result.marker[:44]:44} "
+            f"{('yes' if result.ticked else 'no'):7} {reply:12} {mark}"
+        )
+
+    findings = [r for r in results if not r.passed]
+    if findings:
+        lines.append("")
+        lines.append(f"  findings ({len(findings)}):")
+        for result in findings:
+            for finding in result.findings:
+                lines.append(f"    {result.tag}: {finding}")
+    return "\n".join(lines)
+
+
+def format_dry_run(
+    messages_: Sequence[MachineMail], readback: ReadbackConfig, ticket_policy: str
+) -> str:
+    lines = [
+        f"dry-run preview: {len(messages_)} machine-generated message(s), "
+        f"tag prefix shown per row",
+        f"  readback adapter: kind {readback.kind!r}",
+        f"  ticket policy:   {ticket_policy}",
+    ]
+    if readback.kind == "http":
+        lines.append(f"  readback url:    {readback.url}")
+    elif readback.kind == "mailbox":
+        lines.append(f"  readback path:   {readback.path}")
+    lines.append("  every message here is one a correct pipeline must not act on:")
+    for message in messages_:
+        bait = "  [loop bait]" if message.is_loop_bait else ""
+        lines.append(f"    {message.tag:18} {message.kind:32}{bait}")
+    lines.append("no network calls were made (pass --send to fire for real)")
+    return "\n".join(lines)
+
+
+def build_artifact(
+    seed: int,
+    config: Dict[str, Any],
+    corpus: Sequence[MachineMail],
+    results: Sequence[LoopResult],
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    """The run artifact: seed, config with header names only, and every message
+    with every finding.
+
+    Each message carries the payload fields a reader needs to recognise which
+    message this was, next to the verdict, so an artifact is enough to act on
+    without re-running anything.
+    """
+    return {
+        "seed": seed,
+        "config": config,
+        "summary": summary,
+        "messages": [
+            {
+                "tag": message.tag,
+                "record_id": message.record_id,
+                "kind": message.kind,
+                "marker": message.marker,
+                "subject": message.email.subject,
+                "from_addr": message.email.from_addr,
+                "is_loop_bait": message.is_loop_bait,
+                "result": result.to_json(),
+            }
+            for message, result in zip(corpus, results)
+        ],
+    }
+
+
+def execute(
+    seed: int,
+    count: int,
+    target_name: Optional[str],
+    config_path: str,
+    out: Optional[str],
+    *,
+    readback: ReadbackConfig,
+    outbound: Optional[ReadbackConfig],
+    tag_prefix: str,
+    rate: float,
+    ticket_policy: str = TICKET_POLICY_NONE,
+    reply_address: str = DEFAULT_REPLY_ADDRESS,
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+    max_wait: float = DEFAULT_MAX_WAIT,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+    client: Any = None,
+    readback_client: Any = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    printer: Callable[[str], None] = print,
+) -> int:
+    """Send the machine-mail corpus, read both directions back, report.
+
+    Never called unless `guardrails.evaluate_send` already said yes. The
+    guardrails run over the whole corpus before the first request, so a refusal
+    lands before the operator's endpoint has taken any of it.
+    """
+    if ticket_policy not in TICKET_POLICIES:
+        printer(f"refused: --ticket-policy must be one of {list(TICKET_POLICIES)}")
+        return EXIT_REFUSED
+
+    corpus = build_machine_corpus(seed, count, tag_prefix, reply_address)
+    items = build_items(corpus)
+
+    try:
+        require_synthetic([m.email for m in corpus])
+        url = resolve_target_url(target_name, config_path)
+    except Exception as exc:
+        printer(f"refused: {exc}")
+        return EXIT_REFUSED
+
+    adapter = outbound_adapter = None
+    try:
+        adapter = build_adapter(readback, client=readback_client)
+        if outbound is not None:
+            outbound_adapter = build_adapter(outbound, client=readback_client)
+        sent = send_all(items, url, rate, client=client, sleep=sleep, clock=clock)
+        outcome = read_back_all(
+            adapter, [probe for _e, _t, _r, probe in items],
+            sleep=sleep, clock=clock, quiet_window=quiet_window,
+            max_wait=max_wait, poll_interval=poll_interval,
+        )
+        # The outbound sink is polled on the same schedule. It is a second
+        # adapter rather than a second mechanism on purpose: the poll, the
+        # late-duplicate behaviour and the SKIPPED reporting are the same code
+        # in both directions, so a fix to one is a fix to both.
+        outbound_outcome = None
+        if outbound_adapter is not None:
+            outbound_outcome = read_back_all(
+                outbound_adapter, [probe for _e, _t, _r, probe in items],
+                sleep=sleep, clock=clock, quiet_window=quiet_window,
+                max_wait=max_wait, poll_interval=poll_interval,
+            )
+    except Exception as exc:
+        printer(f"loop: could not complete the run: {exc}")
+        return EXIT_REFUSED
+    finally:
+        close_adapter(outbound_adapter)
+        close_adapter(adapter)
+
+    results = judge(
+        corpus,
+        outcome.readbacks,
+        None if outbound_outcome is None else outbound_outcome.readbacks,
+        ticket_policy,
+    )
+    summary = summarize(results, sent, ticket_policy)
+    config = run_config(
+        seed, count, tag_prefix, target_name, readback, outbound, ticket_policy,
+        reply_address,
+        {"quiet_window": quiet_window, "max_wait": max_wait, "poll_interval": poll_interval},
+    )
+    summary["readback"] = outcome.to_json()
+
+    artifact = build_artifact(seed, config, corpus, results, summary)
+    printer(format_results(results, summary))
+    if out:
+        Path(out).write_text(
+            json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8"
+        )
+    return EXIT_OK if summary["findings"] == 0 else EXIT_MISMATCH
