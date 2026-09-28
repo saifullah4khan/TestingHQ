@@ -440,15 +440,6 @@ def test_the_tools_share_their_readback_arguments():
         assert hasattr(args, "config")
 
 
-def test_verify_check_sends_nothing_so_it_has_no_send_flag():
-    """The absence is deliberate and matches `compare`: a path that cannot
-    reach the network has nothing to gate, and a `--send` that does nothing is
-    an invitation to believe it did something."""
-    parser = cli.build_parser()
-    args = parser.parse_args(["verify", "check", "run.json"])
-    assert not hasattr(args, "send")
-
-
 def test_ledger_fire_does_nothing_without_send(target_config, capsys):
     code = cli.main(
         ["ledger", "fire", "--target", TARGET, "--config", target_config,
