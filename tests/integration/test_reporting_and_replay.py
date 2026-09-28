@@ -23,6 +23,7 @@ import json
 
 import pytest
 
+from testinghq.cli import blast as blast_cli
 from testinghq import cli
 from testinghq.core import guardrails, report
 from testinghq.core.transport import ClientResponse
@@ -77,8 +78,8 @@ def _fire(config_file, client, out=None, pairs=None, seed=SEED, count=COUNT):
     ones. Zero tolerance for that here.
     """
     if pairs is None:
-        pairs = cli._build_corpus(seed, count)
-    code = cli._run_fire(
+        pairs = blast_cli._build_corpus(seed, count)
+    code = blast_cli._run_fire(
         pairs, seed, count, TARGET_NAME, RATE, out, config_file, client=client
     )
     assert code == 0, "the send path refused or failed unexpectedly"
@@ -214,7 +215,7 @@ def test_replay_refires_the_exact_same_bytes(config_file, tmp_path):
 
     replay_client = RecordingClient()
     args = _replay_args(out, config_file, send=True)
-    assert cli._cmd_replay(args, client=replay_client) == 0
+    assert blast_cli._cmd_replay(args, client=replay_client) == 0
 
     assert len(replay_client.requests) == len(original_client.requests) == COUNT
     for first, second in zip(original_client.requests, replay_client.requests):
@@ -226,7 +227,7 @@ def test_replay_refires_the_exact_same_bytes(config_file, tmp_path):
 def test_replay_of_an_untouched_run_is_accepted(config_file, tmp_path):
     out = tmp_path / "run.json"
     _fire(config_file, RecordingClient(), out=str(out))
-    assert cli._cmd_replay(_replay_args(out, config_file)) == 2, (
+    assert blast_cli._cmd_replay(_replay_args(out, config_file)) == 2, (
         "a dry-run replay should decline to send, which is exit code 2"
     )
 
@@ -243,7 +244,7 @@ def test_replay_refuses_when_a_payload_hash_was_tampered_with(config_file, tmp_p
     out.write_text(json.dumps(artifact), encoding="utf-8")
 
     replay_client = RecordingClient()
-    assert cli._cmd_replay(_replay_args(out, config_file, send=True), client=replay_client) == 1
+    assert blast_cli._cmd_replay(_replay_args(out, config_file, send=True), client=replay_client) == 1
     assert replay_client.requests == [], (
         "replay refused on a hash mismatch, so it must not have fired anything"
     )
@@ -252,7 +253,7 @@ def test_replay_refuses_when_a_payload_hash_was_tampered_with(config_file, tmp_p
 def test_replay_refuses_a_run_that_is_not_a_whole_artifact(tmp_path, config_file):
     truncated = tmp_path / "partial.json"
     truncated.write_text(json.dumps({"seed": 1}), encoding="utf-8")
-    assert cli._cmd_replay(_replay_args(truncated, config_file, send=True)) == 1
+    assert blast_cli._cmd_replay(_replay_args(truncated, config_file, send=True)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +266,7 @@ def test_a_dry_run_replay_makes_no_network_call(config_file, tmp_path):
     _fire(config_file, RecordingClient(), out=str(out))
 
     replay_client = RecordingClient()
-    assert cli._cmd_replay(_replay_args(out, config_file), client=replay_client) == 2
+    assert blast_cli._cmd_replay(_replay_args(out, config_file), client=replay_client) == 2
     assert replay_client.requests == [], (
         "a replay without --send must not touch the transport at all"
     )
@@ -279,7 +280,7 @@ def test_dry_run_replay_does_not_need_a_working_target(config_file, tmp_path):
 
     args = _replay_args(out, config_file)
     args.target = "nonexistent-unconfigured"
-    assert cli._cmd_replay(args) == 2, (
+    assert blast_cli._cmd_replay(args) == 2, (
         "dry-run replay must not care that the saved run names a target that "
         "is not configured here; it is not going to send"
     )
@@ -312,9 +313,9 @@ def test_a_fire_run_at_an_unconfigured_target_is_refused(tmp_path, capsys):
     The other fire tests all configure their target, so without this one a
     regression that dropped the allow-list check would not turn anything red
     here."""
-    pairs = cli._build_corpus(SEED, 5)
+    pairs = blast_cli._build_corpus(SEED, 5)
     client = RecordingClient()
-    code = cli._run_fire(
+    code = blast_cli._run_fire(
         pairs, SEED, 5, "not-configured", RATE, None, str(tmp_path / "none.toml"),
         client=client,
     )

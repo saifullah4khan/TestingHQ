@@ -169,18 +169,29 @@ def test_the_backlog_freshness_test_is_gone_with_the_backlog():
 
 def test_no_shipped_document_references_a_removed_one():
     """The failure mode of deleting a file is the dangling reference, and it is
-    silent: nothing breaks, the link is just wrong."""
+    silent: nothing breaks, the link is just wrong.
+
+    This file is excluded from its own scan, and it has to be: the names it is
+    looking for appear in this test's own source. A sweep that matches itself
+    finds itself and fails forever, which is a guard that can never go green
+    rather than one that catches something.
+    """
     import subprocess
 
     result = subprocess.run(
-        ["git", "grep", "-n", "-e", "BLAST_BACKLOG", "-e", "docs/agents",
-         "-e", "docs/fleet", "-e", "GOALS.md", "-e", "REQUESTS.md",
-         "-e", "FLEET.md"],
+        ["git", "grep", "-n",
+         "-e", "BLAST_BACKLOG", "-e", "docs/agents", "-e", "docs/fleet",
+         "-e", "GOALS.md", "-e", "REQUESTS.md", "-e", "FLEET.md",
+         "--", ".", ":!" + __file__.replace("\\", "/").split("TestingHQ/")[-1]],
         capture_output=True, text=True, cwd=REPO_ROOT, timeout=300,
     )
-    assert result.returncode != 0 or not result.stdout.strip(), (
+    offenders = [
+        line for line in result.stdout.splitlines()
+        if line and __file__.replace("\\", "/").split("TestingHQ/")[-1] not in line
+    ]
+    assert not offenders, (
         "files still reference the removed workflow documents:\n"
-        f"{result.stdout.strip()}"
+        + "\n".join(offenders)
     )
 
 
