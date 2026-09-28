@@ -51,7 +51,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DOC_FILES = ("README.md", "examples/README.md")
+# docs/CONFIG.md is generated, and a generated example is just as capable of
+# rotting as a hand-written one. It is included so that the command the
+# reference tells you to run is actually run here.
+DOC_FILES = ("README.md", "examples/README.md", "docs/CONFIG.md")
 
 # A fenced code block, or a line, beginning with the CLI. Comments and blank
 # lines are excluded by requiring the line to start with the command name.
@@ -216,6 +219,8 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
     tool = argv[0] if argv else ""
     is_replay = "replay" in argv
     is_check = "check" in argv
+    is_report = tool == "report"
+    is_config = tool == "config"
 
     out: list[str] = []
     index = 0
@@ -228,9 +233,15 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
             out += [arg, str(tmp_path / (arg.lstrip("-") or "out.json"))]
             index += 2
             continue
-        if (is_replay or is_check) and REPLAY_TARGET.match(arg):
+        if (is_replay or is_check or is_report) and REPLAY_TARGET.match(arg):
             if tool == "barrage":
                 name, payload = "barrage_artifact.json", _barrage_artifact()
+            elif tool == "report":
+                # `report` takes a positional artifact and nothing else, so
+                # there is one case: read back a blast artifact. A documented
+                # `report` example therefore proves the command is not refused
+                # on a real artifact, which is the property being checked.
+                name, payload = "report_artifact.json", _blast_artifact()
             elif is_check:
                 sink, payload = _sink_and_artifact(tmp_path)
                 name = "verify_artifact.json"
@@ -261,6 +272,20 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
     # wait: with the real defaults one `verify check` sat out a five-second quiet
     # window per poll and this file took seventeen seconds of it. Zero still
     # confirms, because a confirming poll happens either way.
+    # `config validate <path>` names a file that has to exist. The example in
+    # docs/CONFIG.md points at the conventional ./target.toml, which is not in
+    # the tree, so one is written here instead. A valid one, because the point
+    # of the check is that a documented command is not REFUSED, and validating
+    # a file that does not exist would fail it for a reason that says nothing
+    # about the command.
+    if is_config and "validate" in out:
+        config_path = tmp_path / "target.toml"
+        config_path.write_text(
+            '[targets.local]\nurl = "http://127.0.0.1:8000/intake"\n',
+            encoding="utf-8",
+        )
+        out = [str(config_path) if a.endswith(".toml") else a for a in out]
+
     if tool in PIPELINE_TOOLS and "--readback" not in out:
         sink, _artifact = _sink_and_artifact(tmp_path)
         config = tmp_path / "readback_target.toml"
@@ -286,7 +311,7 @@ def test_the_docs_actually_contain_commands_to_check():
         f"{list(DOC_FILES)}; the extractor has probably stopped matching"
     )
     tools = {command.split()[1] for _f, _l, command in DOC_COMMANDS}
-    known = {"blast", "barrage"} | set(PIPELINE_TOOLS)
+    known = {"blast", "barrage", "report", "config"} | set(PIPELINE_TOOLS)
     assert tools <= known, (
         f"a documented command names a tool this harness does not know how to "
         f"run: {sorted(tools - known)}. Add it to PIPELINE_TOOLS and give the "

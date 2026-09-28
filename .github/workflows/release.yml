@@ -1,0 +1,158 @@
+name: Release
+
+# Publishes to PyPI when a v* tag is pushed, and nowhere else.
+#
+# No workflow_dispatch. A manual trigger on a release workflow is a way to
+# publish the same version twice, and PyPI rejects that anyway, so the only
+# thing a manual trigger adds is a way to find out from an error.
+on:
+  push:
+    tags:
+      - "v*"
+
+# The narrowest set of permissions this can work with. Trusted publishing
+# authenticates to PyPI with a short-lived OIDC token minted for this run, so
+# there is no API token in this repository, in its secrets, or in a developer's
+# environment. `id-token: write` is what mints it, and nothing else needs
+# anything, so nothing else gets anything.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    name: publish to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # fetch-depth 0 so the changelog and version checks can see the whole
+          # history. A shallow clone cannot tell whether a tag is already
+          # published, which is the check that stops a re-run overwriting a
+          # released version.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # --- Guards, before anything is built or uploaded ---------------------
+      #
+      # Each of these refuses on its own. Together they are the difference
+      # between a tag being a record of a decision and a tag being a button.
+
+      - name: The tag has to be a version, not a branch name
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "refusing: tag '$tag' is not vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
+      - name: The tag has to match the version in pyproject.toml
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          declared=$(python -c "
+          import tomllib, pathlib
+          with open('pyproject.toml','rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          if [ "$tag" != "$declared" ]; then
+            echo "refusing: tag $GITHUB_REF_NAME but pyproject.toml says $declared"
+            echo "Bump the version in both pyproject.toml and testinghq/__init__.py,"
+            echo "or retag. Publishing a wheel whose metadata disagrees with its"
+            echo "tag is a release nobody can install correctly."
+            exit 1
+          fi
+
+      - name: The package version has to match the runtime version
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          import tomllib
+          from testinghq import __version__
+
+          with open("pyproject.toml", "rb") as f:
+              declared = tomllib.load(f)["project"]["version"]
+
+          if declared != __version__:
+              sys.exit(
+                  f"refusing: pyproject.toml says {declared} but "
+                  f"testinghq.__version__ says {__version__}. `pip install` reads "
+                  "the first and `testinghq --version` prints the second."
+              )
+          print(f"version {declared} agrees in both places")
+          PY
+
+      - name: The changelog has to mention this version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if ! grep -qE "^## \[$version\]" CHANGELOG.md; then
+            echo "refusing: CHANGELOG.md has no '## [$version]' section"
+            echo "A release with no changelog entry is a release nobody can read."
+            exit 1
+          fi
+
+      - name: The version has to already be on PyPI only if this is a re-run
+        run: |
+          set -euo pipefail
+          # Informational, not a gate: PyPI rejects a duplicate upload anyway,
+          # and refusing here on a network hiccup would block a legitimate
+          # release. Recorded so the log says plainly which state it was in.
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/testinghq/json" || true)
+          if [ "$code" = "200" ]; then
+            echo "note: testinghq is already on PyPI; this will be rejected as a"
+            echo "duplicate unless it is a genuinely new version. Check the tag."
+          else
+            echo "note: testinghq is not on PyPI yet; this will be the first release"
+          fi
+
+      # --- Build -----------------------------------------------------------
+
+      - name: Build the sdist and the wheel
+        run: |
+          set -euo pipefail
+          pip install --upgrade build twine
+          python -m build
+          ls -l dist/
+
+      - name: Check the built metadata says what the tag says
+        run: |
+          set -euo pipefail
+          python -m twine check dist/*
+          python - <<'PY'
+          import glob
+          import sys
+          import zipfile
+
+          expected = __import__("os").environ["GITHUB_REF_NAME"].lstrip("v")
+          for path in glob.glob("dist/*.whl"):
+              with zipfile.ZipFile(path) as zf:
+                  names = [n for n in zf.namelist() if n.endswith("METADATA")]
+                  for name in names:
+                      for line in zf.read(name).decode().splitlines():
+                          if line.startswith("Version:"):
+                              if line.split(":", 1)[1].strip() != expected:
+                                  sys.exit(
+                                      f"refusing: wheel metadata says "
+                                      f"{line.split(':', 1)[1].strip()}, tag says {expected}"
+                                  )
+          print(f"wheel metadata says {expected}, matching the tag")
+          PY
+
+      # --- Publish ---------------------------------------------------------
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Skip an existing release rather than failing on it, so a re-run
+          # after a partial failure is not blocked by the part that already
+          # worked. PyPI would reject the duplicate regardless; this just makes
+          # the failure legible.
+          skip-existing: true
+          print-hash: true

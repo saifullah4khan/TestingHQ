@@ -31,13 +31,18 @@ from ..core.transport import TransportResult, post
 from .messages import Probe
 from .readback import Readback, ReadbackAdapter, ReadbackError
 
-#: Exit codes, shared by verify, ledger and redeliver so all three script the
-#: same way. 0, 1 and 2 match blast and barrage exactly; 3 is new and means the
-#: run completed and the answer was no.
-EXIT_OK = 0
-EXIT_REFUSED = 1
-EXIT_DRY_RUN = 2
-EXIT_MISMATCH = 3
+#: Exit codes, re-exported from `testinghq.core.exit_codes` where the whole
+#: package now defines them. verify, ledger, redeliver and loop import these
+#: names, and they keep working, but the numbers themselves are written down in
+#: exactly one module so that a tool cannot drift onto a different convention
+#: and a script cannot have to special-case which tool it is calling.
+from ..core.exit_codes import (  # noqa: F401
+    EXIT_DRY_RUN,
+    EXIT_FINDING,
+    EXIT_MISMATCH,
+    EXIT_OK,
+    EXIT_REFUSED,
+)
 
 #: How long the record counts must hold steady before a read is believed.
 #: Long enough that a queue consumer has had a chance to write a second copy of

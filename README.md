@@ -175,9 +175,20 @@ Milestone history and what is still open are tracked in
 
 ## Install
 
+From PyPI, once the first release is published:
+
+```
+pip install testinghq
+```
+
+From a clone, for development:
+
 ```
 pip install -e ".[dev]"
 ```
+
+TestingHQ needs Python 3.10 or newer. It has one runtime dependency, `tomli`,
+and only on Python 3.10: the TOML parser is in the standard library from 3.11.
 
 ## Quick start
 
@@ -311,6 +322,70 @@ Every `testinghq` command in this file is executed as a dry run by
 that exits non-zero without the suite noticing. The three pipeline commands are
 run with a mail-sink adapter the harness supplies, because they refuse to run
 without one by design.
+
+## Exit codes
+
+Every subcommand returns a process exit code, and the code is the answer a
+script reads. There is one convention, across every tool:
+
+| Code | Meaning | A script should |
+| --- | --- | --- |
+| 0 | ran, answer was yes | carry on |
+| 1 | refused: guardrail, bad config, bad usage, unreadable file | fix the invocation; nothing was sent |
+| 2 | ran, sent nothing (no `--send`) | carry on; this was a dry run |
+| 3 | ran, answer was no | look at the report |
+
+The three non-zero codes call for three different responses, which is why they
+are three different numbers. A refusal means nothing ran and the command has to
+change. A dry run is a successful run that was asked to hold back. A finding is
+a successful run that found something.
+
+`compare` used to report a regression as 1 and a usage error as 2, so a script
+reading 1 as "refused" read a regression as the tool declining to run. It now
+follows the table: a regression is 3, a usage error is 1. **This is a breaking
+change for any script that calls `compare` and checks its exit code**, and it is
+the reason this table exists.
+
+The numbers are defined once, in `testinghq/core/exit_codes.py`, and
+`tests/unit/test_exit_codes.py` fails if any module defines its own or returns a
+code outside the set.
+
+## Reading a run artifact
+
+Six tools write a run artifact and each grew its own shape, so a CI system that
+wanted to know what happened had to know which tool produced the file first.
+`testinghq report` is the one place that knows:
+
+```bash
+# a readable summary
+testinghq report run.json
+
+# one stable shape, for a machine
+testinghq report run.json --json
+```
+
+It detects the tool, derives the verdict that tool would have printed, and
+reports counts and findings. With `--json` the output has the same keys whatever
+wrote the file, so a script parses one thing: `tool`, `verdict`,
+`verdict_source`, `exit_code`, `exit_code_source`, `counts`, `findings`, `seed`,
+`target` and `dry_run`.
+
+It sends nothing, needs no config file, and has no `--send` or `--target`
+because it cannot reach the network. An artifact it cannot identify is refused
+with a message saying what the top-level keys were, rather than summarized as a
+run that never happened.
+
+Two things it reports are not in the artifact, and both are labelled. The
+verdict: `verify` and `loop` compute theirs at print time and never write it
+down, so `report` reimplements those derivations, pinned against the tools' own
+formatters by a test. The exit code: no artifact records one, so it is
+reconstructed from the same fields the tool used. It keeps the name `exit_code`,
+because that is what a consumer parses, and `exit_code_source` says where the
+number came from, the same way `verdict_source` does for the verdict.
+
+Reading a report exits 0 whenever the artifact was readable, even when the run
+found something. The findings are in the output; deciding what to do about them
+is the caller's job.
 
 ## Responsible use
 

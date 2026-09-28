@@ -1,0 +1,110 @@
+# Readback recipe: an outbound mail sink
+#
+# WHAT IS VERIFIED AND WHAT IS NOT
+#
+#   This one WAS run. The sink line format below is what
+#   tests/integration/pipeline_under_test.py writes, and examples/pipeline_demo.py
+#   drives a real pipeline against a real one of these over a loopback socket in
+#   the e2e job. The mailbox adapter is the best-understood readback in this
+#   repository.
+#
+#   It is also the only readback that opens no socket, needs no auth, and works
+#   with no API at all. If you do not know what your pipeline's ticket API
+#   looks like, start here: it will tell you whether the messages arrived and
+#   were routed, which is most of what you want to know on the first run.
+#
+# No environment variables and no credentials are involved.
+
+[targets.mailbox]
+name = "mailbox"
+url = "http://127.0.0.1:8000/intake"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# An outbound mail sink is an append-only JSON Lines file, one delivered
+# message per line. The file is re-read on every lookup rather than cached,
+# because the pipeline is still writing to it while the run is in flight, and a
+# cached snapshot would report the pipeline as having produced nothing it had
+# actually produced.
+#
+# A file that does not exist yet reads as empty rather than as an error, which
+# is what lets the readback poll a sink that has not been created when the run
+# starts.
+#
+# The path is relative to the working directory unless you give an absolute one.
+# The `--quiet-window` and `--max-wait` flags matter more here than with an API,
+# because a file sink takes longer to appear than a query does.
+
+[readback]
+kind = "mailbox"
+path = "./mail-sink.jsonl"
+
+# ---------------------------------------------------------------------------
+# The line format
+# ---------------------------------------------------------------------------
+#
+# Every key below except the first is optional. Only an id (or a message_id, or
+# a delivery_id) is required; a sink that records only ids still answers "did
+# the message arrive", which is the main question.
+#
+#   {"id": "M1",
+#    "tag": "hq-1-0000",
+#    "from": "alice@example.com",
+#    "to": "support@example.com",
+#    "subject": "Your order",
+#    "body": "Thanks for your order.",
+#    "attachments": ["invoice.pdf"],
+#    "route": "queue:support",
+#    "message_id": "<m1@example.com>",
+#    "in_reply_to": null,
+#    "references": [],
+#    "category": "billing",
+#    "priority": "high"}
+#
+# `tag` is how a line is matched to a payload. Three ways to supply it, in the
+# order the adapter looks:
+#
+#   1. a literal `tag` field, as above
+#   2. the TestingHQ tag stamped in the message body
+#   3. the tag stamped in the HTML part
+#
+# A real mail sink records a delivery id of its own and knows nothing about
+# TestingHQ, so in practice it is (2) or (3) that finds the line. The tag is
+# stamped into every message before it is sent, so a pipeline that delivers the
+# body intact keeps it. A pipeline that rewrites the body and drops unknown
+# headers will lose it, and the report will say every message was lost, which
+# is the correct answer for a pipeline that really did drop the correlation.
+#
+# NOTE ON `from`: this is the From header, not the SMTP envelope sender. A
+# message relayed through a bounce handler has a real envelope sender that
+# differs, and a sink that records only one of them is recording the header.
+#
+# NOTE ON `attachments`: names, not a count. The checks compare a sorted set of
+# bare filenames, so a path is fine ("/tmp/invoice.pdf" reads as "invoice.pdf")
+# and an empty list is a real observed value meaning "no attachments", not
+# "unknown".
+#
+# Skip reasons to expect:
+#   "adapter cannot see field" for any key the line does not carry. A sink
+#     that records ids and timestamps only will report most checks as
+#     invisible, which is correct and is how you learn what to start recording.
+#   "nothing to check" where a check has nothing to compare, such as threading
+#     on a message with no parent.
+#   "no record found" when no line matched the tag.
+
+# ---------------------------------------------------------------------------
+# What this recipe cannot check
+# ---------------------------------------------------------------------------
+#
+# Nothing, structurally: the sink carries every field the Readback can hold. The
+# limits are the sink's, not the adapter's. If a check is SKIPPED, it is because
+# your pipeline did not write that key, and the fix is in the pipeline.
+#
+# One real limit. The adapter cannot tell a message that was delivered once from
+# one that was delivered twice to the same sink, unless your sink records each
+# delivery as its own line with its own id. Append-only JSON Lines does that
+# naturally: a retry appends a second line and the ledger sees a duplicate. A
+# sink that upserts by message id will hide its own retries, and no readback
+# can recover them afterwards.

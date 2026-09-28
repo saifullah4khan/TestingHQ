@@ -612,7 +612,11 @@ def test_cli_fail_on_regression_exits_nonzero(tmp_path):
     assert result.returncode == bw.EXIT_REGRESSION
 
 
-def test_cli_refuses_a_missing_file_with_exit_two_and_no_traceback(tmp_path):
+def test_cli_refuses_a_missing_file_with_the_shared_refused_code(tmp_path):
+    """A missing file is a refusal, which is exit 1 across the package. It used
+    to be exit 2 here, which every other tool reads as a dry run, so a script
+    checking "did anything get sent" would have been told the tool held back
+    rather than the tool having refused."""
     good = _write(
         tmp_path, "base.json", _artifact([_record("clean-1-0000", report.CLEAN, 200)])
     )
@@ -621,6 +625,7 @@ def test_cli_refuses_a_missing_file_with_exit_two_and_no_traceback(tmp_path):
     )
 
     assert result.returncode == bw.EXIT_USAGE
+    assert result.returncode == 1
     assert "compare:" in result.stderr
     assert "Traceback" not in result.stderr
 

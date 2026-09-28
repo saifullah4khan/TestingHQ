@@ -8,3 +8,14 @@ venv/
 .pytest_cache/
 corpus/
 *.run.json
+
+# A real deployment's credentials, loaded from the shell. `.env.example` is
+# tracked and holds no values; this is the copy somebody filled in, and it is
+# the single most important line here. Without it, `cp .env.example .env`
+# followed by a paste is one `git add -A` away from publishing a token.
+.env
+
+# A config pointed at a real deployment, with its URL in it. The recipes are
+# tracked templates; these are the working copies.
+examples/readback/*.local.toml
+target.local.toml
