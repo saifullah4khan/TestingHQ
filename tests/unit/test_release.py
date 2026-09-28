@@ -33,12 +33,37 @@ INIT = REPO_ROOT / "testinghq" / "__init__.py"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 RELEASE = REPO_ROOT / ".github" / "workflows" / "release.yml"
 
+#: Read pyproject with whatever parser this interpreter actually has, by asking
+#: the module that already resolved it.
+#:
+#: This file did `import tomllib`, which is stdlib only from 3.11, and failed on
+#: exactly the 3.10 matrix leg. That mistake was already made and fixed once in
+#: this repository: tests/unit/test_python_support_claims.py carries the same
+#: story at the top of its file, having broken for the same reason on the change
+#: that introduced 3.9 and 3.10 to the matrix.
+#:
+#: The rule is simple and the cost of relearning it is a red 3.10 job. A test
+#: that has to run on every supported version cannot import a module that exists
+#: on only some of them. `core.config.tomllib` is the project's own answer to
+#: that, and using it here means the floor and the test agree by construction.
+from testinghq.core import config as config_module
+
+_toml = config_module.tomllib
+if _toml is None:  # pragma: no cover - only below 3.11 with tomli missing
+    pytest.skip(
+        "no TOML parser on this interpreter, and core/config.py raises the "
+        "same error, so there is nothing to assert without one",
+        allow_module_level=True,
+    )
+
+
+def _pyproject() -> dict:
+    with open(PYPROJECT, "rb") as f:
+        return _toml.load(f)
+
 
 def _pyproject_version() -> str:
-    import tomllib
-
-    with open(PYPROJECT, "rb") as f:
-        return tomllib.load(f)["project"]["version"]
+    return _pyproject()["project"]["version"]
 
 
 def _init_version() -> str:
@@ -421,6 +446,51 @@ def test_the_tag_pattern_accepts_only_real_versions():
 # ---------------------------------------------------------------------------
 
 
+def test_no_test_module_imports_tomllib_directly():
+    """The mistake this PR made, and this repository had already made once.
+
+    `import tomllib` is stdlib only from 3.11. A test module that does it cannot
+    be COLLECTED on 3.10, so it fails as an error rather than as an assertion,
+    and the 3.10 matrix leg goes red.
+
+    The first version of this file did exactly that and broke the 3.10 leg of
+    the release PR. The same mistake had already been made and fixed once in
+    this repository: tests/unit/test_python_support_claims.py carries the story
+    at the top of its own file, having failed for the same reason on the change
+    that first added 3.10 to the matrix.
+
+    A file that must run on every supported version cannot import a module that
+    exists on only some of them. The project's answer is
+    `testinghq.core.config.tomllib`, which is already resolved to `tomllib` or
+    `tomli`, and a test that uses it agrees with the floor by construction.
+
+    Scanned across the whole suite rather than only this file, because the
+    mistake is invisible locally: the author is on 3.13, where it works.
+    """
+    import ast
+
+    offenders = []
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            if any(name.split(".")[0] == "tomllib" for name in names):
+                offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert not offenders, (
+        f"these test modules import tomllib directly, which does not exist "
+        f"before 3.11: {offenders}. Use testinghq.core.config.tomllib instead, "
+        "which resolves to tomllib or tomli. See "
+        "tests/unit/test_python_support_claims.py for the same mistake, already "
+        "made and fixed once."
+    )
+
+
 def test_the_readme_says_how_to_install_from_pypi():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "pip install testinghq" in readme, (
@@ -434,10 +504,8 @@ def test_the_readme_states_the_python_floor():
     promise the installer will refuse to keep."""
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "3.10" in readme, "the README does not state the supported Python"
-    import tomllib
 
-    with open(PYPROJECT, "rb") as f:
-        requires = tomllib.load(f)["project"]["requires-python"]
+    requires = _pyproject()["project"]["requires-python"]
     assert "3.10" in requires, (
         f"pyproject says {requires} but the README documents 3.10"
     )
