@@ -290,8 +290,12 @@ def test_a_slow_target_no_longer_caps_the_achieved_rate_at_its_response_time():
     the target. It was a measurement of this loop.
 
     The same shape now goes out at the requested rate, because arrival is
-    decoupled from completion. Asserted on dispatch times, which are recorded
-    at submit and are what the throughput report buckets.
+    decoupled from completion. Asserted on the SCHEDULED time, `dispatch_time -
+    queued`, which is when the loop handed each request over. `dispatch_time`
+    alone is when a worker actually sent it, which is what the report buckets
+    so that a saturated pool shows up as a shortfall; under this fake clock a
+    worker thread can read a time the loop has already advanced, so it is the
+    wrong thing to hold to a 1e-9 schedule.
     """
     clock = FakeClock()
     sleeper = FakeSleeper(clock)
@@ -305,7 +309,8 @@ def test_a_slow_target_no_longer_caps_the_achieved_rate_at_its_response_time():
 
     # budget = rate * duration = 50 * 0.4 = 20 requests
     assert len(records) == 20
-    gaps = [b.dispatch_time - a.dispatch_time for a, b in zip(records, records[1:])]
+    scheduled = [r.dispatch_time - r.queued for r in records]
+    gaps = [b - a for a, b in zip(scheduled, scheduled[1:])]
     # Every arrival is 1/50s = 0.02s apart on the schedule.
     assert all(g == pytest.approx(0.02, abs=1e-9) for g in gaps), (
         f"arrivals drifted: {gaps[:5]}. A 0.001s service time must not move the "

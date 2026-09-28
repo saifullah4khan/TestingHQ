@@ -186,8 +186,10 @@ warmup ramp, throughput and latency percentile reporting, a run artifact, and
 replay from a saved run. `--concurrency` is the number of requests in flight at
 once, and it is honoured in both modes: runs dispatch through a pool of that
 many worker threads, so a slow target can no longer cap the achieved rate at
-`1 / its response time`. Each worker is one interpreter thread, so a high
-concurrency is a memory cost rather than a free setting.
+`1 / its response time`. Each worker is one interpreter thread, so it is capped
+at 64 unless you pass `--allow-high-rate`. When every worker is busy and requests
+have to wait for one, the run says so, because the shortfall is then this tool's
+rather than the target's.
 
 **Loop**: auto-reply and mail-loop detection. Two auto-responders answering each
 other is the failure that never shows up in a test, and this is the tool that
@@ -470,8 +472,9 @@ than a weapon, and none of them are cosmetic:
 - **Configured targets only.** Both the target name and the URL it resolves to are
   checked against the canonical guardrails, so a real public host cannot hide
   behind a friendly name.
-- **A hard rate and duration ceiling** (50 requests/second, 300 seconds) that
-  requires an explicit `--allow-high-rate` to raise. This exists so that a typo in
+- **A hard rate, duration and concurrency ceiling** (50 requests/second, 300
+  seconds, 64 requests in flight) that requires an explicit `--allow-high-rate`
+  to raise. This exists so that a typo in
   `--rate` or `--duration` cannot become a self-inflicted denial of service. Pass
   it deliberately, and only against infrastructure you own.
 
