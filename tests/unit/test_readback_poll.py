@@ -222,6 +222,46 @@ def test_the_answer_is_keyed_by_tag_so_a_gap_cannot_shift_everything():
     assert outcome.readbacks["hq-1-0002"][0].ticket_id == "hq-1-0002#0"
 
 
+def test_absent_counts_as_settled_when_the_caller_says_so():
+    """`loop` needs this and nothing else does. It asks whether a pipeline filed
+    a ticket for machine-generated mail, and under the default ticket policy a
+    CORRECT pipeline files none, so "every tag found" is a condition the run can
+    never satisfy. With the default left on, every `loop` run polls until
+    `max_wait` in both directions and opens its report with a readback that gave
+    up, which says nothing about the thing being measured. The demo's two `loop`
+    runs took 121 and 62 seconds that way."""
+    adapter = _Scripted({1: {}, 2: {}})
+    outcome, clock = _read(adapter, require_all_found=False, quiet_window=0.5)
+    assert outcome.stable is True
+    # One interval to see the counts, then the window. Same shape as the
+    # answers-immediately case above: the window starts when the counts are
+    # first seen unchanged, so the total is one interval longer than the window.
+    assert outcome.elapsed == pytest.approx(1.0)
+    assert outcome.missing == TAGS, "absence is recorded, it is just not blocking"
+    assert clock.now == pytest.approx(1.0)
+
+
+def test_the_default_still_requires_every_probe_to_be_found():
+    """The relaxation is opt-in, and this is what it costs to leave it on: an
+    adapter that finds nothing never settles, it just runs out of patience."""
+    adapter = _Scripted({1: {}})
+    outcome, _clock = _read(adapter, quiet_window=0.0, max_wait=2.0)
+    assert outcome.stable is False
+    assert outcome.missing == TAGS
+
+
+def test_a_late_duplicate_is_still_caught_with_the_relaxation():
+    """The relaxation must not cost the thing the poll exists for. Counts still
+    gate stability, so a second ticket arriving resets the window."""
+    adapter = _Scripted({
+        1: {tag: 1 for tag in TAGS},
+        2: {tag: 1 for tag in TAGS},
+        3: {"hq-1-0000": 2, "hq-1-0001": 1, "hq-1-0002": 1},
+    })
+    outcome, _clock = _read(adapter, require_all_found=False, quiet_window=0.0)
+    assert len(outcome.readbacks["hq-1-0000"]) == 2
+
+
 def test_the_outcome_serializes_the_numbers_a_report_needs():
     adapter = _Scripted({1: {tag: 1 for tag in TAGS}})
     outcome, _clock = _read(adapter)

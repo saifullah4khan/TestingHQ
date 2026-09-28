@@ -182,6 +182,7 @@ def read_back_all(
     quiet_window: float = DEFAULT_QUIET_WINDOW,
     max_wait: float = DEFAULT_MAX_WAIT,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
+    require_all_found: bool = True,
 ) -> ReadbackOutcome:
     """Ask the system what it holds for every probe, until it stops changing.
 
@@ -190,6 +191,15 @@ def read_back_all(
     catches a duplicate that appears late: a read at t=0 sees one ticket, and
     one that only required "all found" would finish there and report a clean
     run moments before the second ticket lands.
+
+    `require_all_found=False` relaxes the first half of that condition, and one
+    tool needs it. `loop` asks whether a pipeline filed a ticket for
+    machine-generated mail, and under the default ticket policy a CORRECT
+    pipeline files none, so "every tag found" is not a condition the run can ever
+    satisfy. Left on, every `loop` run polls until `max_wait` and reports a
+    readback that gave up, which is both a slow run and a report that says
+    nothing about the thing being measured. There, absence is the expected
+    answer and the counts-steady condition is what settles it.
 
     An adapter that raises is not swallowed. A readback that fails halfway is a
     broken run, and reporting the first half as "the pipeline produced nothing
@@ -225,9 +235,9 @@ def read_back_all(
 
         now = clock()
         counts = tuple(len(found[tag]) for tag in asked)
-        all_found = all(found[tag] for tag in asked)
+        settled_enough = all(found[tag] for tag in asked) or not require_all_found
 
-        if all_found and counts == previous:
+        if settled_enough and counts == previous:
             if unchanged_since is None:
                 unchanged_since = now
             if now - unchanged_since >= quiet_window:
