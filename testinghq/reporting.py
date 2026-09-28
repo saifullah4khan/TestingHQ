@@ -22,9 +22,13 @@ formatters, so the two copies cannot drift without a test noticing.
 The exit code. No artifact records one, because the exit code is the process's
 answer and the artifact is the run's. This module derives the code the same way
 each tool does, from the same fields, so `report --json` gives a CI system the
-number it would have got from the shell. It is labelled `exit_code_derived` and
-never `exit_code`, because it is a reconstruction and saying otherwise would be
-claiming more than the file contains.
+number it would have got from the shell. The field is called `exit_code`,
+because that is the name the contract calls for and a consumer has one shape to
+parse. Where it came from is a separate field, `exit_code_source`, exactly as
+`verdict_source` is for the verdict: derived where the tool computed it only at
+print time, recorded where the artifact says so outright. That way the honesty is
+kept without renaming a key somebody is relying on, which is the trade this
+module briefly got wrong.
 
 DETECTION IS BY SHAPE, which is honest about a thing the file structure does not
 make easy. Only the pipeline tools set `config.tool`; `blast`, `barrage` and
@@ -41,11 +45,11 @@ and a consumer has no way to tell.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .core.exit_codes import EXIT_FINDING, EXIT_OK, EXIT_REFUSED
+from .core.exit_codes import EXIT_FINDING, EXIT_OK
 
 
 class ArtifactError(RuntimeError):
@@ -104,13 +108,15 @@ class ArtifactSummary:
 
     `tool` is what wrote it. `verdict` is the tool's own word where it has one
     and a derived word where it does not, in which case `verdict_source` says so
-    rather than leaving the reader to assume.
+    rather than leaving the reader to assume. `exit_code_source` does the same
+    for the exit code.
     """
 
     tool: str
     verdict: str
     verdict_source: str
-    exit_code_derived: int
+    exit_code: int
+    exit_code_source: str
     counts: Counts
     findings: Tuple[Finding, ...] = ()
     seed: Optional[int] = None
@@ -214,7 +220,8 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
         verdict=verdict,
         # blast never recorded a verdict, so this one is derived from flags.
         verdict_source="derived",
-        exit_code_derived=EXIT_FINDING if flags else EXIT_OK,
+        exit_code=EXIT_FINDING if flags else EXIT_OK,
+        exit_code_source="derived",
         counts=Counts(
             sent=len(records),
             passed=passed,
@@ -241,7 +248,6 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
             )
         )
     total = sum(b.get("count", 0) for b in buckets if isinstance(b, dict))
-    error_rate = summary.get("error_rate")
 
     return ArtifactSummary(
         verdict="KNEE" if isinstance(knee, dict) else "STEADY",
@@ -249,7 +255,8 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
         # barrage's execute returns EXIT_OK for any completed run. Its health is
         # in the artifact, not the exit code, and pretending otherwise would
         # change what a CI script gating on the code does.
-        exit_code_derived=EXIT_OK,
+        exit_code=EXIT_OK,
+        exit_code_source="derived",
         counts=Counts(sent=total, buckets=len(buckets)),
         findings=tuple(findings),
         **_base(artifact, "barrage"),
@@ -279,7 +286,8 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
     return ArtifactSummary(
         verdict=verdict,
         verdict_source="derived",
-        exit_code_derived=EXIT_OK if failed == 0 else EXIT_FINDING,
+        exit_code=EXIT_OK if failed == 0 else EXIT_FINDING,
+        exit_code_source="derived",
         counts=Counts(
             sent=sent, found=found, passed=verified, failed=failed,
             records=len(artifact.get("records") or []),
@@ -336,7 +344,8 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
         # rather than derived.
         verdict=str(summary.get("verdict", "UNKNOWN")),
         verdict_source="recorded",
-        exit_code_derived=EXIT_OK if summary.get("balanced") else EXIT_FINDING,
+        exit_code=EXIT_OK if summary.get("balanced") else EXIT_FINDING,
+        exit_code_source="derived",
         counts=Counts(
             sent=summary.get("sent", 0),
             produced=summary.get("produced", 0),
@@ -369,7 +378,8 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
     return ArtifactSummary(
         verdict=str(summary.get("verdict", "UNKNOWN")),
         verdict_source="recorded",
-        exit_code_derived=EXIT_OK if summary.get("failed", 0) == 0 else EXIT_FINDING,
+        exit_code=EXIT_OK if summary.get("failed", 0) == 0 else EXIT_FINDING,
+        exit_code_source="derived",
         counts=Counts(
             sent=summary.get("deliveries", 0),
             passed=summary.get("passed", 0),
@@ -391,7 +401,8 @@ def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
     return ArtifactSummary(
         verdict="LOOP-SAFE" if findings == 0 else "LOOPS-DETECTED",
         verdict_source="derived",
-        exit_code_derived=EXIT_OK if findings == 0 else EXIT_FINDING,
+        exit_code=EXIT_OK if findings == 0 else EXIT_FINDING,
+        exit_code_source="derived",
         counts=Counts(
             sent=summary.get("sent", 0),
             passed=summary.get("checked", 0),
@@ -433,7 +444,8 @@ def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
     return ArtifactSummary(
         verdict="REGRESSED" if regressed else "NO REGRESSION",
         verdict_source="recorded",
-        exit_code_derived=EXIT_FINDING if regressed else EXIT_OK,
+        exit_code=EXIT_FINDING if regressed else EXIT_OK,
+        exit_code_source="derived",
         counts=Counts(
             records=artifact.get("records_compared", 0),
             failed=regressions.get("count", 0),
@@ -593,7 +605,7 @@ def render(summary: ArtifactSummary) -> str:
 
     lines.append("")
     lines.append(
-        f"exit code: {summary.exit_code_derived} "
-        f"(derived from the artifact, not recorded in it)"
+        f"exit code: {summary.exit_code} ({summary.exit_code_source}, not "
+        "recorded in the artifact)"
     )
     return "\n".join(lines)

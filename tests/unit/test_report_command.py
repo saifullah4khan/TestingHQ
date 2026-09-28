@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from testinghq.core import exit_codes
 from testinghq.core.exit_codes import EXIT_FINDING, EXIT_OK, EXIT_REFUSED
 from testinghq.reporting import (
     KNOWN_TOOLS,
@@ -241,7 +242,7 @@ def test_every_tool_summarizes_to_the_same_shape(tool):
     file, so every key has to be present for every tool."""
     summary = summarize(ALL_FIXTURES[tool])
     payload = summary.to_json()
-    for key in ("tool", "verdict", "verdict_source", "exit_code_derived",
+    for key in ("tool", "verdict", "verdict_source", "exit_code", "exit_code_source",
                 "counts", "findings", "seed", "target", "dry_run"):
         assert key in payload, f"{tool} summary is missing {key}"
     for key in ("sent", "found", "passed", "failed", "missing", "duplicated",
@@ -273,8 +274,8 @@ def test_a_clean_run_and_a_flagged_run_say_different_things():
     flagged = summarize(blast_artifact(flags=["clean-1-0001 did not 2xx"]))
     assert clean.verdict == "CLEAN"
     assert flagged.verdict == "FLAGGED"
-    assert clean.exit_code_derived == EXIT_OK
-    assert flagged.exit_code_derived == EXIT_FINDING
+    assert clean.exit_code == EXIT_OK
+    assert flagged.exit_code == EXIT_FINDING
     assert flagged.findings and not clean.findings
 
 
@@ -323,26 +324,26 @@ def test_the_derived_exit_code_matches_each_tool_s_own_decision():
     own summary fields, so each is checked against those fields rather than
     against a number this module picked."""
     # verify: failed == 0
-    assert summarize(verify_artifact(failed=0)).exit_code_derived == EXIT_OK
-    assert summarize(verify_artifact(failed=1)).exit_code_derived == EXIT_FINDING
+    assert summarize(verify_artifact(failed=0)).exit_code == EXIT_OK
+    assert summarize(verify_artifact(failed=1)).exit_code == EXIT_FINDING
 
     # ledger: summary.balanced
-    assert summarize(ledger_artifact(balanced=True)).exit_code_derived == EXIT_OK
+    assert summarize(ledger_artifact(balanced=True)).exit_code == EXIT_OK
     assert summarize(
         ledger_artifact(balanced=False, verdict="UNACCOUNTED")
-    ).exit_code_derived == EXIT_FINDING
+    ).exit_code == EXIT_FINDING
 
     # redeliver: summary.failed == 0
-    assert summarize(redeliver_artifact(failed=0)).exit_code_derived == EXIT_OK
-    assert summarize(redeliver_artifact(failed=1)).exit_code_derived == EXIT_FINDING
+    assert summarize(redeliver_artifact(failed=0)).exit_code == EXIT_OK
+    assert summarize(redeliver_artifact(failed=1)).exit_code == EXIT_FINDING
 
     # loop: summary.findings == 0
-    assert summarize(loop_artifact(findings=0)).exit_code_derived == EXIT_OK
-    assert summarize(loop_artifact(findings=2)).exit_code_derived == EXIT_FINDING
+    assert summarize(loop_artifact(findings=0)).exit_code == EXIT_OK
+    assert summarize(loop_artifact(findings=2)).exit_code == EXIT_FINDING
 
     # compare: regressed
-    assert summarize(compare_artifact(regressed=True)).exit_code_derived == EXIT_FINDING
-    assert summarize(compare_artifact(regressed=False)).exit_code_derived == EXIT_OK
+    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_FINDING
+    assert summarize(compare_artifact(regressed=False)).exit_code == EXIT_OK
 
 
 def test_barrage_always_reports_the_code_its_own_execute_returns():
@@ -358,8 +359,8 @@ def test_barrage_always_reports_the_code_its_own_execute_returns():
         "at_seconds": 3.0, "reason": "shedding", "detail": "p90 above ceiling",
         "targeted_rps": 20.0, "achieved_rps": 12.0,
     }))
-    assert steady.exit_code_derived == EXIT_OK
-    assert knee.exit_code_derived == EXIT_OK
+    assert steady.exit_code == EXIT_OK
+    assert knee.exit_code == EXIT_OK
     assert knee.verdict == "KNEE"
     assert knee.findings, "the knee is still reported as a finding"
 
@@ -501,8 +502,75 @@ def test_the_text_form_says_when_a_verdict_was_derived():
 
 
 def test_the_text_form_says_the_exit_code_is_derived():
+    """Every exit code here is reconstructed, because no artifact records one.
+
+    The number keeps the name the contract calls for, `exit_code`, and this
+    line is where a reader learns it is a reconstruction. The first version of
+    this file called the field `exit_code_derived` instead, which was honest and
+    broke a name the contract specified. The honesty belongs in a separate
+    field, exactly as it does for the verdict.
+    """
     text = render(summarize(blast_artifact(flags=[])))
-    assert "not recorded in it" in text
+    assert "exit code: 0 (derived" in text
+    assert "not recorded in the artifact" in text
+
+
+def test_the_json_keys_are_the_names_the_contract_calls_for():
+    """`tool`, `verdict`, `exit_code`, counts, findings.
+
+    These are the names a consumer parses, so they are not this file's to
+    rename. The first version of this module emitted `exit_code_derived`,
+    because no artifact records an exit code and the field was a
+    reconstruction. That reasoning is right and the rename was still wrong: a
+    consumer written against the contract would have found nothing there.
+
+    The honesty is kept, in `exit_code_source` and `verdict_source`. A value plus
+    where it came from, rather than a value whose name carries a caveat nobody
+    asked for.
+    """
+    payload = summarize(ALL_FIXTURES["verify"]).to_json()
+    for key in ("tool", "verdict", "exit_code", "counts", "findings"):
+        assert key in payload, f"the contract names {key!r} and it is missing"
+    assert "exit_code_derived" not in payload, (
+        "exit_code_derived was an earlier name for exit_code. If it is back, the "
+        "contract is not being followed and a consumer written against the "
+        "documented key will not find it."
+    )
+    assert payload["exit_code_source"] in {"derived", "recorded"}
+
+
+@pytest.mark.parametrize("tool", sorted(ALL_FIXTURES))
+def test_every_tool_says_where_its_exit_code_came_from(tool):
+    """Nothing is recorded in an artifact, so every one of these is `derived`.
+
+    `compare` is the interesting one: its artifact does record a `regressed`
+    boolean, but the exit code itself is still computed here, so it is `derived`
+    like the rest. A tool whose artifact did carry the code would say `recorded`,
+    and nothing else here would need to change.
+    """
+    summary = summarize(ALL_FIXTURES[tool])
+    assert summary.exit_code_source == "derived", (
+        f"{tool} reported {summary.exit_code_source!r}; no artifact records an "
+        "exit code, so every one of them is reconstructed"
+    )
+
+
+def test_a_derived_exit_code_is_never_a_dry_run():
+    """The shared convention, applied to a reconstructed value.
+
+    2 means a run that deliberately sent nothing. If a reconstruction ever
+    produced 2, a consumer would read a finding as a dry run, which is the exact
+    misreading the convention was introduced to remove. Worth a test because the
+    code is computed seven times over and nothing else checks that the values it
+    produces are ones with the agreed meaning.
+    """
+    for tool, artifact in ALL_FIXTURES.items():
+        code = summarize(artifact).exit_code
+        assert code in (exit_codes.EXIT_OK, exit_codes.EXIT_FINDING), (
+            f"{tool} produced exit code {code}, which is not a code this project "
+            "uses for a reconstructed answer. A report that was read "
+            "successfully is neither a refusal nor a dry run."
+        )
 
 
 def test_the_text_form_is_stable_enough_to_grep():
@@ -552,7 +620,7 @@ def test_the_command_json_output_is_parseable(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["tool"] == "ledger"
     assert payload["verdict"] == "UNACCOUNTED"
-    assert payload["exit_code_derived"] == EXIT_FINDING
+    assert payload["exit_code"] == EXIT_FINDING
 
 
 def test_the_command_succeeds_even_when_the_run_found_something(tmp_path):
