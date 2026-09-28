@@ -20,6 +20,11 @@ releases and is called out under `Changed` below rather than hidden.
   `--concurrency 8`. This is issue #38, and it was the load-bearing defect:
   a load tester with one request in flight measures the target's response
   time and reports it as throughput.
+- **Barrage reports when its own pool was the bottleneck.** Each request's
+  dispatch time is when it actually went out, not when it was queued, so a
+  pool too small for the schedule shows as achieved throughput falling short.
+  The run prints how many requests waited for a free worker and for how long,
+  and the artifact carries it under `dispatch`.
 - **`testinghq config validate`**, which loads a config with the real
   loaders and prints what they resolved, as a report or as TOML. Sends
   nothing and never prints a header value.
@@ -35,7 +40,9 @@ releases and is called out under `Changed` below rather than hidden.
 
 - **`--concurrency` is no longer refused in either Barrage mode.** It was
   refused in both, and 0.1.0 shipped that refusal, so this supersedes the
-  entry below rather than replacing it.
+  entry below rather than replacing it. It is capped at 64 requests in flight,
+  one worker thread each, and raised by the same `--allow-high-rate` that
+  raises the rate and duration ceilings. A value below 1 is refused.
 - **The CLI is a package.** `testinghq/cli.py` was 1570 lines holding ten
   commands, their parsers, their handlers and the dispatch table. It is now
   eight modules split by what changes together, largest 19 KB. The command
@@ -58,6 +65,11 @@ releases and is called out under `Changed` below rather than hidden.
   every time. The lane-hygiene test that should have caught it checked
   that the function was not *defined*, which it was not. JavaScript now runs
   in CI.
+- **`steady` could not run from an installed wheel.** Its reviewed intent
+  fixture, `testinghq/pipeline/fixtures/steady_intents.json`, was not declared
+  as package data, and `steady` loads it by path, so every run of a
+  non-editable install raised `FileNotFoundError`. It is now in the wheel, and
+  a test fails if any non-Python file under `testinghq/` is left undeclared.
 - **Two claims in `docs/SECURITY.md` were wrong** and are corrected: there
   is no command-line override for the public-host refusal on a firing
   target, and not every firing path is rate limited. The web UI's is not,
@@ -70,10 +82,6 @@ releases and is called out under `Changed` below rather than hidden.
   tested, and the key is read and checked against the registry, but no send
   path passes it to the transport, so the wire bytes are SendGrid-shaped
   whatever it says. Threading it through is outstanding work.
-- **`testinghq/pipeline/fixtures/steady_intents.json` is not package
-  data.** There is no `MANIFEST.in` and no `[tool.setuptools.package-data]`,
-  and `steady` loads the fixture by filesystem path, so a non-editable
-  install ships a `steady` command that raises `FileNotFoundError`.
 
 ## [0.1.0] - 2026-09-28
 
