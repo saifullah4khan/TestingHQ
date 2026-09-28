@@ -24,7 +24,7 @@ code is wrong, not the guardrail.
 This module imports the canonical guardrails and never reimplements them.
 A second copy of a safety rule has already cost this project a real
 incident: two copies disagreed within hours and a target the CLI refused
-the UI would have fired at. See tests/test_lane_hygiene.py.
+the UI would have fired at. See tests/test_repo_invariants.py.
 """
 from __future__ import annotations
 

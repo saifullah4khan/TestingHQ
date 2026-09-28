@@ -1,7 +1,7 @@
 """Tests for the barrage CLI surface: fire and replay.
 
 Named test_cli_barrage.py to avoid colliding with tests/test_cli.py and
-tests/unit/test_cli_blast.py; tests/test_lane_hygiene.py enforces unique
+tests/unit/test_cli_blast.py; tests/test_repo_invariants.py enforces unique
 test module basenames repo-wide.
 
 The zero-network property of a dry run is PROVEN here, not asserted: the

@@ -7,7 +7,7 @@ generate command's on-disk output, zero-network dry runs, the guardrail
 refusal paths, and replay's byte-identical reproducibility check.
 
 Named test_cli_blast.py (not test_cli.py) to avoid colliding with the
-existing tests/test_cli.py basename; tests/test_lane_hygiene.py enforces
+existing tests/test_cli.py basename; tests/test_repo_invariants.py enforces
 unique basenames repo-wide.
 """
 from __future__ import annotations

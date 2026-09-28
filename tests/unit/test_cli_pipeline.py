@@ -350,7 +350,7 @@ def test_a_run_artifact_never_carries_a_header_value():
 
 
 def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
-    """The rule `tests/test_lane_hygiene.py` enforces for `web/`, extended to
+    """The rule `tests/test_repo_invariants.py` enforces for `web/`, extended to
     the new package.
 
     This repository has already paid for a second copy of a safety rule: two

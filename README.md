@@ -10,7 +10,7 @@ instead of hand-typed happy-path samples.
 
 ## Tools
 
-**Blast (v1, in progress).** Generates inbound-email payloads across a spectrum
+**Blast.** Generates inbound-email payloads across a spectrum
 of messiness, from clean and well-formed through typo-ridden, multilingual, and
 half-gibberish, up to structurally malformed and degenerate. It POSTs them as
 SendGrid Inbound Parse-shaped payloads to a configured endpoint and reports where
@@ -156,48 +156,77 @@ readback is a ticket store or a mail sink that may hold other people's data.
 
 ## Status
 
-All five tools work end to end. The suite is 1080 tests, green on every push, and
-CI runs on every change.
+Ten commands on the command line, plus a web UI. Every one of them is complete
+and exercised end to end: the suite runs on every Python version this package
+claims to support, and CI runs on every change.
 
-**Blast** ships: seeded deterministic generation, six mutators behind five
-messiness recipes, a 20-case named edge-case catalog, seeded attachments,
-SendGrid Inbound Parse-shaped serialization, the HTTP transport, target
-configuration from a TOML file, rate limiting, the safety guardrails, the run
-artifact, expectation-based reporting with pass/fail assertions, and
-byte-identical replay from a saved run.
+Eight of the ten are testing tools: Blast, Barrage, Loop, Steady, Verify,
+Ledger, Redeliver and Compare. The other two are `testinghq report`, which reads
+a run artifact from any of them, and `testinghq config validate`, which checks a
+config file without sending anything.
 
-**Barrage** ships: closed-loop and open-loop firing, a rate-controlled schedule
-with a warmup ramp, throughput and latency percentile reporting, a run artifact,
-and replay from a saved run. **It has no executor yet**, so requests are
-dispatched serially in both modes, one in flight at a time, and `--concurrency`
-is refused in open mode because it cannot mean anything there. Against a target
-slower than the arrival interval, achieved throughput is capped by the target's
-response time rather than by the rate you asked for. Tracked in
+An earlier version of this section opened by naming a number of tools and then
+described a different number, and left out three tools that had already shipped.
+A status section that is quietly wrong is worse than none, because a reader who
+catches it once has a reason to distrust the parts that are true.
+`tests/unit/test_readme_status.py` derives the list below from the subcommands
+the CLI actually registers, so adding a command without adding a paragraph here
+fails the build.
+
+**Blast**: seeded deterministic generation, six mutators behind five messiness
+recipes, a 20-case named edge-case catalog, seeded attachments, SendGrid Inbound
+Parse-shaped serialization, the HTTP transport, target configuration from a TOML
+file, rate limiting, the safety guardrails, the run artifact, expectation-based
+reporting with pass/fail assertions, and byte-identical replay from a saved run.
+
+**Barrage**: closed-loop and open-loop firing, a rate-controlled schedule with a
+warmup ramp, throughput and latency percentile reporting, a run artifact, and
+replay from a saved run. **It has no executor yet**, so requests are dispatched
+one at a time in both modes and `--concurrency` is refused in both of them
+because it cannot mean anything there. Against a target slower than the arrival
+interval, achieved throughput is capped by the target's response time rather
+than by the rate you asked for, so the number a run reports is a measurement of
+Barrage's dispatch loop rather than of your endpoint. Tracked in
 [issue #38](https://github.com/saifullah4khan/TestingHQ/issues/38).
 
+**Loop**: auto-reply and mail-loop detection. Two auto-responders answering each
+other is the failure that never shows up in a test, and this is the tool that
+finds it.
 
-**The web UI** ships: a dependency-free single-page app that runs the same
-engine, with dry-run as the default action and a configured-target allow-list
-plus an explicit confirm step before anything is sent.
+**Steady**: metamorphic stability testing for AI triage. Meaning-preserving
+transforms of the same input, to see whether a classifier's answer survives a
+rewrite it should not have noticed.
 
-**Redeliver** ships: four scenarios, a per-scenario tag and Message-ID scope so
-one scenario's deduplication cannot absorb another's deliveries, and threading
-checked as two things rather than one.
+**Verify**: the six per-field checks plus the two threading checks, per-message
+tagging so a run is reproducible and two concurrent runs cannot read each other's
+records, a readback phase that runs after every send, and an artifact that is a
+blast artifact with an extra block on each record, so `testinghq compare` reads
+it like any other run.
 
-**Ledger** ships: per-message tagging, an accounting that keeps missing,
-duplicated, misparsed and extra apart, and a verdict plus an exit code that is
-the answer. A lookup-only adapter reports `extra: null` and `UNVERIFIED STRAYS`
-rather than reporting none found for a question it never asked, so it cannot
-pass a CI gate by accident.
+**Ledger**: per-message tagging, an accounting that keeps missing, duplicated,
+misparsed and extra apart, and a verdict plus an exit code that is the answer. A
+lookup-only adapter reports `extra: null` and `UNVERIFIED STRAYS` rather than
+reporting none found for a question it never asked, so it cannot pass a CI gate
+by accident.
 
-**Verify** ships: the six per-field checks plus the two threading checks,
-per-message tagging so a run is reproducible and two concurrent runs cannot read
-each other's records, a readback phase that runs after every send, and an
-artifact that is a blast artifact with an extra block on each record, so
-`testinghq compare` reads it like any other run.
+**Redeliver**: four scenarios, a per-scenario tag and Message-ID scope so one
+scenario's deduplication cannot absorb another's deliveries, and threading checked
+as two things rather than one.
 
-Milestone history and what is still open are tracked in
-`docs/agents/BLAST_BACKLOG.md`.
+**Compare**: two run artifacts in, one difference report out. Fixes and
+regressions kept apart, so a run that made things worse cannot hide inside a run
+that made some things better.
+
+**`report`**: reads a run artifact from any of the eight tools above and
+summarises it, as text or as one stable JSON shape whatever wrote the file.
+
+**`config validate`**: loads a config file with the real loaders and prints the
+config they resolved, as a report or as TOML. Sends nothing, and never prints a
+header value.
+
+**The web UI**: a dependency-free single-page app that runs the same engine, with
+dry-run as the default action and a configured-target allow-list plus an
+explicit confirm step before anything is sent.
 
 ## Install
 
@@ -253,16 +282,6 @@ testinghq barrage fire --target local --mode closed --send
 testinghq barrage fire --target local --send --out load.json
 testinghq barrage replay load.json --send
 ```
-
-
-The slow-retry scenario is the duplicate half of a provider retry, not a
-failure-driven one: it re-sends a message whose first delivery SUCCEEDED, which
-is what a correct pipeline should deduplicate by Message-ID. It cannot tell you
-how a pipeline behaves when the failure that caused a real retry is also
-present, and a pipeline that deduplicates only on a failure signal rather than on
-Message-ID will pass this and still duplicate a real retry.
-
-
 Verify, for what the pipeline made of the payloads rather than what it answered:
 
 ```

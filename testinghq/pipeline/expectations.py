@@ -649,7 +649,7 @@ class GroundTruthMatcher:
     Content rules only. Whether the transport succeeded is
     `report.StatusOnlyMatcher`'s job and `report.classify_record`'s, and
     duplicating them here would be the exact third-copy failure
-    `tests/test_lane_hygiene.py` exists to prevent. This matcher only turns
+    `tests/test_repo_invariants.py` exists to prevent. This matcher only turns
     "the system parsed it wrong" into a failed assertion.
     """
 

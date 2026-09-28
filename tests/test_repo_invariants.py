@@ -1,21 +1,34 @@
-"""Repo-wide invariants that no single lane owns.
+"""Invariants of the shipped package, and of this test suite itself.
 
-Every defect found on 2026-07-16 while running the assignment pack by hand lived
-in a seam between lanes, not inside one. In all three cases both lanes obeyed the
-collision rule in GOALS.md exactly, because that rule governs which files a lane
-writes, and none of these were about a shared file:
+This file used to be `test_lane_hygiene.py` and every word of its docstring was
+about how work was split between agents writing at the same time. That is not
+what the tests in it check, and the name told a reader they were process
+machinery rather than product guarantees, so it is renamed.
 
-1. Lane B imported testinghq.blast.serialize from an unmerged Lane A branch. No
-   shared file. The branch could not pass CI until Lane A merged.
-2. The web lane reimplemented the guardrails instead of importing them. No shared
-   file. The two copies disagreed about what was safe within hours.
-3. tests/unit/test_config.py and tests/web/test_config.py collided in the pytest
-   module namespace. No shared file. Both lanes green alone, uncollectable
-   together.
+The tests divide cleanly, and it is worth being explicit about which is which.
 
-Prose in GOALS.md documents all three. Prose does not fail a build. These tests
-do. If you are about to delete one of these because it is inconvenient, that is
-the moment it is doing its job.
+**Four protect the shipped package**, and they are the reason the file exists.
+The web lane once reimplemented the guardrails instead of importing them, and
+once reimplemented the record classification instead of importing it. Both copies
+were individually correct and the two disagreed within hours: the security lane
+hardened `require_configured_target` to refuse non-reserved public hosts and the
+web copy did not inherit it, so a target the CLI refused, the UI would have fired
+at. That is the whole reason `core/guardrails.py` and `core/report.py` exist as
+separate modules nobody re-implements. A behavioural test cannot catch this class
+of defect, because both copies pass their own tests; only a structural check can.
+
+**Two protect the test suite as a shipped artifact.** This package ships its
+tests in the sdist, and anyone who runs them needs them collectable. A duplicate
+module basename makes collection die for the whole suite, and a duplicate test
+function name makes the first copy dead code that reads exactly like a passing
+test. Neither has anything to do with agents and both are real hazards to
+somebody running `pytest` on the sdist.
+
+**One is a style rule** with no product consequence, kept because removing a
+maintainer's convention is not this file's decision. Its docstring says so.
+
+If you are about to delete one of the first two categories because it is
+inconvenient, that is the moment it is doing its job.
 """
 from __future__ import annotations
 
@@ -122,11 +135,26 @@ def test_no_duplicate_test_function_names_within_a_file():
 
 
 def test_no_em_dashes_in_tracked_text():
-    """No em-dashes anywhere: code, comments, docs, commit messages.
+    """No em-dashes anywhere: code, comments, docs.
 
-    A house rule from day one, enforced until now only by whoever was reading. Six
-    agents wrote code today and every one of them was told this in prose. Prose
-    scales badly; a failing test does not.
+    Kept, and the reason it reads oddly is worth stating, because it is the one
+    test in this file with nothing to do with the package working.
+
+    It was a house style rule, enforced for a while only by whoever happened to
+    be reading, and then promoted to a test because "six agents wrote code today
+    and every one of them was told this in prose". That is a reasonable reason
+    when the people writing the code are the reason it keeps getting broken.
+
+    It is a weaker reason now. This repository ships to people who install it,
+    and a rule about a punctuation mark is not one of their problems, so this
+    test runs on every push and costs every contributor attention for a
+    convention nothing depends on. Style belongs in a linter, and the project has
+    no linter because it has one runtime dependency and does not want a second
+    kind of them.
+
+    Left in place rather than deleted unilaterally because a style decision is
+    the maintainer's, not the audit's. The cost of keeping it is one cheap scan;
+    the cost of removing it against the maintainer's wishes would be a surprise.
     """
     offenders = []
     for path in _tracked_text_files():
@@ -400,7 +428,7 @@ def test_nothing_imports_the_deleted_web_generator():
         if ".git" in relative.parts or ".venv" in relative.parts:
             continue
         if relative.as_posix() in (
-            "tests/test_lane_hygiene.py",
+            "tests/test_repo_invariants.py",
         ):
             continue  # this file names them in order to forbid them
         source = path.read_text(encoding="utf-8-sig")
