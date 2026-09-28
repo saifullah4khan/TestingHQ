@@ -76,7 +76,7 @@ def test_the_languages_are_actually_different_scripts(fixture):
     dimension of the tool meaningless.
 
     `ur` is required to be MOSTLY Arabic rather than entirely, because real
-    Urdu email contains Latin for identifiers: the invoice-address-change
+    Urdu email contains Latin for identifiers: the invoice-name-correction
     variant carries `INV-40221`, as a real one would. Demanding zero Latin
     letters would have pushed the fixture to transliterate its own invoice
     number, which is a worse fixture.
