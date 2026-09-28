@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from . import config_doc
 from . import reporting
 from .barrage import fire as barrage_fire
 from .barrage.runner import RateCeilingError
@@ -143,8 +144,48 @@ def build_parser():
     _add_ledger_parser(sub)
     _add_redeliver_parser(sub)
     _add_report_parser(sub)
+    _add_config_parser(sub)
 
     return parser
+
+
+def _add_config_parser(sub) -> None:
+    """`config validate`, which loads a file and sends nothing.
+
+    No `--send`, no `--target`, no dry-run mode. It cannot reach the network, so
+    a mode that suggests it might would be a lie, and a config tool that could
+    transmit is a config tool nobody would paste an untrusted file into.
+    """
+    config_cmd = sub.add_parser(
+        "config",
+        help="work with configuration files",
+    )
+    config_sub = config_cmd.add_subparsers(dest="config_command", required=True)
+
+    validate_cmd = config_sub.add_parser(
+        "validate",
+        help="check a config file and print the config the loaders resolved",
+        description=(
+            "Loads a config file with the real loaders, so a file that "
+            "validates is a file the tools accept. Sends nothing. Header "
+            "values are never printed: they are shown as env:NAME, so the "
+            "output is safe to paste into an issue."
+        ),
+        epilog=_EXIT_CODE_HELP,
+    )
+    validate_cmd.add_argument(
+        "config_file",
+        nargs="?",
+        default=DEFAULT_TARGET_CONFIG,
+        help=f"path to the config file (default: {DEFAULT_TARGET_CONFIG})",
+    )
+    validate_cmd.add_argument(
+        "--toml",
+        action="store_true",
+        help="print the effective config as TOML instead of as a report, so "
+             "it can be diffed against the file it came from",
+    )
+
 
 
 def _add_report_parser(sub) -> None:
@@ -1227,9 +1268,48 @@ def _cmd_report(args) -> int:
     return EXIT_OK
 
 
+def _cmd_config_validate(args) -> int:
+    """Validate a config file. Sends nothing, prints no header value."""
+    try:
+        targets, readback, notes = config_doc.validate(Path(args.config_file))
+    except config_doc.ValidationError as exc:
+        print(f"config validate: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    if args.toml:
+        print(config_doc.render_effective(targets, readback), end="")
+        return EXIT_OK
+
+    print(f"config: {args.config_file}")
+    print(f"targets: {len(targets)}")
+    for name, target in targets.items():
+        print(f"  {name}: {target['url']} (format {target['format']})")
+
+    if readback is None:
+        print("readback: none configured")
+    else:
+        print(f"readback: kind {readback['kind']}")
+        if readback.get("url"):
+            print(f"  url: {readback['url']}")
+        if readback.get("path"):
+            print(f"  path: {readback['path']}")
+        for name, value in (readback.get("headers") or {}).items():
+            print(f"  header {name}: {value} (value not shown)")
+
+    for note in notes:
+        print(f"note: {note}")
+
+    return EXIT_OK
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.tool == "config":
+        if args.config_command == "validate":
+            return _cmd_config_validate(args)
+        return _not_yet(args.config_command)
 
     if args.tool == "report":
         return _cmd_report(args)
