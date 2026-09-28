@@ -55,11 +55,15 @@ DEFAULT_WARMUP = 5.0
 DEFAULT_MODE = "open"
 DEFAULT_SEED = 0
 
-# Exit codes, matching the blast CLI's convention exactly so both tools
-# script the same way: 0 ran, 1 refused, 2 dry-run (nothing was sent).
-EXIT_OK = 0
-EXIT_REFUSED = 1
-EXIT_DRY_RUN = 2
+# Exit codes, re-exported from `testinghq.core.exit_codes` so every tool in the
+# package answers a script the same way. barrage has no EXIT_FINDING of its own:
+# a barrage run's result is in its report, and `execute` returns EXIT_OK for a
+# completed run whatever the statuses were.
+from ..core.exit_codes import (  # noqa: F401
+    EXIT_DRY_RUN,
+    EXIT_OK,
+    EXIT_REFUSED,
+)
 
 
 class BarrageError(RuntimeError):
