@@ -294,9 +294,9 @@ def test_build_items_tags_every_variant():
     items = steady.build_items(families)
     expected = sum(len(f.variants) for f in families)
     assert len(items) == expected
-    tags = [tag for _e, tag, _r in items]
+    tags = [tag for _e, tag, _r, _p in items]
     assert len(set(tags)) == len(tags), "a readback needs a unique tag per variant"
-    for email, tag, record_id in items:
+    for email, tag, record_id, _probe in items:
         assert email.headers[TAG_HEADER] == tag
         assert record_id.startswith("steady-")
 

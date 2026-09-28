@@ -158,6 +158,11 @@ class IntakeHandler(BaseHTTPRequestHandler):
     ticket_machine_mail = [False]
     outbound_path = [None]
     outbound: list = []
+    #: Tags whose route this pipeline gets wrong, for \steady\. Keyed on the
+    #: tag rather than on a header the payload carries, because a tool that told
+    #: the system under test which transform it had applied would be measuring
+    #: something other than what a customer sends.
+    unstable_tags: set = set()
 
     def do_POST(self):  # noqa: N802 - the name the stdlib requires
         length = int(self.headers.get("Content-Length") or 0)
@@ -193,8 +198,9 @@ class IntakeHandler(BaseHTTPRequestHandler):
             "body": _text_field(fields, "text"),
             "attachments": _attachment_names(fields),
             # Filed in the mailbox the message was addressed to, which is what
-            # the routing check expects by default.
-            "route": recipients[0] if recipients else "nowhere",
+            # the routing check expects by default, unless this payload is one
+            # the classifier handles differently from its own baseline.
+            "route": self._route_for(recipients, fields),
             "message_id": message_id,
             "in_reply_to": parent_id or None,
             "references": (headers.get("References") or "").split(),
@@ -223,6 +229,12 @@ class IntakeHandler(BaseHTTPRequestHandler):
         if self.auto_reply[0]:
             self._emit(fields, marker)
         return not self.ticket_machine_mail[0]
+
+    def _route_for(self, recipients, fields) -> str:
+        destination = recipients[0] if recipients else "nowhere"
+        if _tag_of(_text_field(fields, "headers")) in self.unstable_tags:
+            return f"{destination}-unstable"
+        return destination
 
     def _emit(self, fields, marker) -> None:
         """One outbound auto-reply, in memory and appended to the sink file."""
@@ -266,6 +278,27 @@ class IntakeHandler(BaseHTTPRequestHandler):
         return  # keep the demo's output readable
 
 
+def _steady_signed_tags(count=3) -> list:
+    """The tags \steady\ will give the signed variants.
+
+    Computed with the tool's own builders, because the pipeline can only be
+    told which payloads to relabel and the readback is keyed by tag. A demo
+    that guessed the numbering would go stale silently.
+    """
+    from testinghq.pipeline import steady
+
+    families = steady.build_families(0, intents=steady.load_intents()[:count])
+    items = steady.build_items(families)
+    tags, index = [], 0
+    for family in families:
+        for variant in family.variants:
+            tag = items[index][1]
+            index += 1
+            if variant.transform == "add-signature":
+                tags.append(tag)
+    return tags
+
+
 def reset() -> None:
     """Forget every ticket, as a fresh deployment would be.
 
@@ -277,6 +310,7 @@ def reset() -> None:
     IntakeHandler.auto_reply[0] = False
     IntakeHandler.ticket_machine_mail[0] = False
     IntakeHandler.outbound = []
+    IntakeHandler.unstable_tags = set()
 
 
 def _reconcile_orphans(records: list) -> None:
@@ -486,6 +520,30 @@ def main() -> int:
          "--out", str(work / "loop-allowed.json"), *quick_poll],
         3,
         "loop with tickets allowed against a pipeline that auto-replies",
+    )
+
+    _rule("steady: a classifier that files a signed message differently")
+    _rule("         the message is parsed perfectly. Only comparing it to the")
+    _rule("         variants of itself can see that.")
+    reset()
+    IntakeHandler.unstable_tags = set(_steady_signed_tags(3))
+    run(
+        ["steady", "fire", "--config", str(config), "--target", "local", "--send",
+         "--count", "3", "--max-flip-rate", "0",
+         "--out", str(work / "steady.json"), *quick_poll],
+        3,
+        "steady against a classifier that loses track of a signature",
+    )
+
+    _rule("steady: the same run, a gate loose enough to accept the flip rate")
+    reset()
+    IntakeHandler.unstable_tags = set(_steady_signed_tags(3))
+    run(
+        ["steady", "fire", "--config", str(config), "--target", "local", "--send",
+         "--count", "3", "--max-flip-rate", "0.9",
+         "--out", str(work / "steady-lax.json"), *quick_poll],
+        0,
+        "steady with a loose gate against the same classifier",
     )
 
     _rule("result")

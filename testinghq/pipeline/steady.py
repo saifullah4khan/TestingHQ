@@ -41,6 +41,10 @@ LABEL_FIELDS = ("category", "route", "priority")
 
 TRANSFORM_BASELINE = "baseline"
 
+#: The seed every run defaults to, so a dry run and a real run with no --seed
+#: are asking the same question.
+DEFAULT_SEED = 0
+
 
 # ---------------------------------------------------------------------------
 # The fixture
@@ -385,21 +389,25 @@ def build_families(
     return families
 
 
-def build_items(families: Sequence[Family]) -> List[Tuple[InboundEmail, str, str]]:
-    """(email, tag, record_id) for `common.send_all`.
+def build_items(
+    families: Sequence[Family],
+) -> List[Tuple[Any, str, str, Any]]:
+    """(email, tag, record_id, probe) for `common.send_all`.
 
     Every payload is tagged so the readback can attribute a label back to one
-    variant, which is the only way a flip can be blamed on a transform.
+    variant, which is the only way a flip can be blamed on a transform. The
+    four-tuple shape matches `corpus.build_items`, so `send_all` takes it
+    unchanged.
     """
-    from .messages import make_tag, stamp
+    from .messages import make_tag, probe_for, stamp
 
     items = []
     for index, family in enumerate(families):
         for position, variant in enumerate(family.variants):
             tag = make_tag("steady", index, position)
-            items.append(
-                (stamp(variant.email, tag), tag, f"steady-{index:03d}-{position:03d}")
-            )
+            record_id = f"steady-{index:03d}-{position:03d}"
+            email = stamp(variant.email, tag)
+            items.append((email, tag, record_id, probe_for(email, tag, record_id, "")))
     return items
 
 
@@ -763,3 +771,364 @@ def format_stability(report: StabilityReport) -> str:
         "  0% here. Use `testinghq verify` to check what the label should have been."
     )
     return "\n".join(lines)
+
+
+import json
+import random
+import time
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+from .common import (
+    DEFAULT_MAX_WAIT,
+    DEFAULT_POLL_INTERVAL,
+    DEFAULT_QUIET_WINDOW,
+    EXIT_MISMATCH,
+    EXIT_OK,
+    EXIT_REFUSED,
+    close_adapter,
+    read_back_all,
+    require_synthetic,
+    resolve_target_url,
+    send_all,
+)
+
+#: Above this flip rate a run exits 3, so it can gate CI. Generous, because a
+#: classifier that is 6% unstable is worth a conversation and not a red build.
+DEFAULT_MAX_FLIP_RATE = 0.10
+
+
+@dataclass(frozen=True)
+class LabelRead:
+    """What the readback said about one payload, and whether it said anything."""
+
+    label: Optional[str]
+    visible: bool
+    detail: str = ""
+
+
+def read_label(readbacks: Sequence[Any], label_field: str) -> LabelRead:
+    """The label for one payload, from the first record that carries the field.
+
+    Not visible and absent are different: a readback with no `route` is a gap in
+    the integration, and a readback with `route = None` is the classifier
+    returning nothing. Only the second is a label, and the report has to be able
+    to tell them apart.
+    """
+    for record in readbacks:
+        if not record.has(label_field):
+            return LabelRead(
+                None, False,
+                f"the adapter could not see {label_field!r} on any record",
+            )
+        value = getattr(record, label_field, None)
+        return LabelRead(
+            None if value is None else str(value), True,
+            "" if value is not None else f"{label_field!r} was present but null",
+        )
+    return LabelRead(None, False, "no record came back for this payload")
+
+
+def run_config(
+    seed: int,
+    count: int,
+    tag_prefix: str,
+    target_name: Optional[str],
+    readback: Any,
+    label_field: str,
+    transforms: Sequence[str],
+    repeats: int,
+    max_flip_rate: float,
+    poll: Dict[str, float],
+) -> Dict[str, Any]:
+    """Everything needed to reproduce the run, and nothing that varies between
+    two runs of the same command. No latency, no wall clock."""
+    return {
+        "tool": "steady",
+        "seed": seed,
+        "count": count,
+        "tag_prefix": tag_prefix,
+        "target": target_name,
+        "readback": readback.to_json(),
+        "label_field": label_field,
+        "transforms": list(transforms),
+        "repeats": repeats,
+        "max_flip_rate": max_flip_rate,
+        "readback_poll": dict(poll),
+        "dry_run": False,
+    }
+
+
+def build_artifact(
+    seed: int,
+    config: Dict[str, Any],
+    families: Sequence[Family],
+    report: StabilityReport,
+) -> Dict[str, Any]:
+    """Every variant with its transform lineage and its observed label, so a
+    reader can see which transform caused a flip without re-running anything."""
+    return {
+        "seed": seed,
+        "config": config,
+        "stability": report.to_json(),
+        "families": [
+            {
+                "intent_id": family.intent_id,
+                "category_hint": family.category_hint,
+                "variants": [variant.to_json() for variant in family.variants],
+            }
+            for family in families
+        ],
+    }
+
+
+def gate(report: StabilityReport, max_flip_rate: float) -> Tuple[bool, str]:
+    """Whether the run should exit 3, and the sentence saying why.
+
+    Three ways to fail, and the first two are the ones a naive gate misses:
+    nothing was measured, or something was measured but not everything, and a
+    clean flip rate over a third of the variants is a number nobody should act on.
+    """
+    if report.flip_rate is None:
+        return True, (
+            f"nothing was measured, so there is no stability to report. Every "
+            f"variant came back without a {report.label_field!r} label."
+        )
+    unlabelled = report.unlabelled_families
+    if unlabelled:
+        return True, (
+            f"{len(unlabelled)} of {len(report.results)} families could not be "
+            f"measured: the readback could not see {report.label_field!r} for "
+            "every variant in them. A flip rate over the families that were "
+            "measured would be a number about a different experiment."
+        )
+    if report.flip_rate > max_flip_rate:
+        return True, (
+            f"flip rate {report.flip_rate:.1%} is over the "
+            f"{max_flip_rate:.1%} gate"
+        )
+    return False, (
+        f"flip rate {report.flip_rate:.1%} is within the "
+        f"{max_flip_rate:.1%} gate"
+    )
+
+
+def format_run(
+    report: StabilityReport,
+    failed: bool,
+    reason: str,
+    max_flip_rate: float,
+) -> str:
+    """The report, then the gate's sentence.
+
+    One headline, from ormat_stability. The gate's verdict is a separate
+    sentence rather than a second headline: two verdict lines on one screen is
+    how a reader ends up quoting the wrong one.
+    """
+    lines = [format_stability(report), ""]
+    lines.append(f"  gate ({max_flip_rate:.1%}): {'FAILED' if failed else 'passed'}")
+    lines.append(f"  {reason}")
+    return "\n".join(lines)
+
+
+def format_dry_run(
+    families: Sequence[Family], readback: Any, label_field: str
+) -> str:
+    lines = [
+        f"dry-run preview: {len(families)} intent families, "
+        f"{sum(len(f.variants) for f in families)} payload(s)",
+        f"  readback adapter: kind {readback.kind!r}",
+        f"  label field:      {label_field!r}",
+        f"  transforms:       {', '.join(sorted(TRANSFORM_NAMES))}",
+    ]
+    if readback.kind == "http":
+        lines.append(f"  readback url:     {readback.url}")
+    elif readback.kind == "mailbox":
+        lines.append(f"  readback path:    {readback.path}")
+    lines.append("  per family:")
+    for family in families[:6]:
+        lines.append(
+            f"    {family.intent_id:26} {family.category_hint:16} "
+            f"{len(family.variants)} variants"
+        )
+    if len(families) > 6:
+        lines.append(f"    ... and {len(families) - 6} more")
+    lines.append(
+        "  one family is one intent written several ways; a family that "
+        "disagrees with itself is the finding"
+    )
+    lines.append("no network calls were made (pass --send to fire for real)")
+    return "\n".join(lines)
+
+
+def execute(
+    seed: int,
+    count: int,
+    target_name: Optional[str],
+    config_path: str,
+    out: Optional[str],
+    *,
+    readback: Any,
+    tag_prefix: str = "steady",
+    label_field: str = LABEL_FIELD,
+    transforms: Optional[Sequence[str]] = None,
+    repeats: int = 1,
+    max_flip_rate: float = DEFAULT_MAX_FLIP_RATE,
+    rate: float = 5.0,
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+    max_wait: float = DEFAULT_MAX_WAIT,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+    client: Any = None,
+    readback_client: Any = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    printer: Callable[[str], None] = print,
+) -> int:
+    """Send every variant, read every label back, report, gate.
+
+    Never called unless `guardrails.evaluate_send` already said yes. Guardrails
+    run over every payload in every family before the first request, so a
+    refusal lands before the operator's endpoint has taken any of it.
+    """
+    if label_field not in LABEL_FIELDS:
+        printer(
+            f"refused: --label-field must be one of {list(LABEL_FIELDS)}, "
+            f"got {label_field!r}. Only {LABEL_FIELD!r} exists on the readback "
+            "until backlog task 1 adds the others."
+        )
+        return EXIT_REFUSED
+    if max_flip_rate < 0.0:
+        printer(f"refused: --max-flip-rate must be >= 0, got {max_flip_rate}")
+        return EXIT_REFUSED
+    if repeats < 1:
+        printer(f"refused: --repeats must be >= 1, got {repeats}")
+        return EXIT_REFUSED
+
+    try:
+        all_intents = load_intents()
+    except (OSError, ValueError, KeyError) as exc:
+        printer(f"refused: the intent fixture could not be read: {exc}")
+        return EXIT_REFUSED
+    families = build_families(
+        seed, intents=all_intents[: max(count, 1)], transforms=transforms
+    )
+    items = build_items(families)
+    repeat_items = _repeat_items(families, repeats, tag_prefix) if repeats > 1 else []
+
+    every = [email for email, _tag, _rid, _probe in items + repeat_items]
+    try:
+        require_synthetic(every)
+        url = resolve_target_url(target_name, config_path)
+    except Exception as exc:
+        printer(f"refused: {exc}")
+        return EXIT_REFUSED
+
+    adapter = None
+    try:
+        from .adapters import build_adapter
+
+        adapter = build_adapter(readback, client=readback_client)
+        sent = send_all(
+            items + repeat_items, url, rate, client=client, sleep=sleep, clock=clock
+        )
+        outcome = read_back_all(
+            adapter, [probe for _e, _t, _r, probe in items + repeat_items],
+            sleep=sleep, clock=clock, quiet_window=quiet_window,
+            max_wait=max_wait, poll_interval=poll_interval,
+        )
+    except Exception as exc:
+        printer(f"steady: could not complete the run: {exc}")
+        return EXIT_REFUSED
+    finally:
+        close_adapter(adapter)
+
+    labels = read_labels(families, items, outcome.readbacks, label_field)
+    report = StabilityReport(
+        families=labels,
+        repeats=len(repeat_items),
+        repeat_labels=_repeat_labels(repeat_items, outcome.readbacks, label_field),
+        label_field=label_field,
+    )
+    failed, reason = gate(report, max_flip_rate)
+    artifact = build_artifact(
+        seed,
+        run_config(
+            seed, count, tag_prefix, target_name, readback, label_field,
+            list(transforms) if transforms else list(TRANSFORM_NAMES),
+            repeats, max_flip_rate,
+            {"quiet_window": quiet_window, "max_wait": max_wait,
+             "poll_interval": poll_interval},
+        ),
+        families,
+        report,
+    )
+    summary = artifact["stability"]
+    summary["gate"] = {"failed": failed, "reason": reason,
+                       "max_flip_rate": max_flip_rate}
+    summary["sent"] = len(sent)
+    summary["readback"] = outcome.to_json()
+
+    printer(format_run(report, failed, reason, max_flip_rate))
+    if out:
+        # Written on every run, not only a failing one. A passing run's artifact
+        # is the evidence for the next one, and an operator who wants to compare
+        # two runs should not have to make the second one fail to get a file.
+        Path(out).write_text(
+            json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8"
+        )
+    return EXIT_MISMATCH if failed else EXIT_OK
+
+
+def _repeat_items(
+    families: Sequence[Family], repeats: int, tag_prefix: str
+) -> List[Tuple[Any, str, str, Any]]:
+    """The same payload sent N times, each with its own tag.
+
+    Model nondeterminism is measured by sending the SAME BYTES more than once,
+    so the tags differ (the readback is keyed by tag) and nothing else does.
+    """
+    from .messages import make_tag, probe_for, stamp
+
+    if not families or not families[0].variants:
+        return []
+    source = families[0].variants[0]
+    out = []
+    for index in range(repeats):
+        tag = make_tag(f"{tag_prefix}-repeat", 0, index)
+        record_id = f"steady-repeat-{index:03d}"
+        email = stamp(source.email, tag)
+        out.append((email, tag, record_id, probe_for(email, tag, record_id, "")))
+    return out
+
+
+def read_labels(
+    families: Sequence[Family],
+    items: Sequence[Tuple[Any, str, str, Any]],
+    readbacks: Dict[str, List[Any]],
+    label_field: str,
+) -> Tuple[Family, ...]:
+    """Attach each payload's observed label to the family that produced it."""
+    by_tag = {tag: readbacks.get(tag, []) for _e, tag, _r, _probe in items}
+    labelled: List[Family] = []
+    index = 0
+    for family in families:
+        variants = []
+        for variant in family.variants:
+            _email, tag, _record, _probe = items[index]
+            index += 1
+            variants.append(variant.with_label(read_label(by_tag.get(tag, []), label_field).label))
+        labelled.append(
+            Family(family.intent_id, family.category_hint, tuple(variants))
+        )
+    return tuple(labelled)
+
+
+def _repeat_labels(
+    repeats: Sequence[Tuple[Any, str, str, Any]],
+    readbacks: Dict[str, List[Any]],
+    label_field: str,
+) -> Tuple[Optional[str], ...]:
+    return tuple(
+        read_label(readbacks.get(tag, []), label_field).label
+        for _e, tag, _r, _probe in repeats
+    )

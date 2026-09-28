@@ -48,6 +48,7 @@ from .pipeline import ledger as pipeline_ledger
 from .pipeline import loop as pipeline_loop
 from .pipeline import messages as pipeline_messages
 from .pipeline import redeliver as pipeline_redeliver
+from .pipeline import steady as pipeline_steady
 from .pipeline import verify as pipeline_verify
 from .pipeline.adapters import AdapterError
 from .pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
@@ -107,6 +108,7 @@ def build_parser():
     _add_ledger_parser(sub)
     _add_loop_parser(sub)
     _add_redeliver_parser(sub)
+    _add_steady_parser(sub)
 
     return parser
 
@@ -1232,6 +1234,119 @@ def _cmd_loop_fire(args) -> int:
     )
 
 
+
+def _cmd_steady_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    try:
+        families = pipeline_steady.build_families(
+            args.seed,
+            intents=pipeline_steady.load_intents()[: max(args.count, 1)],
+            transforms=args.transform,
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"refused: the intent fixture could not be read: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    print(f"steady fire: {decision.reason}")
+    if not decision.will_send:
+        print(pipeline_steady.format_dry_run(families, readback, args.label_field))
+        return EXIT_DRY_RUN
+
+    return pipeline_steady.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        tag_prefix=args.tag_prefix,
+        label_field=args.label_field,
+        transforms=args.transform,
+        repeats=args.repeats,
+        max_flip_rate=args.max_flip_rate,
+        rate=args.rate,
+        quiet_window=args.quiet_window,
+        max_wait=args.max_wait,
+        poll_interval=args.poll_interval,
+    )
+
+
+
+def _add_steady_parser(sub) -> None:
+    """The `steady` subcommand.
+
+    `--max-flip-rate` is the gate, and it exists so the tool can sit in CI. The
+    default is generous: a classifier that is 6% unstable is worth a
+    conversation, not a red build.
+
+    `--label-field` names a field on the readback, and only `route` exists on
+    it today. Backlog task 1 would add `category` and `priority`; until it lands
+    the default is `route` and the report says which field the number is about,
+    because a flip rate with no field named is a number nobody can act on.
+
+    Deliberately without `--allow-high-rate`. This sends a few hundred variants
+    at a rate the operator chose; sustained load is Barrage's job, with the
+    ceiling already in place.
+    """
+    steady = sub.add_parser(
+        "steady",
+        help="metamorphic stability testing for an AI triage classifier",
+    )
+    steady_sub = steady.add_subparsers(dest="command", required=True)
+
+    s_fire = steady_sub.add_parser(
+        "fire",
+        help="send meaning-preserving variants and measure how often the label moves",
+    )
+    s_fire.add_argument("--target")
+    s_fire.add_argument("--seed", type=int, default=pipeline_steady.DEFAULT_SEED)
+    s_fire.add_argument(
+        "--count", type=int, default=6,
+        help="how many intent families to use from the reviewed fixture",
+    )
+    s_fire.add_argument(
+        "--send", action="store_true", help="actually send (default is dry-run)"
+    )
+    s_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    s_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    s_fire.add_argument(
+        "--repeats", type=int, default=1,
+        help=(
+            "send the same payload this many times to measure model "
+            "nondeterminism separately from sensitivity to wording"
+        ),
+    )
+    s_fire.add_argument(
+        "--label-field", choices=list(pipeline_steady.LABEL_FIELDS),
+        default=pipeline_steady.LABEL_FIELD,
+        help=(
+            "which readback field carries the classifier's label. Only 'route' "
+            "exists until backlog task 1 lands; a run that cannot see the chosen "
+            "field exits 3 with nothing measured"
+        ),
+    )
+    s_fire.add_argument(
+        "--transform", action="append",
+        choices=list(pipeline_steady.TRANSFORM_NAMES),
+        help="only apply this transform; repeatable. Default is all of them",
+    )
+    s_fire.add_argument(
+        "--max-flip-rate", type=float, default=pipeline_steady.DEFAULT_MAX_FLIP_RATE,
+        help="exit 3 above this flip rate, so the tool can gate CI",
+    )
+    s_fire.add_argument("--out", help="path to write the stability artifact JSON")
+    s_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    _add_readback_args(s_fire)
+    _add_readback_poll_args(s_fire)
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1252,6 +1367,10 @@ def main(argv=None):
         return _not_yet(args.command)
     if args.tool == "compare":
         return _cmd_compare(args)
+    if args.tool == "steady":
+        if args.command == "fire":
+            return _cmd_steady_fire(args)
+        return _not_yet(args.command)
     if args.tool == "redeliver":
         if args.command == "fire":
             return _cmd_redeliver_fire(args)
