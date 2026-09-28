@@ -292,6 +292,43 @@ The numbers are defined once, in `testinghq/core/exit_codes.py`, and
 `tests/unit/test_exit_codes.py` fails if any module defines its own or returns a
 code outside the set.
 
+## Reading a run artifact
+
+Six tools write a run artifact and each grew its own shape, so a CI system that
+wanted to know what happened had to know which tool produced the file first.
+`testinghq report` is the one place that knows:
+
+```bash
+# a readable summary
+testinghq report run.json
+
+# one stable shape, for a machine
+testinghq report run.json --json
+```
+
+It detects the tool, derives the verdict that tool would have printed, and
+reports counts and findings. With `--json` the output has the same keys whatever
+wrote the file, so a script parses one thing: `tool`, `verdict`,
+`verdict_source`, `exit_code`, `exit_code_source`, `counts`, `findings`, `seed`,
+`target` and `dry_run`.
+
+It sends nothing, needs no config file, and has no `--send` or `--target`
+because it cannot reach the network. An artifact it cannot identify is refused
+with a message saying what the top-level keys were, rather than summarized as a
+run that never happened.
+
+Two things it reports are not in the artifact, and both are labelled. The
+verdict: `verify` and `loop` compute theirs at print time and never write it
+down, so `report` reimplements those derivations, pinned against the tools' own
+formatters by a test. The exit code: no artifact records one, so it is
+reconstructed from the same fields the tool used. It keeps the name `exit_code`,
+because that is what a consumer parses, and `exit_code_source` says where the
+number came from, the same way `verdict_source` does for the verdict.
+
+Reading a report exits 0 whenever the artifact was readable, even when the run
+found something. The findings are in the output; deciding what to do about them
+is the caller's job.
+
 ## Responsible use
 
 Blast is a fuzzer and self-testing tool for endpoints you control. It POSTs
