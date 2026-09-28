@@ -216,6 +216,7 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
     tool = argv[0] if argv else ""
     is_replay = "replay" in argv
     is_check = "check" in argv
+    is_report = tool == "report"
 
     out: list[str] = []
     index = 0
@@ -228,9 +229,15 @@ def _prepare(argv: list[str], tmp_path: Path) -> list[str]:
             out += [arg, str(tmp_path / (arg.lstrip("-") or "out.json"))]
             index += 2
             continue
-        if (is_replay or is_check) and REPLAY_TARGET.match(arg):
+        if (is_replay or is_check or is_report) and REPLAY_TARGET.match(arg):
             if tool == "barrage":
                 name, payload = "barrage_artifact.json", _barrage_artifact()
+            elif tool == "report":
+                # `report` takes a positional artifact and nothing else, so
+                # there is one case: read back a blast artifact. A documented
+                # `report` example therefore proves the command is not refused
+                # on a real artifact, which is the property being checked.
+                name, payload = "report_artifact.json", _blast_artifact()
             elif is_check:
                 sink, payload = _sink_and_artifact(tmp_path)
                 name = "verify_artifact.json"
@@ -286,7 +293,7 @@ def test_the_docs_actually_contain_commands_to_check():
         f"{list(DOC_FILES)}; the extractor has probably stopped matching"
     )
     tools = {command.split()[1] for _f, _l, command in DOC_COMMANDS}
-    known = {"blast", "barrage"} | set(PIPELINE_TOOLS)
+    known = {"blast", "barrage", "report"} | set(PIPELINE_TOOLS)
     assert tools <= known, (
         f"a documented command names a tool this harness does not know how to "
         f"run: {sorted(tools - known)}. Add it to PIPELINE_TOOLS and give the "

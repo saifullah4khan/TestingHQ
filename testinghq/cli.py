@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from . import reporting
 from .barrage import fire as barrage_fire
 from .barrage.runner import RateCeilingError
 from .blast.corrupt import DEFAULT_MIX, corrupt_corpus
@@ -51,8 +52,7 @@ from .pipeline import verify as pipeline_verify
 from .pipeline.adapters import AdapterError
 from .pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
 from .core.exit_codes import MEANINGS as _EXIT_MEANINGS
-from .core.exit_codes import EXIT_FINDING as _EXIT_FINDING
-from .core.exit_codes import EXIT_OK as _EXIT_OK
+from .core.exit_codes import EXIT_OK
 
 DEFAULT_TARGET_CONFIG = "target.toml"
 DEFAULT_RATE = 5.0
@@ -142,8 +142,36 @@ def build_parser():
     _add_verify_parser(sub)
     _add_ledger_parser(sub)
     _add_redeliver_parser(sub)
+    _add_report_parser(sub)
 
     return parser
+
+
+def _add_report_parser(sub) -> None:
+    """`report`, which reads a run artifact and sends nothing.
+
+    No `--send` and no dry-run mode, for the same reason `compare` has neither:
+    it cannot reach the network, so there is nothing to gate. A command that
+    looks like it might transmit should not exist, and this one demonstrably
+    cannot.
+    """
+    report_cmd = sub.add_parser(
+        "report",
+        help="summarize a run artifact from any tool, in text or JSON",
+        epilog=_EXIT_CODE_HELP,
+    )
+    report_cmd.add_argument(
+        "artifact",
+        help="path to a run artifact written by blast, barrage, verify, "
+             "ledger, redeliver, loop or compare",
+    )
+    report_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="print the stable machine-readable summary instead of text. One "
+             "shape for every tool, so a CI system has a single thing to parse.",
+    )
+
 
 
 def _add_verify_parser(sub) -> None:
@@ -1179,9 +1207,32 @@ def _cmd_redeliver_fire(args) -> int:
     )
 
 
+def _cmd_report(args) -> int:
+    """Read one run artifact and print a summary. Sends nothing.
+
+    An artifact this cannot identify is refused with a message saying what the
+    top-level keys were, because the person holding a mystery JSON file is
+    usually trying to establish whether it is a run artifact at all.
+    """
+    try:
+        summary = reporting.load(Path(args.artifact))
+    except reporting.ArtifactError as exc:
+        print(f"report: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    if args.json:
+        print(json.dumps(summary.to_json(), indent=2, sort_keys=True))
+    else:
+        print(reporting.render(summary))
+    return EXIT_OK
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.tool == "report":
+        return _cmd_report(args)
 
     if args.tool == "blast":
         if args.command == "generate":
