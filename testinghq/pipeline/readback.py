@@ -53,10 +53,19 @@ READBACK_FIELDS: Tuple[str, ...] = (
     "in_reply_to",
     "references",
     "tag",
+    "category",
+    "priority",
 )
 
 #: The subset a check may ask about. `ticket_id` is handled by its own check
 #: and is not optional there, so it is deliberately absent from this list.
+#:
+#: `category` and `priority` are here because an intake system that triages has
+#: to record what it decided, and a tool reading that system has to be able to
+#: see it. There is no verify check for either, because the corpus generator
+#: does not produce a triager's label and there is therefore no ground truth to
+#: compare against. They are readable so a new tool can measure a label, and
+#: checkable so that a tool which does have an expectation can ask.
 CHECKABLE_FIELDS: Tuple[str, ...] = (
     "from_addr",
     "subject",
@@ -65,6 +74,8 @@ CHECKABLE_FIELDS: Tuple[str, ...] = (
     "route",
     "in_reply_to",
     "references",
+    "category",
+    "priority",
 )
 
 _WHITESPACE = re.compile(r"\s+")
@@ -119,6 +130,11 @@ class Readback:
     Empty means "infer from the values present", which is convenient for a
     hand-built readback and wrong for a partial API response, so the built-in
     adapters set it explicitly.
+
+    `category` and `priority` are what an intake system's classifier decided, if
+    it has one. Optional and absent on most systems, which is why they are not
+    given a verify check: the corpus has no triager's label to compare against,
+    and a check that compared a value to nothing would pass everything.
     """
 
     exists: bool
@@ -132,6 +148,8 @@ class Readback:
     in_reply_to: Optional[str] = None
     references: Tuple[str, ...] = field(default_factory=tuple)
     tag: Optional[str] = None
+    category: Optional[str] = None
+    priority: Optional[str] = None
     fields: Tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
