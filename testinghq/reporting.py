@@ -392,22 +392,48 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
-    """`loop` is not on this branch yet; this reader exists so that when it
-    lands the summary is right rather than a refusal. Kept because the backlog
-    asks for one stable shape across tools, and a tool that gets a refusal on
-    arrival is a tool its author has to special-case."""
+    """The same verdict `loop` prints, including its qualifier.
+
+    `loop` puts "(auto-reply NOT CHECKED)" in its own headline when no outbound
+    sink was configured, because a run that skipped the auto-reply check and a
+    run that passed it are otherwise identical on one line. A report that
+    dropped the qualifier would be the false green `loop` was built to refuse,
+    so it is carried here, and the skip is also listed as a `not-checked` note.
+    The exit code is unaffected by the skip, exactly as in `loop`.
+
+    `passed` is messages checked minus messages that failed. It is not
+    `checked`, which counts every machine-generated message looked at.
+    """
     summary = _summary(artifact)
     findings = summary.get("findings", 0)
+    findings = findings if isinstance(findings, int) else 0
+    checked = summary.get("checked", 0)
+    checked = checked if isinstance(checked, int) else 0
+    skipped = summary.get("auto_reply_skipped", 0)
+    skipped = skipped if isinstance(skipped, int) else 0
+
+    verdict = "LOOP-SAFE" if findings == 0 else "LOOPS-DETECTED"
+    notes = []
+    if skipped:
+        verdict = f"{verdict} (auto-reply NOT CHECKED)"
+        notes.append(
+            Finding(
+                kind="not-checked",
+                detail=f"auto-reply check skipped for {skipped} message(s): "
+                       "no [loop.outbound] sink was configured",
+            )
+        )
     return ArtifactSummary(
-        verdict="LOOP-SAFE" if findings == 0 else "LOOPS-DETECTED",
+        verdict=verdict,
         verdict_source="derived",
         exit_code=EXIT_OK if findings == 0 else EXIT_FINDING,
         exit_code_source="derived",
         counts=Counts(
             sent=summary.get("sent", 0),
-            passed=summary.get("checked", 0),
-            failed=findings if isinstance(findings, int) else 0,
+            passed=max(checked - findings, 0),
+            failed=findings,
         ),
+        findings=tuple(notes),
         **_base(artifact, "loop"),
     )
 
