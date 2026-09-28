@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from . import config_doc
+from . import reporting
 from .barrage import fire as barrage_fire
 from .barrage.runner import RateCeilingError
 from .blast.corrupt import DEFAULT_MIX, corrupt_corpus
@@ -51,15 +53,51 @@ from .pipeline import redeliver as pipeline_redeliver
 from .pipeline import verify as pipeline_verify
 from .pipeline.adapters import AdapterError
 from .pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
+from .core.exit_codes import MEANINGS as _EXIT_MEANINGS
+from .core.exit_codes import EXIT_OK
 
 DEFAULT_TARGET_CONFIG = "target.toml"
 DEFAULT_RATE = 5.0
 
+#: Shown by every subcommand's --help, because the exit code is the answer a
+#: script reads and there are seven tools. Generated from the shared table so it
+#: cannot describe a convention the code no longer uses.
+_EXIT_CODE_HELP = (
+    "exit codes: "
+    + "; ".join(
+        f"{code} {text}" for code, text in sorted(_EXIT_MEANINGS.items())
+    )
+)
+
+
+class _Parser(argparse.ArgumentParser):
+    """Argparse, with one change: a usage error exits 1, not 2.
+
+    Argparse exits 2 for a bad command line, and in this package 2 is a dry
+    run. So `testinghq blast fire --typo` would report "ran, sent nothing" to
+    any script checking whether the tool did something, which is exactly the
+    misreading the shared exit-code convention exists to prevent. A command
+    line the tool cannot parse is a refusal to do what was asked.
+
+    Argparse itself is not modified: `--help` and `--version` still exit 0, and
+    anything else in the ecosystem that uses argparse keeps its standard
+    behaviour. Only this parser's usage errors change.
+    """
+
+    def error(self, message):  # pragma: no cover - exercised via parse_args
+        self.print_usage(sys.stderr)
+        self.exit(
+            EXIT_REFUSED,
+            f"{self.prog}: error: {message}\n"
+            f"({_EXIT_CODE_HELP})\n",
+        )
+
 
 def build_parser():
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="testinghq",
         description="Self-testing tools for intake pipelines.",
+        epilog=_EXIT_CODE_HELP,
     )
     parser.add_argument(
         "--version", action="version", version=f"testinghq {__version__}"
@@ -107,8 +145,76 @@ def build_parser():
     _add_ledger_parser(sub)
     _add_loop_parser(sub)
     _add_redeliver_parser(sub)
+    _add_report_parser(sub)
+    _add_config_parser(sub)
 
     return parser
+
+
+def _add_config_parser(sub) -> None:
+    """`config validate`, which loads a file and sends nothing.
+
+    No `--send`, no `--target`, no dry-run mode. It cannot reach the network, so
+    a mode that suggests it might would be a lie, and a config tool that could
+    transmit is a config tool nobody would paste an untrusted file into.
+    """
+    config_cmd = sub.add_parser(
+        "config",
+        help="work with configuration files",
+    )
+    config_sub = config_cmd.add_subparsers(dest="config_command", required=True)
+
+    validate_cmd = config_sub.add_parser(
+        "validate",
+        help="check a config file and print the config the loaders resolved",
+        description=(
+            "Loads a config file with the real loaders, so a file that "
+            "validates is a file the tools accept. Sends nothing. Header "
+            "values are never printed: they are shown as env:NAME, so the "
+            "output is safe to paste into an issue."
+        ),
+        epilog=_EXIT_CODE_HELP,
+    )
+    validate_cmd.add_argument(
+        "config_file",
+        nargs="?",
+        default=DEFAULT_TARGET_CONFIG,
+        help=f"path to the config file (default: {DEFAULT_TARGET_CONFIG})",
+    )
+    validate_cmd.add_argument(
+        "--toml",
+        action="store_true",
+        help="print the effective config as TOML instead of as a report, so "
+             "it can be diffed against the file it came from",
+    )
+
+
+
+def _add_report_parser(sub) -> None:
+    """`report`, which reads a run artifact and sends nothing.
+
+    No `--send` and no dry-run mode, for the same reason `compare` has neither:
+    it cannot reach the network, so there is nothing to gate. A command that
+    looks like it might transmit should not exist, and this one demonstrably
+    cannot.
+    """
+    report_cmd = sub.add_parser(
+        "report",
+        help="summarize a run artifact from any tool, in text or JSON",
+        epilog=_EXIT_CODE_HELP,
+    )
+    report_cmd.add_argument(
+        "artifact",
+        help="path to a run artifact written by blast, barrage, verify, "
+             "ledger, redeliver, loop or compare",
+    )
+    report_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="print the stable machine-readable summary instead of text. One "
+             "shape for every tool, so a CI system has a single thing to parse.",
+    )
+
 
 
 def _add_verify_parser(sub) -> None:
@@ -476,15 +582,24 @@ def _add_barrage_parser(sub) -> None:
 def _not_yet(command):
     """Fallback for a subcommand argparse accepted but main() has no handler
     for. Every current subcommand is implemented, so reaching this means the
-    parser and the dispatcher disagree, which is a bug in this file rather
-    than a missing feature. The message says so instead of describing a
-    milestone that finished long ago."""
+    parser and the dispatcher disagree, which is a bug in this file rather than
+    a missing feature. The message says so instead of describing a milestone
+    that finished long ago.
+
+    Returns EXIT_REFUSED, not EXIT_DRY_RUN. A dry run is a successful run that
+    was asked to hold back, so a script reads 2 as "nothing was sent, all well".
+    What actually happened is that the tool could not do what was asked because
+    its own parser and dispatcher disagree, and that is the one code in this
+    table that means "fix the tool". Returning 2 hid a bug behind a code that
+    reads as a deliberate choice.
+    """
     print(
         f"testinghq blast {command}: no handler is wired up for this "
         f"subcommand, which is a bug (argparse offered it anyway)",
         file=sys.stderr,
     )
-    return 2
+    return EXIT_REFUSED
+
 
 
 # ---------------------------------------------------------------------------
@@ -1096,45 +1211,6 @@ def _cmd_ledger_fire(args) -> int:
 
 
 
-def _cmd_redeliver_fire(args) -> int:
-    decision = guardrails.evaluate_send(args.send)
-
-    try:
-        readback = _resolve_readback(args)
-    except (AdapterError, ConfigError) as exc:
-        print(f"refused: {exc}", file=sys.stderr)
-        return EXIT_REFUSED
-
-    try:
-        scenarios = pipeline_redeliver.build_scenarios(
-            args.seed, args.count, args.tag_prefix, args.retry_after, args.scenario
-        )
-    except pipeline_redeliver.ScenarioError as exc:
-        print(f"refused: {exc}", file=sys.stderr)
-        return EXIT_REFUSED
-
-    print(f"redeliver fire: {decision.reason}")
-    if not decision.will_send:
-        print(pipeline_redeliver.format_dry_run(scenarios, readback, args.tag_prefix))
-        return EXIT_DRY_RUN
-
-    return pipeline_redeliver.execute(
-        args.seed,
-        args.count,
-        args.target,
-        args.config,
-        args.out,
-        readback=readback,
-        scenarios=args.scenario,
-        tag_prefix=args.tag_prefix,
-        rate=args.rate,
-        retry_after=args.retry_after,
-        quiet_window=args.quiet_window,
-        max_wait=args.max_wait,
-        poll_interval=args.poll_interval,
-    )
-
-
 def _add_loop_parser(sub) -> None:
     """The `loop` subcommand.
 
@@ -1232,9 +1308,110 @@ def _cmd_loop_fire(args) -> int:
     )
 
 
+def _cmd_redeliver_fire(args) -> int:
+    decision = guardrails.evaluate_send(args.send)
+
+    try:
+        readback = _resolve_readback(args)
+    except (AdapterError, ConfigError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    try:
+        scenarios = pipeline_redeliver.build_scenarios(
+            args.seed, args.count, args.tag_prefix, args.retry_after, args.scenario
+        )
+    except pipeline_redeliver.ScenarioError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    print(f"redeliver fire: {decision.reason}")
+    if not decision.will_send:
+        print(pipeline_redeliver.format_dry_run(scenarios, readback, args.tag_prefix))
+        return EXIT_DRY_RUN
+
+    return pipeline_redeliver.execute(
+        args.seed,
+        args.count,
+        args.target,
+        args.config,
+        args.out,
+        readback=readback,
+        scenarios=args.scenario,
+        tag_prefix=args.tag_prefix,
+        rate=args.rate,
+        retry_after=args.retry_after,
+        quiet_window=args.quiet_window,
+        max_wait=args.max_wait,
+        poll_interval=args.poll_interval,
+    )
+
+
+def _cmd_report(args) -> int:
+    """Read one run artifact and print a summary. Sends nothing.
+
+    An artifact this cannot identify is refused with a message saying what the
+    top-level keys were, because the person holding a mystery JSON file is
+    usually trying to establish whether it is a run artifact at all.
+    """
+    try:
+        summary = reporting.load(Path(args.artifact))
+    except reporting.ArtifactError as exc:
+        print(f"report: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    if args.json:
+        print(json.dumps(summary.to_json(), indent=2, sort_keys=True))
+    else:
+        print(reporting.render(summary))
+    return EXIT_OK
+
+
+def _cmd_config_validate(args) -> int:
+    """Validate a config file. Sends nothing, prints no header value."""
+    try:
+        targets, readback, notes = config_doc.validate(Path(args.config_file))
+    except config_doc.ValidationError as exc:
+        print(f"config validate: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+
+    if args.toml:
+        print(config_doc.render_effective(targets, readback), end="")
+        return EXIT_OK
+
+    print(f"config: {args.config_file}")
+    print(f"targets: {len(targets)}")
+    for name, target in targets.items():
+        print(f"  {name}: {target['url']} (format {target['format']})")
+
+    if readback is None:
+        print("readback: none configured")
+    else:
+        print(f"readback: kind {readback['kind']}")
+        if readback.get("url"):
+            print(f"  url: {readback['url']}")
+        if readback.get("path"):
+            print(f"  path: {readback['path']}")
+        for name, value in (readback.get("headers") or {}).items():
+            print(f"  header {name}: {value} (value not shown)")
+
+    for note in notes:
+        print(f"note: {note}")
+
+    return EXIT_OK
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.tool == "config":
+        if args.config_command == "validate":
+            return _cmd_config_validate(args)
+        return _not_yet(args.config_command)
+
+    if args.tool == "report":
+        return _cmd_report(args)
 
     if args.tool == "blast":
         if args.command == "generate":
