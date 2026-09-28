@@ -80,5 +80,24 @@ jobs:
           pip install pip-audit
       - name: Audit dependencies for known vulnerabilities
         run: |
-          set -euo pipefail
-          pip-audit
+          set -uo pipefail
+          # --skip-editable: the project itself is installed with `pip install -e`,
+          # and auditing it means asking PyPI about a package we have not
+          # published. That lookup is pointless, and on 2026-09-28 it was the one
+          # that failed main, when PyPI answered it with a 503.
+          #
+          # The retry is ONLY for PyPI being down (pip-audit's ServiceError). A
+          # vulnerability finding also exits 1, so the output is checked: a
+          # finding fails at once and is never retried into a green tick.
+          for attempt in 1 2 3; do
+            if pip-audit --skip-editable 2>&1 | tee audit.log; then
+              exit 0
+            fi
+            if ! grep -q "ServiceError" audit.log; then
+              exit 1
+            fi
+            echo "PyPI unavailable (attempt ${attempt} of 3), retrying in 30s"
+            sleep 30
+          done
+          echo "PyPI was unavailable for every attempt; the audit did not run."
+          exit 1
