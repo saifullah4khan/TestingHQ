@@ -76,6 +76,51 @@ def test_no_duplicate_test_module_basenames():
     )
 
 
+def test_no_duplicate_test_function_names_within_a_file():
+    """Two test functions with the same name in one module.
+
+    The worst kind of duplicate, because the kind that hides. Python lets the
+    second definition shadow the first, so pytest collects the second and the
+    first is dead code that reads exactly like a passing test. A duplicate that
+    asserts something DIFFERENT fails somewhere and gets noticed; a duplicate
+    that asserts the same thing is indistinguishable from one test that passed,
+    and a green suite says nothing about whether the thing it was written to
+    check is checked at all.
+
+    This is not hypothetical in this repository. Building the ten-task backlog
+    produced two of them, and the earlier one, in
+    tests/unit/test_cli_pipeline.py, predates that work. Both were found by an
+    AST sweep rather than by a failure, which is the argument for the sweep.
+
+    The same class of bug as the basename check above, one level down: that one
+    stops two modules colliding across directories, this stops two functions
+    colliding inside one.
+    """
+    import ast
+    import collections
+
+    offenders = []
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        if any(part in {".venv", "__pycache__", "node_modules"} for part in path.parts):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        names = collections.Counter(
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        )
+        for name, count in names.items():
+            if count > 1:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}: {name} x{count}")
+
+    assert not offenders, (
+        f"test functions defined more than once in the same module, where the "
+        f"second silently shadows the first: {offenders}. Remove the later "
+        "copy, or rename it if it was meant to be a different test."
+    )
+
+
 def test_no_em_dashes_in_tracked_text():
     """No em-dashes anywhere: code, comments, docs, commit messages.
 
@@ -180,63 +225,6 @@ def _code_only(source: str) -> str:
         for line in without_blocks.splitlines()
         if not line.strip().startswith("//")
     )
-
-
-def test_web_static_has_no_copy_of_the_expectation_rules():
-    """The web lane must not re-derive the rules, only render them.
-
-    The first version of web/adapter.py defined its own AdapterGuardrailError and
-    its own target and confirm checks. Both lanes were individually correct and
-    the two copies disagreed within hours: the security lane hardened
-    require_configured_target to refuse non-reserved public hosts, and the web
-    copy did not inherit it, so a target the CLI refused the UI would have fired
-    at.
-
-    The whole reason core/guardrails.py is a separate lane that no coder may edit
-    is that there is exactly one place the safety rules live. A second copy defeats
-    that regardless of how correct it looks in isolation.
-    """
-    adapter = REPO_ROOT / "web" / "adapter.py"
-    assert adapter.is_file(), "web/adapter.py is missing"
-
-    source = adapter.read_text(encoding="utf-8")
-    assert "from testinghq.core import guardrails" in source, (
-        "web/adapter.py must import the canonical guardrails module"
-    )
-    assert "guardrails.require_configured_target" in source, (
-        "web/adapter.py must gate targets through the canonical guardrail, not a local copy"
-    )
-    assert "guardrails.evaluate_send" in source, (
-        "web/adapter.py must gate sending through the canonical guardrail, not a local copy"
-    )
-
-
-def test_web_expectations_delegates_to_canonical_report():
-    """The same lesson, learned the same way, one module over.
-
-    web/expectations.py carried a second copy of classify_record,
-    flag_for_record and compute_summary, written before core/report.py
-    existed. The guardrail incident above is the precedent: two correct copies
-    that disagree are worse than one copy, and nothing in the build notices
-    until the disagreement has already shipped.
-
-    The check is structural rather than behavioural on purpose. A behavioural
-    check would compare outputs and pass happily while two implementations
-    drifted, which is precisely the failure mode being guarded against. What
-    must be impossible is a second body to drift.
-    """
-    expectations = REPO_ROOT / "web" / "expectations.py"
-    assert expectations.is_file(), "web/expectations.py is missing"
-
-    source = expectations.read_text(encoding="utf-8")
-    assert "from testinghq.core.report import" in source, (
-        "web/expectations.py must import the canonical report module"
-    )
-    for rule in ("classify_record", "flag_for_record", "compute_summary"):
-        assert f"def {rule}(" not in source, (
-            f"web/expectations.py must not define its own {rule}(); the rules "
-            "live in testinghq/core/report.py and are inherited, not copied"
-        )
 
 
 def test_web_static_has_no_copy_of_the_expectation_rules():
