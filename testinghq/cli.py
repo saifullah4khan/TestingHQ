@@ -511,15 +511,24 @@ def _add_barrage_parser(sub) -> None:
 def _not_yet(command):
     """Fallback for a subcommand argparse accepted but main() has no handler
     for. Every current subcommand is implemented, so reaching this means the
-    parser and the dispatcher disagree, which is a bug in this file rather
-    than a missing feature. The message says so instead of describing a
-    milestone that finished long ago."""
+    parser and the dispatcher disagree, which is a bug in this file rather than
+    a missing feature. The message says so instead of describing a milestone
+    that finished long ago.
+
+    Returns EXIT_REFUSED, not EXIT_DRY_RUN. A dry run is a successful run that
+    was asked to hold back, so a script reads 2 as "nothing was sent, all well".
+    What actually happened is that the tool could not do what was asked because
+    its own parser and dispatcher disagree, and that is the one code in this
+    table that means "fix the tool". Returning 2 hid a bug behind a code that
+    reads as a deliberate choice.
+    """
     print(
         f"testinghq blast {command}: no handler is wired up for this "
         f"subcommand, which is a bug (argparse offered it anyway)",
         file=sys.stderr,
     )
-    return 2
+    return EXIT_REFUSED
+
 
 
 # ---------------------------------------------------------------------------

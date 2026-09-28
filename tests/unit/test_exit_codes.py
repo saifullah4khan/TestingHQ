@@ -47,6 +47,35 @@ def test_the_codes_are_the_documented_values():
     assert exit_codes.EXIT_FINDING == 3
 
 
+def test_an_unwired_subcommand_is_a_refusal_not_a_dry_run():
+    """The one place in the CLI where a bug used to report as a success.
+
+    `_not_yet` is the fallback for a subcommand the parser offered and the
+    dispatcher has no handler for, which means the parser and the dispatcher
+    disagree. That is a bug in this file.
+
+    It returned EXIT_DRY_RUN, which is a successful run that was asked to hold
+    back. So a script reading 2 as "nothing was sent, all well" was being told
+    the tool was working as intended at the exact moment it was not. The
+    convention this file documents is a refusal, and returning the dry-run code
+    hid a bug behind the one code that means a deliberate choice.
+
+    Reaching it needs a subcommand the parser has and the dispatcher lacks, so
+    it is exercised through the function rather than by inventing one, and the
+    point of the test is the code, not the path.
+    """
+    from testinghq.cli import _not_yet
+
+    code = _not_yet("a-subcommand-that-does-not-exist")
+    assert code == exit_codes.EXIT_REFUSED, (
+        f"an unwired subcommand returned {code}. EXIT_DRY_RUN ({exit_codes.EXIT_DRY_RUN}) "
+        "reads as a successful run that deliberately sent nothing, which is the "
+        "opposite of what happened."
+    )
+    assert code != exit_codes.EXIT_DRY_RUN
+    assert code != exit_codes.EXIT_OK
+
+
 def test_no_module_but_the_canonical_one_assigns_an_exit_code_constant():
     """AST, not text search. A regex cannot tell `EXIT_OK = 0` from a mention of
     it in a docstring, so a module could document the convention correctly and
