@@ -38,20 +38,29 @@ root, not from inside `web/`.
   `testinghq/core/report.py`. It defines none of them itself. See the
   "one definition" section below.
 - `web/adapter.py` - the single seam between the UI and the engine.
-  `dry_run()` and `fire()` are the only two functions the rest of the app
-  calls to get a run artifact, and both build their corpus with
-  `testinghq.blast.generate` and `testinghq.blast.corrupt`, fire through
-  `testinghq.core.transport`, and build records with
-  `testinghq.core.report`. It also owns `GeneratorError`, the 400-mapped
+  `dry_run()` and `fire()` are how the rest of the app gets a run artifact.
+  Both build their corpus with `testinghq.blast.generate` and
+  `testinghq.blast.corrupt`, and both build records with
+  `testinghq.core.report`; only `fire()` posts, through
+  `testinghq.core.transport`. It also owns `GeneratorError`, the 400-mapped
   error for a malformed mix, count, or seed.
 - `web/config.py` / `web/targets.json` - the target allow-list that
   populates the dropdown. Loading fails loudly if a target is malformed,
   is not http(s), or names a host the canonical guardrail refuses.
 - `web/server.py` - the stdlib HTTP server: serves `web/static/` and
-  exposes `POST /api/dry-run` and `POST /api/fire`.
-- `web/static/` - the actual page (`index.html`, `style.css`, `app.js`).
+  exposes `POST /api/dry-run`, `POST /api/fire` and `GET /api/config`. The
+  last one is what fills the dropdown, which is why a request to it is how
+  the page learns which targets exist.
+- `web/static/` - the actual page: `index.html`, `style.css`, `render.js`
+  and `app.js`. `render.js` holds the presentation and is loaded before
+  `app.js`, which reads it at load time; `app.js` only wires the form to the
+  API. `render.js` is what `web/tests/render.test.cjs` runs under Node.
   `app.js` does not classify anything: the server annotates every record
   with its `outcome`, computed by the engine, and the browser renders that.
+  The one place the engine's report module is reached for is
+  `web/server.py`, which calls `classify_record` to produce that
+  annotation on the way out. That is the engine computing it, not the web
+  lane re-deriving it.
 - `web/tests/fixtures/` - two sample run artifacts matching the documented
   schema (one clean, one with both highlighted failure classes present),
   used by the test suite in `tests/web/` as a schema contract check.
@@ -60,8 +69,10 @@ There is no local generator. There used to be: `web/generator.py` was a
 deterministic stand-in written when the engine modules did not exist, and it
 was deleted once the adapter moved onto the real engine. It had a
 `generate_run()` that produced convincing artifacts and its own error class,
-which is precisely what makes a stale stand-in dangerous: it keeps working,
-and nothing complains when something is wired to it. `tests/test_lane_hygiene.py`
+which is precisely what makes a stale stand-in dangerous: it keeps working and
+  nothing complains when something gets wired to it.
+  `tests/test_repo_invariants.py`
+
 now fails if anything imports it, and the fixtures survive as data.
 
 ## One definition, imported not copied
@@ -73,10 +84,13 @@ The expectation rules live in exactly one place, `testinghq/core/report.py`:
   in this repo could reach. It is gone. The server annotates each record
   with the engine's verdict and the browser renders it. The annotation is
   response-layer only; the on-disk artifact schema is unchanged.
-- `tests/test_lane_hygiene.py` fails the build if a rule body reappears in
+- `tests/test_repo_invariants.py` fails the build if a rule body reappears in
   `web/expectations.py`, or if `classifyRecord` or its `is2xx`/`is5xx`/
-  `isTimeout` helpers reappear in `web/static/app.js`. Both guards were
-  verified red by re-inlining what they forbid.
+  `isTimeout` helpers reappear in `web/static/app.js` or `web/static/render.js`.
+  It rejects the name anywhere in the file, not only a definition, which is
+  the version that matters: a leftover *reference* to a function that had been
+  removed is a `ReferenceError` on every page load, and it survived an earlier
+  definition-only check for exactly that long.
 
 This is not tidiness. The web lane previously duplicated the *guardrails*,
 the security lane hardened the canonical copy, and the two copies disagreed:
@@ -126,3 +140,14 @@ confirm step both in the UI and on the server. A configured target that
 points at a real, publicly routable host is refused by the canonical
 guardrail even though it is in the allow-list; the UI never passes
 `allow_public_hosts=True` to override that.
+
+**The web UI does not rate limit.** This is the one protection it does not
+inherit from the CLI. Every command-line firing path goes through a
+`TokenBucket`; `fire()` here posts in a plain loop, so the ceiling is the
+corpus size and the target's response time rather than a rate the operator
+set. Firing from a browser is pacing itself, not being paced.
+
+It is bounded in the ways that matter: the target is one the operator has
+already put in the allow-list, the corpus is Blast's default, and the server
+binds loopback unless the operator passes `--host`. But keep browser-initiated
+runs short. `docs/SECURITY.md` records this as a known gap.

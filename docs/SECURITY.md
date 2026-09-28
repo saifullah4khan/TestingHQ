@@ -34,10 +34,14 @@ In concrete terms:
   arbitrary target is refused before any network call is made. A target
   that looks like a real, publicly routable host (not a reserved domain,
   not localhost, not a private address) is refused even if present in
-  configuration, unless the operator explicitly overrides that check for
-  their own real endpoint.
-- Firing is rate limited by default, so a misconfiguration cannot turn a
-  test run into a flood.
+  configuration. There is no command-line override for this, and that is
+  deliberate: `allow_public_hosts=True` is a keyword argument on
+  `guardrails.require_configured_target`, so it is reachable only by a
+  caller writing Python against this library. The one operator-facing
+  override that does exist, `--allow-public-readback`, covers the
+  readback endpoint only and never a firing target.
+- Firing is rate limited by default on every command-line path, so a
+  misconfiguration cannot turn a test run into a flood.
 
 If you find a way to use TestingHQ to deliver mail to a real recipient,
 defeat a spam filter, or forge sender authentication against a real
@@ -97,8 +101,13 @@ Attack scenarios this project defends against:
    On newer interpreters parseaddr is not safe either, just differently wrong:
    it returns an empty result for multi-recipient headers, which fails this
    guard closed on perfectly valid input. `getaddresses` is correct on every
-   supported version. Both failure modes are pinned by tests in
-   `tests/security/test_synthetic_content.py`.
+   supported version. The bypass itself is pinned by
+   `tests/security/test_synthetic_content.py`: the test demonstrates a
+   parseaddr-based extractor losing the second recipient, and fails if the
+   guard's extractor is ever swapped for one. The second failure mode is
+   not separately demonstrated, because it needs a multi-recipient header
+   on a pre-hardening interpreter and no such interpreter is available to
+   the suite.
 
    `is_synthetic_address` itself remains strict and bare-address-only. It
    is a primitive, and widening it to swallow header forms would weaken
@@ -107,11 +116,31 @@ Attack scenarios this project defends against:
    input causes Blast to fire far faster or far more than intended,
    overwhelming the operator's own endpoint or, if guardrails were
    bypassed, a real target. Mitigated by: the rate-limit gate contract
-   (`RateLimitGate`) that every firing path must go through.
+   (`RateLimitGate`), which every **command-line** firing path goes
+   through. The web UI is the exception and is written about below.
 4. **Supply-chain compromise.** A malicious or vulnerable dependency is
    pulled into the project and used to weaken a guardrail or exfiltrate
    data. Mitigated by: Dependabot version updates for pip and
    GitHub Actions dependencies, and a scheduled dependency audit in CI.
+
+**A known gap: the web UI is not rate limited.**
+
+`web/adapter.py`'s `fire()` calls `transport.post` in a plain loop. It
+holds the same guardrails as the command line (dry-run by default,
+configured targets only, the reserved-host refusal, the explicit
+`confirm is True`) and it is reachable only from a server that binds
+127.0.0.1 unless the operator passes `--host`. But it has no
+`TokenBucket`, so a fire from the browser is bounded by the corpus size
+and the target's response time rather than by a rate the operator set.
+
+A browser firing is therefore pacing itself, not being paced. The
+corpus the UI builds is the blast default, so the practical ceiling is
+that many requests as fast as the target will answer them. That is
+against a target the operator has already put in `web/targets.json`, so
+the blast is not aimed anywhere new, but it is not the bounded firing
+the command line promises either. Fixing it is a change to code, not to
+this document, and it is recorded here so the claim above is not read as
+covering the UI when it does not.
 
 **Out of scope:**
 
@@ -123,9 +152,12 @@ Attack scenarios this project defends against:
 - General web-application security of whatever service the operator
   chooses to point Blast at. That service's own security is out of
   scope for this project.
-- Denial of service against TestingHQ itself (it is a CLI tool an
-  operator runs against their own infrastructure, not a hosted service
-  with external users, as of this writing).
+- Denial of service against TestingHQ itself. There is now an HTTP
+  surface, `web/server.py`, which binds `127.0.0.1` by default and is
+  not a hosted service with external users. It can be bound elsewhere
+  with `--host`, and an operator who does that is accepting the
+  responsibility of running a network service, which the stdlib
+  `http.server` it is built on is not built to do.
 
 ## Reporting a vulnerability
 

@@ -608,7 +608,7 @@ def test_the_ground_truth_matcher_refuses_a_readback_of_the_wrong_shape():
 
 def test_the_ground_truth_matcher_does_not_second_guess_the_transport():
     """Status grading is `report`'s job. Duplicating it here would be the
-    third copy of the expectation rules that tests/test_lane_hygiene.py exists
+    third copy of the expectation rules that tests/test_repo_invariants.py exists
     to prevent, and this matcher is the most likely place for one to appear."""
     source = exp.GroundTruthMatcher.__doc__ or ""
     assert "StatusOnlyMatcher" in source

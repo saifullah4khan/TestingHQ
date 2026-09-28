@@ -3,8 +3,8 @@
 These tests are about the wiring, not the tools. The tools are covered in
 depth elsewhere; what has to be true here is narrower and just as important:
 
-  the three commands share one argument grammar, so learning one teaches the
-  other two
+  the five commands share one argument grammar, so learning one teaches the
+  other four
   the dry-run default holds, and a refusal happens before anything is sent
   `--readback` resolution works from a flag and from a config file, and the
   flag wins
@@ -23,6 +23,7 @@ import pathlib
 
 import pytest
 
+from testinghq.cli import common as cli_common
 from testinghq import cli
 from testinghq.pipeline.adapters import AdapterError
 from testinghq.pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
@@ -117,7 +118,7 @@ def test_an_unimportable_readback_spec_is_refused(target_config, capsys):
 
 
 def _resolve(argv):
-    return cli._resolve_readback(cli.build_parser().parse_args(argv))
+    return cli_common._resolve_readback(cli.build_parser().parse_args(argv))
 
 
 def test_a_bare_kind_flag_resolves_to_a_config(target_config):
@@ -308,7 +309,7 @@ def test_a_missing_header_variable_is_refused_before_anything_is_sent(tmp_path, 
     )
     argv = ["verify", "fire", "--config", str(path), "--target", TARGET, "--send"]
     with pytest.raises(AdapterError) as caught:
-        cli._resolve_readback(cli.build_parser().parse_args(argv))
+        cli_common._resolve_readback(cli.build_parser().parse_args(argv))
     assert "HQ_READBACK_TOKEN" in str(caught.value)
 
 
@@ -321,7 +322,7 @@ def test_a_literal_header_value_is_refused_at_the_config_boundary(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(AdapterError) as caught:
-        cli._resolve_readback(
+        cli_common._resolve_readback(
             cli.build_parser().parse_args(["verify", "fire", "--config", str(path)])
         )
     message = str(caught.value)
@@ -350,7 +351,7 @@ def test_a_run_artifact_never_carries_a_header_value():
 
 
 def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
-    """The rule `tests/test_lane_hygiene.py` enforces for `web/`, extended to
+    """The rule `tests/test_repo_invariants.py` enforces for `web/`, extended to
     the new package.
 
     This repository has already paid for a second copy of a safety rule: two
@@ -365,7 +366,14 @@ def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
     """
     import pathlib
 
-    package = pathlib.Path(cli.__file__).resolve().parent / "pipeline"
+    from testinghq import pipeline
+
+    # Anchored to the pipeline package, not to `cli.__file__`. The two used to
+    # sit side by side in one file, so deriving one from the other was free, and
+    # it broke the moment the CLI became a package of its own. A test that
+    # locates the code it is checking by asking a different module where it
+    # lives is a test that breaks for reasons unrelated to what it checks.
+    package = pathlib.Path(pipeline.__file__).resolve().parent
     sources = {
         path.name: path.read_text(encoding="utf-8")
         for path in sorted(package.glob("*.py"))
@@ -409,8 +417,8 @@ def test_an_unimplemented_subcommand_says_so_rather_than_crashing(capsys):
     reaching it means the parser and the dispatcher disagree, and that should
     be a message naming a bug in this file rather than a traceback or a
     misleading `--not-yet` milestone."""
-    assert callable(cli._not_yet)
-    code = cli._not_yet("nonsense")
+    assert callable(cli_common._not_yet)
+    code = cli_common._not_yet("nonsense")
     captured = capsys.readouterr()
     assert code != 0
     assert "nonsense" in captured.err
@@ -423,9 +431,9 @@ def test_an_unknown_tool_is_rejected_by_the_parser():
 
 
 def test_the_tools_share_their_readback_arguments():
-    """One argument grammar for all three. An operator who has learned one has
-    learned the other two, and the guardrail on the readback URL is in one
-    place rather than three."""
+    """One argument grammar for all of them. An operator who has learned one has
+    learned the rest, and the guardrail on the readback URL is in one place
+    rather than once per tool."""
     parser = cli.build_parser()
     for argv in (
         ["verify", "fire"],
@@ -501,12 +509,17 @@ def test_a_dry_run_prints_the_plan_for_the_scenario_you_asked_for(target_config,
 
 
 def test_the_exit_codes_are_defined_in_exactly_one_place():
-    """All three tools share them so they script the same way. A second
+    """All five tools share them so they script the same way. A second
     definition would be two sets of numbers that agree today."""
+    from testinghq import pipeline
     from testinghq.pipeline import common
 
+    # See the note in test_the_pipeline_package_delegates_to_the_canonical_guardrails:
+    # anchored to the pipeline package rather than derived from cli's location.
+    package = pathlib.Path(pipeline.__file__).resolve().parent
+
     for name in ("verify", "ledger", "redeliver"):
-        source = (pathlib.Path(cli.__file__).resolve().parent / "pipeline" / f"{name}.py")
+        source = package / f"{name}.py"
         text = source.read_text(encoding="utf-8")
         for code in ("EXIT_OK =", "EXIT_REFUSED =", "EXIT_DRY_RUN =", "EXIT_MISMATCH ="):
             assert code not in text, f"{name}.py redefines {code}"

@@ -2,6 +2,31 @@
 
 Date: 2026-09-27. Status: accepted, 2026-09-27. No pacing behaviour changed.
 
+**Update, 2026-09-28.** The decision below still stands and nothing here
+reverses it: the gate is a gate and the schedule is the pacer. But the
+"larger finding" section further down is now historical. It was true when
+written and it has been fixed: Barrage now dispatches through a thread
+pool, `--concurrency` means the number of requests in flight, and it is
+honoured in both modes. The measurements in that section are left as
+they were taken, because rewriting them would misrepresent what was known
+at the time; what they measured, and why, still reads correctly.
+
+The specific things that are no longer true, and where they are noted
+in place:
+
+- `testinghq/` does import `threading`, and there is a
+  `concurrent.futures.ThreadPoolExecutor` in `testinghq/barrage/executor.py`.
+- `--concurrency` is no longer inert, and no longer refused. It sets the
+  pool size.
+- The dry-run preview no longer prints a serial-dispatch note that
+  contradicts itself; it prints the pool it will use.
+
+Measured after the fix, against a loopback server taking 200 ms per
+request and offered 20 req/s: 4.44 req/s at `--concurrency 1` (the
+`1 / 0.2s` ceiling, which is the defect the section below describes) and
+20.00 req/s at `--concurrency 8`. Same shape of measurement as the
+section below, so the two are directly comparable.
+
 ## The question
 
 `TokenBucket.acquire()` used to spin forever under an injected clock at most
@@ -87,14 +112,29 @@ is the one that carries the argument:
 
 ## The larger finding: nothing in Barrage is concurrent
 
+**Historical, as of 2026-09-28.** This section is kept because the defect it
+describes was real and the measurement method is still the one to use. Each
+claim below is annotated with what is true now.
+
 `testinghq/` does not import `threading` anywhere. There is no
 `concurrent.futures`, no executor, no asyncio, in `testinghq/` or in
 `core/transport.py`. A request is issued, its response read, and only then does
 the next dispatch begin.
 
+> **Now false.** `testinghq/barrage/executor.py` builds a
+> `concurrent.futures.ThreadPoolExecutor`, and `runner.py` submits to it.
+> `--concurrency 4` puts four requests in flight and `--concurrency 400` puts
+> four hundred. The tables below were taken before that and cannot be
+> reproduced with the shipped binary, which now refuses nothing: it runs
+> what they show not happening.
+
 `RunPlan`'s docstring says `concurrency` is "enforced by the caller's executor,
 not by this module" for open mode. The caller is the CLI, and the CLI has no
 executor either.
+
+> **Now false, and the clause is gone.** The executor is
+> `testinghq/barrage/executor.py`, the runner submits to it, and `RunPlan`'s
+> docstring no longer delegates the question.
 
 Measured against a **real** slow target: a local HTTP server sleeping 300 ms
 per response, driven by the shipped `testinghq barrage fire` binary with the
@@ -116,12 +156,21 @@ real transport, 6 req/s target, 9-second run, 3-second warmup, seed 1.
 | 4 | 28 | 8.425s | 3.20/s | 47% short |
 | 64 | 27 | 8.196s | 3.17/s | 47% short |
 
+> The three rows being identical within each table is the finding. Re-run
+> with concurrency in the pool, those rows separate: 1 stays at the
+> `1 / 0.3s` ceiling and 4 holds the 6 req/s schedule.
+
 Two things fall out of that, and the second is worse than the first.
 
 **Open mode is not open loop.** It cannot hold its arrival schedule against a
 target slower than the interval, which is the exact condition a load test
 exists to investigate. The mode meant to find a target's breaking point cannot
 see it, because the run throttles itself before the target does.
+
+> **Now fixed.** Arrival is decoupled from completion: the loop submits on
+> schedule and does not wait for the request, and the pool is what bounds what
+> is outstanding. A target slower than the interval is exactly what the run
+> now puts load on.
 
 **`--concurrency` is inert in both modes.** Not just open mode, where
 `_run_open_loop_stages` does not take the parameter at all, but closed mode
@@ -131,12 +180,27 @@ anything to hold. The flag is parsed, validated, stored in the run plan, echoed
 into the run artifact's config block, and printed by the dry-run preview as
 `concurrency: N`, and then has no effect at all.
 
+> **Now fixed.** The closed-loop `free_at` list that simulated N workers in
+> one thread is gone, replaced by a pool of N workers whose queue is the
+> backpressure. `--concurrency` is no longer refused in either mode. Both
+> modes honour it, open mode's meaning being the maximum outstanding rather
+> than a worker count, since arrivals are on a schedule there rather than
+> pulled by availability.
+
 That is a lie in user-facing output. Until an executor exists,
 `--mode open` and `--mode closed` are both "a rate-capped serial send", and the
 dry-run preview says otherwise.
 
+> **Resolved.** Between the defect being found and the executor landing, the
+> preview was changed to say `SERIAL, one request in flight at a time (no
+> executor yet)` and to warn that a slow target would cap the rate, which
+> made the output honest while the tool was still limited. It now prints the
+> pool it will use.
+
 Not fixed by this decision. It is a change to how requests are dispatched, and
 it is tracked with a design proposal in issue #38.
+
+> **Fixed, in issue #38.**
 
 ## Why the gate is not the pacer, restated without the removed argument
 

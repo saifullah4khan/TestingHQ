@@ -15,7 +15,7 @@ module is where all three are enforced on the way to the wire:
 2. Configured targets ONLY. guardrails.require_configured_target gates
    both the target name (the allow-list check) and the resolved URL (the
    public-host check).
-3. A hard rate-and-duration ceiling, enforced by runner.check_rate_ceiling
+3. A hard rate, duration and concurrency ceiling, enforced by runner.check_rate_ceiling
    before any dispatch.
 
 None of these may be weakened. If a test disagrees with a guardrail, the
@@ -24,7 +24,7 @@ code is wrong, not the guardrail.
 This module imports the canonical guardrails and never reimplements them.
 A second copy of a safety rule has already cost this project a real
 incident: two copies disagreed within hours and a target the CLI refused
-the UI would have fired at. See tests/test_lane_hygiene.py.
+the UI would have fired at. See tests/test_repo_invariants.py.
 """
 from __future__ import annotations
 
@@ -81,8 +81,8 @@ def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
     the canonical guardrail TWICE: once on the configured name (the
     allow-list check) and once on the resolved URL (the public-host check).
 
-    Both calls are positional, matching testinghq/cli.py's blast fire path
-    and web/adapter.py.
+    Both calls are positional, matching the blast fire path in
+    testinghq/cli/blast.py and web/adapter.py.
 
     Checking only the name is the trap: a bare single-label target name
     like "local" has no dot, so guardrails' public-host hardening
@@ -132,29 +132,28 @@ def build_plan(
     run length; `warmup` is the ramp portion of it, so the steady-state
     hold is `duration - warmup`.
 
-    `concurrency` may be None, meaning "not specified".
+    `concurrency` may be None, meaning "not specified", and then
+    DEFAULT_CONCURRENCY applies in both modes.
 
-    Open mode records a concurrency of 1 and closed mode records what it was
-    given. Open mode is serial, so any other number would be written into the
-    run artifact and printed by the preview while having no effect. Closed
-    mode is also serial today but genuinely threads the number into its slot
-    allocation, so coercing it would discard a value that becomes meaningful
-    the moment an executor exists. The CLI refuses an explicit value above 1
-    in both modes until then.
+    Open mode's concurrency is the maximum number of requests in flight, not a
+    worker count: arrivals happen on an absolute schedule and the pool bounds
+    how many of them are outstanding at once. It used to be coerced to 1 here,
+    because the dispatcher was serial and any other number would have been
+    written into the artifact and printed by the preview while doing nothing.
+    That is fixed; the number now means what it says in both modes.
 
-    Coercion rather than raising on the open path, because the caller may be
-    `barrage replay` reading an artifact written before serial dispatch was
-    recorded accurately, whose stored number was always meaningless. Refusing
-    would break replay of every run the tool has ever produced.
+    Old artifacts are still replayable. One written before the executor records
+    a concurrency of 1, and replaying it re-runs it exactly, which is the right
+    answer: the run it describes did have one request in flight at a time. A
+    run recorded with a higher number replays with that number, and this time
+    it will mean something.
     """
     if duration <= warmup:
         raise BarrageError(
             f"duration ({duration}s) must be greater than warmup ({warmup}s): "
             "there would be no steady-state hold to measure"
         )
-    if mode == "open":
-        concurrency = 1
-    elif concurrency is None:
+    if concurrency is None:
         concurrency = DEFAULT_CONCURRENCY
     return RunPlan(
         mode=mode,
@@ -241,14 +240,28 @@ def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
     WOULD be sent, so an operator can check the plan before committing to
     it, and states plainly that nothing was sent.
 
-    The dispatch note is not decoration. A dry run that prints a rate and a
-    concurrency without saying how many requests are actually in flight
-    describes a plan this build cannot execute: there is no executor, so every
-    mode is a serial send, and against a target slower than the arrival
-    interval the achieved rate is capped by the target's response time rather
-    than by anything the operator asked for. See issue #38.
+    The dispatch note is not decoration, in either direction. It used to say
+    "SERIAL, one request in flight at a time (no executor yet)" because that
+    was true and the preview existed to stop an operator believing otherwise. It
+    now says what will actually happen: a pool of `plan.concurrency` workers.
+    A preview that describes the previous build is worse than no preview, so the
+    line is derived from the plan rather than written as a standing apology.
     """
     total = round(plan.rate * plan.hold_seconds)
+    if plan.concurrency == 1:
+        dispatch = [
+            "  dispatch: one worker, one request in flight at a time",
+            "    a target slower than the arrival interval will cap the achieved",
+            "    rate below the target above; raise --concurrency to keep the",
+            "    schedule",
+        ]
+    else:
+        dispatch = [
+            f"  dispatch: a pool of {plan.concurrency} workers, so up to",
+            f"    {plan.concurrency} request(s) in flight at once",
+            "    each worker holds one interpreter thread, so this costs memory",
+            "    in proportion to the number",
+        ]
     lines = [
         f"dry-run preview: seed={seed}, {pool_size} distinct payload(s) in the pool",
         f"  mode: {plan.mode}-loop",
@@ -256,9 +269,7 @@ def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
         f"  warmup ramp: {plan.warmup_seconds:g}s, steady-state hold: {plan.hold_seconds:g}s",
         f"  concurrency: {plan.concurrency}",
         f"  approx requests at steady state: {total}",
-        "  dispatch: SERIAL, one request in flight at a time (no executor yet)",
-        "    a target slower than the arrival interval will cap the achieved",
-        "    rate below the target above; the run will not hold its schedule",
+        *dispatch,
         "no network calls were made (pass --send to fire for real)",
     ]
     return "\n".join(lines)
@@ -308,6 +319,48 @@ def execute(
         run_config(plan, seed, pool_size, target_name, dry_run=False),
         samples_from_records(records),
     )
+    artifact["dispatch"] = dispatch_summary(records, plan.concurrency)
     printer(barrage_report.format_summary(artifact))
+    note = format_dispatch_note(artifact["dispatch"])
+    if note:
+        printer(note)
     write_artifact(out, artifact)
     return EXIT_OK
+
+
+#: A request held back longer than this for a free worker counts as queued.
+#: Ten milliseconds: half the arrival interval at the 50 req/s ceiling, and well
+#: above thread start-up jitter, which measured at up to 2.4ms on a healthy
+#: 8-worker run and would otherwise print a saturation warning on every run.
+QUEUED_THRESHOLD_SECONDS = 0.010
+
+
+def dispatch_summary(records: List[DispatchRecord], concurrency: int) -> Dict[str, Any]:
+    """How long requests waited for a free worker.
+
+    Throughput already shows a saturated pool, because each record's
+    `dispatch_time` is when the request actually went out. This names the
+    cause, so a report that falls short of its target says whether the target
+    was slow or the pool was too small to keep the schedule.
+    """
+    waits = [r.queued for r in records]
+    queued = [w for w in waits if w > QUEUED_THRESHOLD_SECONDS]
+    return {
+        "concurrency": concurrency,
+        "queued_requests": len(queued),
+        "max_queue_wait_ms": round(max(waits) * 1000.0, 3) if waits else 0.0,
+    }
+
+
+def format_dispatch_note(dispatch: Dict[str, Any]) -> str:
+    """One warning line when the pool was the bottleneck, and nothing when it
+    was not. Silence is the normal case; a line on every run would teach an
+    operator to skip it."""
+    if not dispatch.get("queued_requests"):
+        return ""
+    return (
+        f"dispatch: {dispatch['queued_requests']} request(s) waited for a free "
+        f"worker, up to {dispatch['max_queue_wait_ms']:g}ms. All "
+        f"{dispatch['concurrency']} workers were busy, so the schedule was not "
+        "held and the shortfall above is partly this tool's. Raise --concurrency."
+    )

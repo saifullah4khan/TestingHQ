@@ -7,7 +7,7 @@ generate command's on-disk output, zero-network dry runs, the guardrail
 refusal paths, and replay's byte-identical reproducibility check.
 
 Named test_cli_blast.py (not test_cli.py) to avoid colliding with the
-existing tests/test_cli.py basename; tests/test_lane_hygiene.py enforces
+existing tests/test_cli.py basename; tests/test_repo_invariants.py enforces
 unique basenames repo-wide.
 """
 from __future__ import annotations
@@ -17,6 +17,8 @@ import socket
 
 import pytest
 
+from testinghq.cli import blast as blast_cli
+from testinghq.core import report as core_report
 from testinghq import cli
 from testinghq.core.transport import ClientResponse
 
@@ -162,9 +164,9 @@ def test_fire_send_missing_target_flag_is_refused(tmp_path, monkeypatch):
 
 def test_run_fire_send_path_with_fake_client(tmp_path, forbid_network):
     _write_target_config(tmp_path, name="local", url="http://127.0.0.1:8000/inbound")
-    pairs = cli._build_corpus(seed=2, count=3)
+    pairs = blast_cli._build_corpus(seed=2, count=3)
     client = FakeClient(status=200)
-    rc = cli._run_fire(
+    rc = blast_cli._run_fire(
         pairs, seed=2, count=3, target_name="local", rate=50.0, out=None,
         config_path=str(tmp_path / "target.toml"), client=client,
     )
@@ -174,10 +176,10 @@ def test_run_fire_send_path_with_fake_client(tmp_path, forbid_network):
 
 def test_run_fire_writes_artifact_matching_records_sent(tmp_path, forbid_network):
     _write_target_config(tmp_path)
-    pairs = cli._build_corpus(seed=4, count=2)
+    pairs = blast_cli._build_corpus(seed=4, count=2)
     client = FakeClient(status=500)
     out_path = tmp_path / "run.json"
-    rc = cli._run_fire(
+    rc = blast_cli._run_fire(
         pairs, seed=4, count=2, target_name="local", rate=50.0, out=str(out_path),
         config_path=str(tmp_path / "target.toml"), client=client,
     )
@@ -192,9 +194,9 @@ def test_run_fire_writes_artifact_matching_records_sent(tmp_path, forbid_network
 
 def test_run_fire_refuses_public_host_even_if_configured(tmp_path, forbid_network):
     _write_target_config(tmp_path, name="prod", url="https://ingest.mycompany.com/inbound")
-    pairs = cli._build_corpus(seed=1, count=1)
+    pairs = blast_cli._build_corpus(seed=1, count=1)
     client = FakeClient()
-    rc = cli._run_fire(
+    rc = blast_cli._run_fire(
         pairs, seed=1, count=1, target_name="prod", rate=50.0, out=None,
         config_path=str(tmp_path / "target.toml"), client=client,
     )
@@ -221,22 +223,22 @@ def test_replay_dry_run_reproduces_same_payload_hashes(tmp_path, forbid_network)
 
 def test_replay_send_path_reproduces_same_corpus_and_fires_it(tmp_path, forbid_network):
     _write_target_config(tmp_path, name="local", url="http://127.0.0.1:8000/inbound")
-    original_pairs = cli._build_corpus(seed=6, count=3)
+    original_pairs = blast_cli._build_corpus(seed=6, count=3)
     client_a = FakeClient(status=200)
     run_path = tmp_path / "run.json"
-    cli._run_fire(
+    blast_cli._run_fire(
         original_pairs, seed=6, count=3, target_name="local", rate=50.0,
         out=str(run_path), config_path=str(tmp_path / "target.toml"), client=client_a,
     )
 
     saved = json.loads(run_path.read_text(encoding="utf-8"))
-    replay_pairs = cli._build_corpus(seed=saved["seed"], count=saved["config"]["count"])
+    replay_pairs = blast_cli._build_corpus(seed=saved["seed"], count=saved["config"]["count"])
     original_hashes = [r["payload_sha256"] for r in saved["records"]]
-    replay_hashes = [cli.report.payload_sha256(email) for email, _label in replay_pairs]
+    replay_hashes = [core_report.payload_sha256(email) for email, _label in replay_pairs]
     assert replay_hashes == original_hashes
 
     client_b = FakeClient(status=200)
-    rc = cli._run_fire(
+    rc = blast_cli._run_fire(
         replay_pairs, seed=saved["seed"], count=saved["config"]["count"],
         target_name=saved["config"]["target"], rate=50.0, out=None,
         config_path=str(tmp_path / "target.toml"), client=client_b,

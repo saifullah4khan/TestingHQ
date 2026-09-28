@@ -1,12 +1,17 @@
 """End to end, over real sockets, with the real transport.
 
-Every other test in this repository injects a fake HTTP client. That is
-correct and it is also a gap: nothing has ever run the actual binary against an
-actual socket, so nothing has proved the parts that only appear when a socket
-is real. A wrong Content-Length, a chunked-encoding assumption, a connection
-that is accepted and then reset, a client that works in-process and not as a
-subprocess: none of that is reachable from a fake, and all of it is what a user
-meets first.
+Most of this repository injects a fake HTTP client. That is correct for most
+things and blind to everything that only appears when a socket is real, which is
+what this file exists for. A wrong Content-Length, a chunked-encoding
+assumption, a connection that is accepted and then reset, a client that works
+in-process and not as a subprocess: none of that is reachable from a fake, and
+all of it is what a user meets first.
+
+So this is not the only place a real socket appears. `tests/web/test_server.py`
+and `tests/integration/test_pipeline_verification.py` both bind loopback
+themselves, and all three run in the e2e job. What is unique here is driving
+the installed binary as a subprocess rather than importing the engine, which is
+the one thing an in-process fake cannot substitute for.
 
 This file is the one place it is reached. The sink is a real `http.server` on a
 loopback port. The tool runs as a real subprocess. The transport is
@@ -39,6 +44,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -83,8 +89,12 @@ class _Sink:
     assert the payload is byte-identical to what the artifact claims was sent.
     """
 
-    def __init__(self, status: int = 200):
+    def __init__(self, status: int = 200, delay_seconds: float = 0.0):
         self.status = status
+        # A target that takes measurable time to answer. Zero for the
+        # byte-fidelity tests, which do not want to wait; non-zero for the
+        # concurrency tests, which cannot see anything without it.
+        self.delay_seconds = delay_seconds
         self.bodies: list[bytes] = []
         self.paths: list[str] = []
         self.peers: list[str] = []
@@ -102,6 +112,8 @@ class _Sink:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 peer = self.client_address[0]
+                if sink.delay_seconds:
+                    time.sleep(sink.delay_seconds)
                 with sink._lock:
                     sink.bodies.append(body)
                     sink.paths.append(self.path)
@@ -394,3 +406,134 @@ def test_the_sink_actually_binds_loopback_and_nothing_else():
     be noticed here rather than by something else."""
     with _Sink() as sink:
         assert sink.url.startswith("http://127.0.0.1:"), sink.url
+
+
+# ---------------------------------------------------------------------------
+# Barrage concurrency, measured against a real socket
+#
+# This lives here rather than in its own module because of the exemption rule
+# above: `allow_network` is one file, and adding a second is supposed to be
+# argued for. This is the argument. A load test cannot be faked, because a fake
+# clock cannot see concurrency: a fake `sleep` returns instantly, so a serial
+# loop and a parallel one are indistinguishable to virtual time. That is
+# precisely how a serial dispatcher carried a green suite for as long as it did
+# (issue #38).
+# ---------------------------------------------------------------------------
+
+#: A WHOLE number of one-second buckets, and that is not arbitrary.
+#: `barrage.report.throughput` divides the request count by
+#: `len(buckets) * bucket_seconds`, and buckets are whole units. A 1.5s run spans
+#: two buckets, so 30 requests are reported as 30 / 2.0 = 15/s even though every
+#: one was dispatched on the 20/s schedule. At 2.0s the arithmetic is
+#: 40 / 2.0 = 20/s and the reported number is the scheduled one. Getting this
+#: wrong makes a correct run look like it under-delivered, which is the sort of
+#: thing that gets a real bug dismissed.
+_BARRAGE_DURATION = 2.0
+_BARRAGE_RATE = 20.0
+#: 200ms of service time puts the one-request-in-flight ceiling at 5/s, a
+#: quarter of the rate asked for. The gap has to be wide enough that a
+#: scheduler hiccup cannot close it.
+_BARRAGE_SERVICE_SECONDS = 0.2
+
+
+def _barrage_against(url, concurrency):
+    """One real barrage run over a real socket. Returns the reported numbers."""
+    from testinghq.blast.generate import generate_corpus
+    from testinghq.barrage import runner as barrage_runner
+    from testinghq.barrage.report import Sample, throughput
+    from testinghq.core.transport import post
+
+    plan = barrage_runner.RunPlan(
+        mode="open", rate=_BARRAGE_RATE, concurrency=concurrency,
+        warmup_seconds=0.0, hold_seconds=_BARRAGE_DURATION, ramp_step_count=0,
+    )
+    pool = generate_corpus(seed=7, count=4)
+
+    def send_fn(index):
+        result = post(pool[index % len(pool)], url)
+        return result, result.latency_ms / 1000.0
+
+    records = barrage_runner.run(plan, send_fn, allow_high_rate=True)
+    samples = [
+        Sample(
+            dispatch_time=r.dispatch_time,
+            target_rate=r.target_rate,
+            status=getattr(r.result, "status", None),
+            latency_ms=getattr(r.result, "latency_ms", None) or 0.0,
+        )
+        for r in records
+    ]
+    return records, throughput(samples)
+
+
+def test_barrage_concurrency_changes_the_throughput_a_real_target_sees():
+    """The load-bearing claim of issue #38, measured end to end.
+
+    A target taking 200ms per request, offered 20 requests/second. With one
+    request in flight the ceiling is 1 / 0.2 = 5/s whatever is asked for, and
+    the run reports an achieved rate near 5 while looking like it honoured a
+    20/s schedule. That number is a measurement of the dispatcher, not of the
+    target, and it is what the tool reported for as long as there was no
+    executor.
+
+    Asserted as a ratio rather than as exact figures, because the absolutes
+    depend on a real scheduler and a loaded CI runner. The claim worth making
+    is that concurrency moved the number by several times over.
+    """
+    with _Sink(delay_seconds=_BARRAGE_SERVICE_SECONDS) as sink:
+        _serial_records, serial = _barrage_against(sink.url, 1)
+        parallel_records, parallel = _barrage_against(sink.url, 8)
+
+    assert serial["total_requests"] == parallel["total_requests"], (
+        "both runs were asked for the same rate and duration and should have "
+        f"dispatched the same count: {serial['total_requests']} vs "
+        f"{parallel['total_requests']}"
+    )
+
+    assert serial["achieved_rps"] < _BARRAGE_RATE, (
+        f"one request in flight achieved {serial['achieved_rps']:.2f}/s against "
+        f"a requested {_BARRAGE_RATE}/s, which is what a 0.2s service time "
+        "allows. If this ever passes, the target is no longer slow enough for "
+        "the comparison to mean anything."
+    )
+
+    assert parallel["achieved_rps"] > serial["achieved_rps"] * 2, (
+        f"concurrency 8 achieved {parallel['achieved_rps']:.2f}/s against "
+        f"{serial['achieved_rps']:.2f}/s at 1. --concurrency still does nothing."
+    )
+
+    assert parallel["achieved_rps"] >= _BARRAGE_RATE * 0.85, (
+        f"concurrency 8 achieved {parallel['achieved_rps']:.2f}/s, short of the "
+        f"requested {_BARRAGE_RATE}/s. With 8 workers against 0.2s of service "
+        "time the ceiling is 40/s, so the run should have held its schedule. "
+        "The tolerance is for a loaded runner, not for a missing pool."
+    )
+
+    assert all(getattr(r.result, "status", None) == 200 for r in parallel_records), (
+        "every request under concurrency should have been answered 200"
+    )
+
+
+def test_barrage_accounts_for_every_request_it_dispatched():
+    """A pool can drop work in a way a serial loop cannot, and the symptom is a
+    record whose result was never filled in.
+
+    Checked on the records rather than through the artifact, because a None
+    result reaching the report is the failure, and reading the records is where
+    it is visible.
+    """
+    with _Sink(delay_seconds=_BARRAGE_SERVICE_SECONDS) as sink:
+        records, _ = _barrage_against(sink.url, 8)
+
+    assert records, "the run dispatched nothing"
+    unfilled = [r for r in records if r.result is None]
+    assert not unfilled, (
+        f"{len(unfilled)} of {len(records)} records have no result. A request "
+        "was dispatched and never accounted for, which is the failure mode a "
+        "concurrent dispatcher adds."
+    )
+    assert [r.index for r in records] == list(range(len(records))), (
+        "records must come back in index order. A run artifact is aligned by "
+        "index, so an artifact that reorders itself between executions of the "
+        "same plan cannot be compared."
+    )

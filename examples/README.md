@@ -5,17 +5,32 @@ the real hermetic tests, see `tests/integration/`.
 
 ## Files
 
+- **`readback/`** -- five worked `[readback]` configurations, one per shape of
+  intake system: `zendesk.toml`, `freshdesk.toml`, `generic-rest.toml`,
+  `mail-sink.toml` and `handlehq.toml`. These are the fastest route from "I
+  have a ticket API" to a config that loads.
+
+  Each one states, in its own first lines, what was verified and what was not.
+  Two of them (`mail-sink.toml`, `generic-rest.toml`) were run by this
+  repository's own tests. The two vendor recipes were written from the
+  published API documentation and have **not** been pointed at a live
+  Zendesk or Freshdesk account, because nobody on this project has one.
+  `handlehq.toml` is a template for a real deployment and has never been run
+  against one; `docs/DOGFOOD.md` is what a run looks like when it happens.
+
 - **`target.example.toml`** -- a sample target configuration, shaped to
   match `testinghq.core.config.Config` (a named table of targets, each with
-  a `name` and a `url`), plus an optional `[readback]` table describing where
+  a `name`, a `url` and an optional `format`), plus an optional `[readback]`
+  table describing where
   the pipeline's own output can be read from. Copy it, rename it, and point
   `url` at an intake endpoint you own or have explicit permission to test.
   Pass it with `--config <path>`, which defaults to `./target.toml`, so
   `testinghq blast fire --target <name> --config target.toml` reads a file
   shaped like this one.
 
-  The `[readback]` table is only used by `testinghq verify`, `testinghq ledger`
-  and `testinghq redeliver`. Everything else in the file is a comment, because
+  The `[readback]` table is used by the five pipeline tools: `testinghq
+  verify`, `testinghq ledger`, `testinghq redeliver`, `testinghq loop` and
+  `testinghq steady`. Everything else in the file is a comment, because
   an example that cannot be parsed is worse than no example: it produces a
   refusal that names a file the reader has no reason to distrust. A test loads
   this file and builds an adapter from it, so the two cannot drift apart.
@@ -30,23 +45,26 @@ the real hermetic tests, see `tests/integration/`.
   python examples/demo.py --count 50 --seed 7
   ```
 
-  It does not POST. The integration tests in `tests/integration/` are what
+  By default it does not POST. `--send` runs the send path against an in-process
+recording fake, so a socket is still never opened. The integration tests in `tests/integration/` are what
   check payloads survive the real wire format intact, against the in-process
   sink at `tests/integration/fake_sink.py`.
 
-- **`pipeline_demo.py`** -- an end-to-end run of `verify`, `ledger` and
-  `redeliver` against a real HTTP server it starts on 127.0.0.1. This one
-  does open sockets, to loopback only.
+- **`pipeline_demo.py`** -- an end-to-end run of `verify`, `ledger`,
+  `redeliver`, `loop` and `steady` against a real HTTP server it starts on
+  127.0.0.1. Twelve CLI invocations: four of `verify` (three `fire` and one
+  `check`), two of `ledger`, one of `redeliver`, three of `loop` and two of
+  `steady`. This one does open sockets, to loopback only.
 
   ```
   python examples/pipeline_demo.py
   ```
 
-  It is here because every other test in this repository is hermetic, and the
-  injectable-client seam that buys that means nothing in the suite proves the
-  real transport, the real serializer and the real readback HTTP client can
-  talk to a real server. A seam that has only ever met a stub is a seam nobody
-  has checked.
+  It is here because most of this repository's suite is hermetic, and the
+  injectable-client seam that buys that means the real transport, the real
+  serializer and the real readback HTTP client are only proven against a real
+  server here and in `tests/e2e/`. A seam that has only ever met a stub is a
+  seam nobody has checked.
 
   The server it starts is a small, correct intake pipeline: it deduplicates on
   Message-ID, and it files a reply on its parent's ticket even when the reply
@@ -56,7 +74,7 @@ the real hermetic tests, see `tests/integration/`.
   Read the output for the two runs that matter. The first fires 12 messages at
   that correct pipeline and `verify` says VERIFIED with all six checks
   running. The second fires the same 12 at the same server and gets
-  MISMATCHED, naming four messages the system does not hold. Every status code
+  MISMATCHED, naming the messages the system does not hold. Every status code
   in both runs was a 200. That difference is the entire argument for these
   tools, made by running them.
 
