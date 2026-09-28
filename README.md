@@ -51,6 +51,32 @@ reports **SKIPPED, never passed**, because a tool that cannot see whether a
 reply was sent has no evidence that one was not, and the report says so in its
 own headline line.
 
+**Steady.** Metamorphic stability testing for AI triage. Blast, Barrage, loop
+and the rest all ask whether the pipeline did the right thing. `steady` asks a
+question none of them can: **does the label change when the input changes in a
+way that should not matter?** You cannot write an expected label for every input
+to an LLM triager, but you can assert that meaning-preserving edits keep the label
+the same. It sends a family of variants per intent (a signature added, a forward
+wrapper, quoted history, rewrapped whitespace, an equivalent greeting, and the
+same complaint in English, Urdu and Roman Urdu), reads back the label each got,
+and reports a flip rate.
+
+It reports two numbers separately, because they are different problems: a **flip
+rate**, which is sensitivity to how the input is worded, and **repeat
+instability**, which is the model answering identical bytes differently. A team
+that sees 8% and does not know which one it is looking at goes and fixes the
+wrong thing.
+
+The language variants come from a **reviewed fixture**,
+`testinghq/pipeline/fixtures/steady_intents.json`, not from a translation at
+run time, because a machine-translated variant would make the tool measure the
+translator. And a run that could not see the label exits 3 with nothing measured,
+never 0.
+
+`steady` measures **stability, not correctness**. A classifier that is
+consistently wrong scores 0% here. Use `verify` to check what the label should
+have been.
+
 **Verify.** What the pipeline actually produced. Every tool above judges a run by
 the HTTP status, and a 200 only means the endpoint accepted the POST. It does
 not mean a ticket was created, that the sender survived parsing, that the body
@@ -299,6 +325,22 @@ reply_address = "no-reply@example.com"
 
 Without `[loop.outbound]` the auto-reply check reports **SKIPPED, never passed**,
 and the verdict line says so.
+
+Steady, for how often the classifier's label moves when it should not:
+
+```
+# dry run by default: lists the intent families and their variant counts
+testinghq steady fire --target local
+
+# send the variants and gate on the flip rate, so it can sit in CI
+testinghq steady fire --target local --send --max-flip-rate 0.05
+
+# also measure model nondeterminism, separately from wording sensitivity
+testinghq steady fire --target local --send --repeats 5
+
+# read the label from category rather than route (the default)
+testinghq steady fire --target local --send --label-field category
+```
 
 Redeliver, for what your pipeline does when the provider misbehaves:
 

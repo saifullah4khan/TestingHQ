@@ -69,7 +69,7 @@ REPLAY_TARGET = re.compile(r"^[^\s/\\]+\.json$")
 
 #: The tools that cannot run without a readback adapter, and therefore the ones
 #: this harness has to supply one for.
-PIPELINE_TOOLS = frozenset({"verify", "ledger", "redeliver", "loop"})
+PIPELINE_TOOLS = frozenset({"verify", "ledger", "redeliver", "loop", "steady"})
 
 #: The CLI's own convention, identical across both tools: 0 ran, 1 refused,
 #: 2 dry-run with nothing sent. Declared here rather than imported so this

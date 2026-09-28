@@ -184,6 +184,13 @@ class PipelineUnderTest:
         #: pipeline emits nothing observable, which is the same as no defect and
         #: is what a correct pipeline does.
         outbound_sink: Optional[str] = None,
+        # Labelling defects, for `steady`. The defaults are correct: the route
+        # depends only on the message, so it is stable.
+        unstable_tags: Sequence[str] = (),
+        #: The label to give a payload whose tag is in `unstable_tags`. None
+        #: means "something else", which is what an unstable classifier does to a
+        #: shape it did not expect.
+        unstable_label: Optional[str] = None,
         # Shape the response, not the record.
         status: int = 200,
     ) -> None:
@@ -202,6 +209,8 @@ class PipelineUnderTest:
         self.auto_reply_machine_mail = auto_reply_machine_mail
         self.answer_loop_bait = answer_loop_bait
         self.outbound_sink = outbound_sink
+        self.unstable_tags = frozenset(unstable_tags)
+        self.unstable_label = unstable_label
         self.status = status
 
         self.messages: List[MessageRecord] = []
@@ -420,7 +429,27 @@ class PipelineUnderTest:
             return None
         recipients = envelope.get("to") or []
         destination = recipients[0] if recipients else "nowhere"
-        return UNROUTED if self.misroute else destination
+        if self.misroute:
+            return UNROUTED
+        return self._maybe_unstable(fields, destination)
+
+    def _maybe_unstable(self, fields: Dict[str, Any], route: str) -> str:
+        """Relabel the payloads whose tag is in `unstable_tags`.
+
+        A classifier that keys on a signature block and loses track of the actual
+        complaint is the bug `steady` is for, and no other switch here can
+        express it: the message is parsed perfectly, the route is simply wrong
+        for that shape.
+
+        Keyed on the tag rather than on a header the payload carries, because a
+        tool that told the system under test which transform it had applied
+        would be measuring something other than what a customer sends.
+        """
+        if not self.unstable_tags:
+            return route
+        if _tag_of(fields) not in self.unstable_tags:
+            return route
+        return self.unstable_label or f"{route}-unstable"
 
     # -- the read side ----------------------------------------------------
 
