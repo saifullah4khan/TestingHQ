@@ -1,3 +1,5 @@
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -176,35 +178,139 @@ def test_open_loop_ramp_increases_rate_over_warmup():
     assert gaps[0] > gaps[-1]
 
 
-def test_closed_loop_dispatch_count_is_bound_by_concurrency_and_service_time():
+class _InFlightProbe:
+    """A `send_fn` that counts how many calls are executing at once.
+
+    The only way to observe concurrency from inside a run. `peak` is the
+    high-water mark; `max_allowed` is the configured bound, asserted separately
+    so a pool that ignored it fails for the right reason.
+
+    It sleeps in REAL time. A fake clock cannot see overlap, because a fake
+    `sleep` returns instantly and a serial loop and a parallel one look
+    identical to virtual time. That is precisely why the old serial
+    implementation was able to have a test suite that read as coverage.
+    """
+
+    def __init__(self, service_seconds: float) -> None:
+        self.service_seconds = service_seconds
+        self.peak = 0
+        self.calls = 0
+        self._in_flight = 0
+        self._lock = threading.Lock()
+
+    def __call__(self, index: int):
+        with self._lock:
+            self._in_flight += 1
+            self.calls += 1
+            if self._in_flight > self.peak:
+                self.peak = self._in_flight
+        try:
+            time.sleep(self.service_seconds)
+        finally:
+            with self._lock:
+                self._in_flight -= 1
+        return (index, self.service_seconds)
+
+
+@pytest.mark.parametrize("mode", ["open", "closed"])
+def test_one_worker_is_one_request_at_a_time(mode):
+    """`concurrency=1` means one request in flight, in both modes.
+
+    Proven with a real thread pool and a `send_fn` that actually blocks, because
+    "nothing overlapped" is not observable with a fake clock: a fake `sleep`
+    advances virtual time instantly, so a loop that ran everything at once and
+    a loop that ran everything in sequence look identical to it. Counting real
+    in-flight requests is the only way to see the difference.
+
+    This is the test the old implementation could not have passed. It dispatched
+    inline, so the answer was 1 by construction, and no test said so.
+    """
     clock = FakeClock()
     sleeper = FakeSleeper(clock)
-    # Rate ceiling is generous; the real limiter here is service time.
-    plan = RunPlan(mode="closed", rate=50.0, concurrency=1, warmup_seconds=0.0, hold_seconds=2.0)
+    in_flight = _InFlightProbe(service_seconds=0.02)
+    plan = RunPlan(
+        mode=mode, rate=200.0, concurrency=1,
+        warmup_seconds=0.0, hold_seconds=0.05, ramp_step_count=0,
+    )
 
-    def send_fn(index):
-        # Every call takes 0.5 simulated seconds to "complete".
-        return (index, 0.5)
+    records = run(plan, in_flight, clock=clock.now, sleep=sleeper,
+                 allow_high_rate=True)
 
-    records = run(plan, send_fn, clock=clock.now, sleep=sleeper)
+    assert records, "the run dispatched nothing"
+    assert in_flight.peak == 1, (
+        f"concurrency=1 had {in_flight.peak} requests in flight. One worker is "
+        "the specification, not a rounding of it."
+    )
 
-    # One worker, 0.5s per call, 2s hold: expect 4 dispatches.
-    assert len(records) == 4
 
+@pytest.mark.parametrize("mode", ["open", "closed"])
+def test_more_workers_really_means_more_requests_in_flight(mode):
+    """The load-bearing property, and the one issue #38 is about.
 
-def test_closed_loop_more_workers_yields_more_throughput_for_same_service_time():
+    Before the executor, `concurrency` sized an arithmetic list and nothing
+    else: `concurrency=4` and `concurrency=400` produced byte-identical dispatch
+    records, because the loop always called `send_fn` inline. A load tester that
+    never has more than one request in flight measures the target's response
+    time and calls it throughput.
+
+    Asserted as `>= 2` rather than `== 4` on purpose. Exactly-four is a real
+    time and thread-scheduling assertion, and a test that flakes on a busy
+    runner is a test that gets disabled. The claim worth making is that the
+    number went UP, which is the whole defect, and that it never exceeded the
+    configured concurrency, which is the guarantee.
+    """
     clock = FakeClock()
     sleeper = FakeSleeper(clock)
-    plan = RunPlan(mode="closed", rate=50.0, concurrency=4, warmup_seconds=0.0, hold_seconds=2.0)
+    in_flight = _InFlightProbe(service_seconds=0.02)
+    plan = RunPlan(
+        mode=mode, rate=400.0, concurrency=4,
+        warmup_seconds=0.0, hold_seconds=0.1, ramp_step_count=0,
+    )
 
-    def send_fn(index):
-        return (index, 0.5)
+    records = run(plan, in_flight, clock=clock.now, sleep=sleeper,
+                 allow_high_rate=True)
 
-    records = run(plan, send_fn, clock=clock.now, sleep=sleeper)
+    assert records, "the run dispatched nothing"
+    assert in_flight.peak >= 2, (
+        f"concurrency=4 never had more than {in_flight.peak} request in "
+        "flight, so --concurrency still does nothing. This is issue #38."
+    )
+    assert in_flight.peak <= 4, (
+        f"concurrency=4 had {in_flight.peak} in flight, which is more than the "
+        "configured concurrency. The pool is the bound."
+    )
 
-    # 4 workers, 0.5s per call, 2s hold: expect roughly 4x the single-worker
-    # count (16), bounded by the 50 req/s ceiling (which would allow 100).
-    assert len(records) == 16
+
+def test_a_slow_target_no_longer_caps_the_achieved_rate_at_its_response_time():
+    """The specific lie the old implementation told, stated as a number.
+
+    A target that takes 200ms per request, offered 10 requests/second: the old
+    loop could not exceed 5/second, because it was blocked on each request
+    before scheduling the next. Five would have looked like a measurement of
+    the target. It was a measurement of this loop.
+
+    The same shape now goes out at the requested rate, because arrival is
+    decoupled from completion. Asserted on dispatch times, which are recorded
+    at submit and are what the throughput report buckets.
+    """
+    clock = FakeClock()
+    sleeper = FakeSleeper(clock)
+    plan = RunPlan(
+        mode="open", rate=50.0, concurrency=8,
+        warmup_seconds=0.0, hold_seconds=0.4, ramp_step_count=0,
+    )
+
+    records = run(plan, _InFlightProbe(service_seconds=0.001),
+                  clock=clock.now, sleep=sleeper, allow_high_rate=True)
+
+    # budget = rate * duration = 50 * 0.4 = 20 requests
+    assert len(records) == 20
+    gaps = [b.dispatch_time - a.dispatch_time for a, b in zip(records, records[1:])]
+    # Every arrival is 1/50s = 0.02s apart on the schedule.
+    assert all(g == pytest.approx(0.02, abs=1e-9) for g in gaps), (
+        f"arrivals drifted: {gaps[:5]}. A 0.001s service time must not move the "
+        "schedule, and a 0.2s one must not move it either."
+    )
 
 
 def test_closed_loop_respects_the_rate_ceiling_even_with_high_concurrency():
@@ -552,10 +658,18 @@ def test_the_gate_never_waits_when_the_schedule_holds():
     quietly having become a second pacer."""
     clock = FakeClock()
     sleeper = FakeSleeper(clock)
-    stage = RampStage(rate=5.0, duration=3.0)
 
-    records = _run_open_loop_stages(
-        [stage], lambda index: ("ok", 0.0), clock=clock.now, sleep=sleeper
+    # Through `run`, not through `_run_open_loop_stages`. The private helper's
+    # signature changed when the executor arrived, and a test that reaches into
+    # a private function is a test that breaks on a refactor while proving
+    # nothing about the contract anybody actually uses. `concurrency=1` takes
+    # the serial path, so this is still a single-threaded, hermetic run.
+    plan = RunPlan(
+        mode="open", rate=5.0, concurrency=1,
+        warmup_seconds=0.0, hold_seconds=3.0, ramp_step_count=0,
+    )
+    records = run(
+        plan, lambda index: ("ok", 0.0), clock=clock.now, sleep=sleeper
     )
 
     assert records, "the run dispatched nothing"

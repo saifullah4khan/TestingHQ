@@ -53,9 +53,9 @@ REFUSALS = [
     ("barrage plan invalid",
      ["barrage", "fire", "--target", "local", "--rate", "10", "--duration", "5",
       "--warmup", "5"]),
-    ("barrage inert concurrency",
+    ("barrage concurrency out of range",
      ["barrage", "fire", "--target", "local", "--mode", "open",
-      "--concurrency", "8"]),
+      "--concurrency", "0"]),
 ]
 
 

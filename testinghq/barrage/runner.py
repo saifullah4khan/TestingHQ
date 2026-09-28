@@ -33,9 +33,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from ..core.ratelimit import TokenBucket
+from .executor import PoolExecutor, SerialExecutor, make_executor
 
 # ---------------------------------------------------------------------------
 # The hard ceiling.
@@ -148,6 +149,12 @@ def total_duration(warmup_seconds: float, hold_seconds: float) -> float:
 
 SendFn = Callable[[int], Tuple[object, float]]
 
+#: What `run` needs from a dispatch strategy. Defined in
+#: `testinghq/barrage/executor.py` and imported here under `TYPE_CHECKING` plus
+#: a runtime import for the default, so the two modules do not have to import
+#: each other's names into a cycle at module scope.
+DispatchExecutor = "SerialExecutor | PoolExecutor"
+
 
 @dataclass(frozen=True)
 class DispatchRecord:
@@ -256,17 +263,111 @@ def _pace_and_gate(bucket: TokenBucket) -> float:
     return bucket.acquire()
 
 
+def _submit(
+    executor: "DispatchExecutor",
+    send_fn: SendFn,
+    index: int,
+    dispatch_time: float,
+    target_rate: float,
+    waited: float,
+    records: List[DispatchRecord],
+) -> None:
+    """Hand one request to the executor and record the dispatch.
+
+    The record is appended in submission order, before the request has
+    completed. `DispatchRecord.index` is the payload identity and the artifact's
+    ordering key, and both have to be a function of the plan rather than of how
+    the workers happened to interleave: a run artifact that reorders itself
+    between executions of the same plan cannot be compared, and `compare`
+    aligns on exactly that index.
+
+    `result` is None until `drain` fills it in. Nothing reads a record's result
+    before the run is drained, and a partially filled record is what a crash
+    mid-run would leave behind, which is the honest state for one.
+    """
+    records.append(
+        DispatchRecord(
+            index=index,
+            target_rate=target_rate,
+            dispatch_time=dispatch_time,
+            waited=waited,
+            result=None,
+        )
+    )
+    # The future carries the RESULT only, not `send_fn`'s whole
+    # `(result, service_seconds)` tuple. Unwrapping here rather than in
+    # `_bind_result` keeps the record's contract in one place: a
+    # DispatchRecord's result is whatever the caller handed back, and the
+    # service time is an artefact of the loop that never reaches a record.
+    future = executor.submit(lambda: send_fn(index)[0])
+    future.add_done_callback(_bind_result(records, index))
+
+
+def _bind_result(records: List[DispatchRecord], index: int):
+    """A callback that writes a completed request's result back into its record.
+
+    Bound per-request rather than collected in a list, because a list would
+    have to be in completion order and then be sorted, and a list that is in
+    completion order and then sorted is a list whose order is wrong twice. The
+    record is found by index, which is the only ordering this module promises.
+
+    `DispatchRecord` is frozen, so this replaces the element rather than
+    mutating it. A record that a caller is still holding stays as it was, which
+    is the safe direction: a stale None result is visible, a mutated record is
+    not.
+    """
+
+    def _write(future) -> None:
+        # An exception inside send_fn is not raised here. It is re-raised by
+        # executor.drain() against the future that carries it, so a failure
+        # surfaces at the point the run waits for the request rather than
+        # inside a worker thread where the traceback would be lost.
+        if future.cancelled():  # pragma: no cover - nothing cancels today
+            return
+        if future.exception() is not None:
+            return
+        for position, record in enumerate(records):
+            if record.index == index:
+                records[position] = DispatchRecord(
+                    index=record.index,
+                    target_rate=record.target_rate,
+                    dispatch_time=record.dispatch_time,
+                    waited=record.waited,
+                    result=future.result(),
+                )
+                return
+
+    return _write
+
+
 def _run_open_loop_stages(
     stages: List[RampStage],
+    concurrency: int,
     send_fn: SendFn,
     clock: Callable[[], float],
     sleep: Callable[[float], None],
+    executor: "DispatchExecutor",
 ) -> List[DispatchRecord]:
-    """Serial open-loop dispatch: for each stage, dispatch on an absolute
-    schedule of `1 / rate` second arrivals from the stage's start, gated by
-    a TokenBucket at that stage's rate. Never waits on `service_seconds`;
-    arrivals happen on schedule regardless of how long a prior call took,
-    which is what actually reveals a target's breaking point.
+    """Open-loop dispatch: for each stage, dispatch on an absolute schedule of
+    `1 / rate` second arrivals from the stage's start, gated by a TokenBucket
+    at that stage's rate. Arrivals happen on schedule regardless of how long any
+    prior request took, which is what actually reveals a target's breaking
+    point.
+
+    Requests are SUBMITTED on schedule, not completed on schedule. That
+    distinction is the whole tool: the previous version called `send_fn`
+    inline, so a target slower than the arrival interval pushed every
+    subsequent arrival into the past and the achieved rate silently became
+    `1 / response_time`. With `concurrency` in flight the arrivals stay on the
+    schedule and the target sees the load that was asked for, which is the only
+    way a p90 over a queue is a measurement of the target rather than of this
+    loop.
+
+    `dispatch_time` is recorded at submit. The request is handed to the executor
+    at that instant; the transport measures its own latency inside the worker.
+    A future returned here is deliberately not awaited: an open-loop run's
+    arrivals must not wait on service, and draining happens at the stage
+    boundary in `_finish_stage`.
     """
     records: List[DispatchRecord] = []
     index = 0
@@ -287,18 +388,14 @@ def _run_open_loop_stages(
                 _sleep_until(stage_start + step * interval, clock, sleep)
                 waited = _pace_and_gate(bucket)
                 dispatch_time = clock()
-                result, _service_seconds = send_fn(index)
-                records.append(
-                    DispatchRecord(
-                        index=index,
-                        target_rate=stage.rate,
-                        dispatch_time=dispatch_time,
-                        waited=waited,
-                        result=result,
-                    )
-                )
+                _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records)
                 index += 1
+        # Drain before the stage's window closes, so a request submitted in
+        # this stage cannot be reported in a later one and so a stage's error
+        # is attributed to the stage that caused it.
+        executor.drain()
         _hold_until_stage_end(stage, stage_start, clock, sleep)
+    executor.drain()
     return records
 
 
@@ -308,14 +405,15 @@ def _run_closed_loop_stages(
     send_fn: SendFn,
     clock: Callable[[], float],
     sleep: Callable[[float], None],
+    executor: "DispatchExecutor",
 ) -> List[DispatchRecord]:
-    """Serial simulation of `concurrency` fixed workers, single-threaded so
-    it stays deterministic and hermetically testable. Each worker slot
-    tracks when it next becomes free (dispatch_time + service_seconds); a
-    request is dispatched only once a slot is free AND the stage's rate
-    schedule allows it, so offered load self-limits against a slow target
-    (the closed-loop property) while still never exceeding the configured
-    rate (the ceiling).
+    """Closed-loop dispatch across `concurrency` workers.
+
+    Offered load self-limits against a slow target, which is the closed-loop
+    property: the pool has `concurrency` workers, so when they are all busy
+    further submissions queue rather than going out. That is the backpressure
+    arriving by construction, rather than the `free_at` arithmetic that used to
+    simulate `concurrency` workers inside a single-threaded loop.
 
     Bounded by `_stage_dispatch_count(stage)`, the stage's rate budget, so
     the loop always terminates; a slow target simply may not use its whole
@@ -334,32 +432,20 @@ def _run_closed_loop_stages(
             rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
         )
         interval = 1.0 / stage.rate
-        free_at = [stage_start] * concurrency
         dispatched = 0
         while dispatched < budget:
-            slot = free_at.index(min(free_at))
-            # The next request waits for whichever comes later: the rate
-            # schedule, or the worker slot freeing up.
-            deadline = max(stage_start + dispatched * interval, free_at[slot])
+            deadline = stage_start + dispatched * interval
             _sleep_until(deadline, clock, sleep)
             if clock() - stage_start >= stage.duration:
                 break
             waited = _pace_and_gate(bucket)
             dispatch_time = clock()
-            result, service_seconds = send_fn(index)
-            free_at[slot] = dispatch_time + max(service_seconds, 0.0)
-            records.append(
-                DispatchRecord(
-                    index=index,
-                    target_rate=stage.rate,
-                    dispatch_time=dispatch_time,
-                    waited=waited,
-                    result=result,
-                )
-            )
+            _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records)
             index += 1
             dispatched += 1
+        executor.drain()
         _hold_until_stage_end(stage, stage_start, clock, sleep)
+    executor.drain()
     return records
 
 
@@ -418,6 +504,7 @@ def run(
     allow_high_rate: bool = False,
     max_rate: float = DEFAULT_MAX_RATE_PER_SEC,
     max_duration: float = DEFAULT_MAX_DURATION_SEC,
+    executor: Optional["DispatchExecutor"] = None,
 ) -> List[DispatchRecord]:
     """Run `plan`, dispatching through `send_fn`, and return the ordered
     list of DispatchRecord.
@@ -430,6 +517,15 @@ def run(
     creates; passing fakes makes the whole run hermetic; no call in this
     module ever touches the real wall clock or a real sleep except via
     these defaults.
+
+    `executor` defaults to one sized by `plan.concurrency`: a thread pool of
+    that many workers for anything above 1, and inline dispatch for exactly 1.
+    The pool is what makes `concurrency` mean something, and injecting it is
+    what lets a test prove requests overlapped without a socket.
+
+    Records come back ordered by `index` and fully populated. A caller never
+    sees a half-filled record from a completed run, because the executor is
+    drained before `run` returns even when the caller supplied it.
     """
     check_rate_ceiling(
         plan.rate,
@@ -439,6 +535,20 @@ def run(
         max_duration=max_duration,
     )
     stages = build_stages(plan.rate, plan.warmup_seconds, plan.hold_seconds, plan.ramp_step_count)
-    if plan.mode == MODE_OPEN:
-        return _run_open_loop_stages(stages, send_fn, clock, sleep)
-    return _run_closed_loop_stages(stages, plan.concurrency, send_fn, clock, sleep)
+    owned = executor is None
+    if executor is None:
+        executor = make_executor(plan.concurrency)
+    try:
+        if plan.mode == MODE_OPEN:
+            records = _run_open_loop_stages(
+                stages, plan.concurrency, send_fn, clock, sleep, executor
+            )
+        else:
+            records = _run_closed_loop_stages(
+                stages, plan.concurrency, send_fn, clock, sleep, executor
+            )
+        executor.drain()
+    finally:
+        if owned:
+            executor.shutdown(wait=True)
+    return records

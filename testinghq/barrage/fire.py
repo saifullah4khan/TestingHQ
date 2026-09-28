@@ -132,29 +132,28 @@ def build_plan(
     run length; `warmup` is the ramp portion of it, so the steady-state
     hold is `duration - warmup`.
 
-    `concurrency` may be None, meaning "not specified".
+    `concurrency` may be None, meaning "not specified", and then
+    DEFAULT_CONCURRENCY applies in both modes.
 
-    Open mode records a concurrency of 1 and closed mode records what it was
-    given. Open mode is serial, so any other number would be written into the
-    run artifact and printed by the preview while having no effect. Closed
-    mode is also serial today but genuinely threads the number into its slot
-    allocation, so coercing it would discard a value that becomes meaningful
-    the moment an executor exists. The CLI refuses an explicit value above 1
-    in both modes until then.
+    Open mode's concurrency is the maximum number of requests in flight, not a
+    worker count: arrivals happen on an absolute schedule and the pool bounds
+    how many of them are outstanding at once. It used to be coerced to 1 here,
+    because the dispatcher was serial and any other number would have been
+    written into the artifact and printed by the preview while doing nothing.
+    That is fixed; the number now means what it says in both modes.
 
-    Coercion rather than raising on the open path, because the caller may be
-    `barrage replay` reading an artifact written before serial dispatch was
-    recorded accurately, whose stored number was always meaningless. Refusing
-    would break replay of every run the tool has ever produced.
+    Old artifacts are still replayable. One written before the executor records
+    a concurrency of 1, and replaying it re-runs it exactly, which is the right
+    answer: the run it describes did have one request in flight at a time. A
+    run recorded with a higher number replays with that number, and this time
+    it will mean something.
     """
     if duration <= warmup:
         raise BarrageError(
             f"duration ({duration}s) must be greater than warmup ({warmup}s): "
             "there would be no steady-state hold to measure"
         )
-    if mode == "open":
-        concurrency = 1
-    elif concurrency is None:
+    if concurrency is None:
         concurrency = DEFAULT_CONCURRENCY
     return RunPlan(
         mode=mode,
@@ -241,14 +240,28 @@ def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
     WOULD be sent, so an operator can check the plan before committing to
     it, and states plainly that nothing was sent.
 
-    The dispatch note is not decoration. A dry run that prints a rate and a
-    concurrency without saying how many requests are actually in flight
-    describes a plan this build cannot execute: there is no executor, so every
-    mode is a serial send, and against a target slower than the arrival
-    interval the achieved rate is capped by the target's response time rather
-    than by anything the operator asked for. See issue #38.
+    The dispatch note is not decoration, in either direction. It used to say
+    "SERIAL, one request in flight at a time (no executor yet)" because that
+    was true and the preview existed to stop an operator believing otherwise. It
+    now says what will actually happen: a pool of `plan.concurrency` workers.
+    A preview that describes the previous build is worse than no preview, so the
+    line is derived from the plan rather than written as a standing apology.
     """
     total = round(plan.rate * plan.hold_seconds)
+    if plan.concurrency == 1:
+        dispatch = [
+            "  dispatch: one worker, one request in flight at a time",
+            "    a target slower than the arrival interval will cap the achieved",
+            "    rate below the target above; raise --concurrency to keep the",
+            "    schedule",
+        ]
+    else:
+        dispatch = [
+            f"  dispatch: a pool of {plan.concurrency} workers, so up to",
+            f"    {plan.concurrency} request(s) in flight at once",
+            "    each worker holds one interpreter thread, so this costs memory",
+            "    in proportion to the number",
+        ]
     lines = [
         f"dry-run preview: seed={seed}, {pool_size} distinct payload(s) in the pool",
         f"  mode: {plan.mode}-loop",
@@ -256,9 +269,7 @@ def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
         f"  warmup ramp: {plan.warmup_seconds:g}s, steady-state hold: {plan.hold_seconds:g}s",
         f"  concurrency: {plan.concurrency}",
         f"  approx requests at steady state: {total}",
-        "  dispatch: SERIAL, one request in flight at a time (no executor yet)",
-        "    a target slower than the arrival interval will cap the achieved",
-        "    rate below the target above; the run will not hold its schedule",
+        *dispatch,
         "no network calls were made (pass --send to fire for real)",
     ]
     return "\n".join(lines)
