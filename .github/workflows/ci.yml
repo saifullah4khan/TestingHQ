@@ -75,3 +75,36 @@ jobs:
           exit 1
       - name: All interpreter legs passed
         run: echo "every claimed Python version passed"
+
+  # The web UI's rendering, in a language nothing else here runs.
+  #
+  # Until this job existed, no JavaScript ran in CI at all. That is not a
+  # theoretical gap: `app.js` ended with `window.__testingHQBlast = {
+  # classifyRecord }`, referring to a function the refactor that made the
+  # browser read the engine's outcome had already deleted. Naming an undefined
+  # identifier is a ReferenceError in strict mode, so the page threw on every
+  # load and the web UI did not work. The Python lane-hygiene test passed the
+  # whole time, because it checked that `function classifyRecord(` was absent,
+  # which it was. It said nothing about the line that still referenced it.
+  #
+  # No npm install and no lockfile: `node --test` and `node:assert` are in the
+  # standard library, and the module under test is loaded with `require` rather
+  # than bundled. Adding a dependency tree to test one file of vanilla
+  # JavaScript would be a bad trade.
+  #
+  # Deliberately not a required context. A rendering change should not be able
+  # to block a merge of an unrelated Python fix, and the required gates stay
+  # `tests` and `end-to-end`. A broken render is caught here on every push
+  # instead.
+  web-tests:
+    name: web tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run the browser rendering tests
+        run: |
+          set -euo pipefail
+          node --test web/tests/
