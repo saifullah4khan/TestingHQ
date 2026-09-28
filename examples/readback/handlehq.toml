@@ -1,6 +1,9 @@
 # Readback recipe: a HandleHQ deployment
 #
 # STATUS: NOT RUN. This recipe has never been pointed at a live deployment.
+# NOT VERIFIED against documentation either: there is no published HandleHQ API
+# documentation behind the field map. It relies on TestingHQ's default paths,
+# explained below.
 #
 # There is no result, no timing, and no verified field map behind this file. See
 # docs/DOGFOOD.md, which says the same and explains how to run it.
