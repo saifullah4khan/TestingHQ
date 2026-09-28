@@ -1,13 +1,18 @@
 """Configuration loading for TestingHQ.
 
 Targets are declared explicitly in a TOML config file, one `[targets.<name>]`
-table per target with a required `url`. Environment variables may override a
-declared target's url (but never invent a new one); this lets a target
-config be checked in while keeping the real URL out of source control.
+table per target with a required `url`. A target may name a wire `format`; the
+default is SendGrid Inbound Parse, which is what an undeclared format has always
+meant. Environment variables may override a declared target's url (but never
+invent a new one); this lets a target config be checked in while keeping the
+real URL out of source control.
 
 Loading fails loud: a missing file, unparsable TOML, a malformed `targets`
-table, or a target missing its `url` all raise ConfigError. Nothing here
-silently drops a bad value or falls back to an empty config.
+table, a target missing its `url`, or a target naming an unknown `format` all
+raise ConfigError. Nothing here silently drops a bad value or falls back to an
+empty config, and nothing falls back to a default format either, because a
+typo'd format that quietly became SendGrid would post the wrong bytes and
+report the run as sent.
 """
 from __future__ import annotations
 
@@ -15,6 +20,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Mapping, Optional, Union
+
+from .formats import format_names
+from .transport import DEFAULT_FORMAT
+
 
 try:
     import tomllib  # Python 3.11+
@@ -36,6 +45,12 @@ class Target:
 
     name: str
     url: str
+    #: Which wire format to serialize this target's messages in. Defaults to
+    #: SendGrid Inbound Parse, which is what every target was sent as before the
+    #: format layer existed, so a config with no `format` key is unchanged.
+    #: Validated here rather than at send time so a typo fails on load, with
+    #: the list of valid names, instead of after a dry-run looked fine.
+    wire_format: str = DEFAULT_FORMAT
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not self.name:
@@ -48,6 +63,16 @@ class Target:
             raise ConfigError(
                 f"target {self.name!r}: url must start with http:// or https://, "
                 f"got {self.url!r}"
+            )
+        if not isinstance(self.wire_format, str) or not self.wire_format:
+            raise ConfigError(
+                f"target {self.name!r}: format must be a non-empty string, got "
+                f"{self.wire_format!r}"
+            )
+        if self.wire_format not in format_names():
+            raise ConfigError(
+                f"target {self.name!r}: unknown format {self.wire_format!r}; "
+                f"known formats are {format_names()}"
             )
 
 
@@ -167,11 +192,22 @@ def load_config(
                 f"got {type(url).__name__}"
             )
 
+        # Absent means the default, checked in `Target.__post_init__` against the
+        # live registry. A non-string is caught here, because the dataclass
+        # validation would report it without the config file or the target name,
+        # which are the two things that make the message useful.
+        wire_format = entry.get("format", DEFAULT_FORMAT)
+        if not isinstance(wire_format, str):
+            raise ConfigError(
+                f"config file {config_path}: targets.{name}.format must be a "
+                f"string, got {type(wire_format).__name__}"
+            )
+
         env_key = f"TESTINGHQ_TARGET_{_env_key(name)}_URL"
         if env_key in env:
             url = env[env_key]
 
-        targets[name] = Target(name=name, url=url)
+        targets[name] = Target(name=name, url=url, wire_format=wire_format)
 
     readback = raw.get("readback")
     if readback is not None and not isinstance(readback, dict):
