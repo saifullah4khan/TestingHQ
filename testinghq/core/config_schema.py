@@ -119,8 +119,14 @@ TARGETS = Table(
                 "Which wire format to serialize this target's messages in. One "
                 "of: sendgrid (multipart/form-data, the SendGrid Inbound Parse "
                 "shape), mailgun, postmark, mime. Absent means sendgrid, so a "
-                "config written before formats were selectable is unchanged. "
-                "An unknown name is refused at load, with the valid names."
+                "config written before formats were selectable is unchanged, "
+                "and an unknown name is refused at load with the valid ones. "
+                "KNOWN LIMITATION: the value is validated and stored, and no "
+                "send path reads it, so the wire bytes are SendGrid-shaped "
+                "whatever it says. The encoders themselves exist and are "
+                "tested; threading the key through to the transport is the "
+                "outstanding work. Selecting a different format today validates "
+                "and then has no effect."
             ),
         ),
     ),
@@ -136,9 +142,9 @@ READBACK = Table(
     summary=(
         "Where the pipeline's own output can be read back from. Optional for "
         "blast, barrage and compare, which judge a run by the HTTP status. "
-        "Required for verify, ledger and redeliver: without a way to ask the "
-        "system what it made of a message, they can only report what it "
-        "answered, which is a 200."
+        "Required for the five pipeline tools: verify, ledger, redeliver, loop "
+        "and steady. Without a way to ask the system what it made of a message, "
+        "they can only report what it answered, which is a 200."
     ),
     keys=(
         Key(

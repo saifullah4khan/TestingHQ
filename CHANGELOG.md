@@ -11,7 +11,69 @@ releases and is called out under `Changed` below rather than hidden.
 
 ## [Unreleased]
 
-Nothing yet. The next set of merged pull requests lands here.
+### Added
+
+- **Barrage dispatches concurrently.** Runs go through a pool of
+  `--concurrency` worker threads, in both modes. Against a loopback target
+  taking 200 ms per request, offered 20 req/s: 4.44 req/s at
+  `--concurrency 1` (the `1 / 0.2s` ceiling) and 20.00 req/s at
+  `--concurrency 8`. This is issue #38, and it was the load-bearing defect:
+  a load tester with one request in flight measures the target's response
+  time and reports it as throughput.
+- **`testinghq config validate`**, which loads a config with the real
+  loaders and prints what they resolved, as a report or as TOML. Sends
+  nothing and never prints a header value.
+- **`testinghq report`**, which reads a run artifact from any tool and
+  summarises it, with one stable JSON shape whatever wrote the file.
+- **Readback recipes** for Zendesk, Freshdesk, a generic REST API, an
+  outbound mail sink and a real deployment, in `examples/readback/`. Each
+  states whether it was run or written from vendor documentation.
+- **`docs/CONFIG.md`**, generated from `testinghq/core/config_schema.py`
+  with a test that fails when the two drift.
+
+### Changed
+
+- **`--concurrency` is no longer refused in either Barrage mode.** It was
+  refused in both, and 0.1.0 shipped that refusal, so this supersedes the
+  entry below rather than replacing it.
+- **The CLI is a package.** `testinghq/cli.py` was 1570 lines holding ten
+  commands, their parsers, their handlers and the dispatch table. It is now
+  eight modules split by what changes together, largest 19 KB. The command
+  surface is unchanged and was verified by enumerating every subcommand and
+  option before and after: 22 commands, 172 options, no difference.
+- **The tool counts were wrong in the README** and several documents. The
+  subcommand list omitted three shipped tools, a "[readback] is only used by
+  verify, ledger and redeliver" note omitted two more, and the Status
+  section opened by claiming five tools and then describing six.
+- **The agent workflow documents are gone**: seven files recording how work
+  was split between agents writing at once, and the test that asserted
+  properties of one of them. None was documentation for a user of the package.
+  The repository now ships only documentation someone can act on.
+
+### Fixed
+
+- **The web UI threw on every page load.** `app.js` referenced
+  `classifyRecord` in its debug export, after a refactor had removed that
+  function. Strict mode makes that a `ReferenceError`, so the IIFE failed
+  every time. The lane-hygiene test that should have caught it checked
+  that the function was not *defined*, which it was not. JavaScript now runs
+  in CI.
+- **Two claims in `docs/SECURITY.md` were wrong** and are corrected: there
+  is no command-line override for the public-host refusal on a firing
+  target, and not every firing path is rate limited. The web UI's is not,
+  which is now stated rather than implied by omission.
+
+### Known limitations
+
+- **`[targets.<name>].format` is accepted, validated, and ignored.** The
+  `sendgrid`, `mailgun`, `postmark` and `mime` encoders exist and are
+  tested, and the key is read and checked against the registry, but no send
+  path passes it to the transport, so the wire bytes are SendGrid-shaped
+  whatever it says. Threading it through is outstanding work.
+- **`testinghq/pipeline/fixtures/steady_intents.json` is not package
+  data.** There is no `MANIFEST.in` and no `[tool.setuptools.package-data]`,
+  and `steady` loads the fixture by filesystem path, so a non-editable
+  install ships a `steady` command that raises `FileNotFoundError`.
 
 ## [0.1.0] - 2026-09-28
 

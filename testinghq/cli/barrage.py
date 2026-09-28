@@ -43,8 +43,11 @@ def _add_barrage_parser(sub) -> None:
         type=int,
         default=None,
         help=(
-            "closed-loop worker count. Refused with --mode open, which has no "
-            "executor yet and dispatches one request at a time; see issue #38"
+            "requests in flight at once. Both modes dispatch through a pool of "
+            "this many worker threads, so one is a serial send. Each worker is "
+            "an interpreter thread, so a high value is a memory cost. Open "
+            "mode's is a ceiling on what is outstanding rather than a worker "
+            "count, because its arrivals are on a schedule"
         ),
     )
     b_fire.add_argument(

@@ -1,28 +1,30 @@
 """Stale-claim guards for the user-facing files.
 
-`tests/test_backlog_freshness.py` guards the backlog. This guards the files a
-user actually reads: `README.md`, `examples/README.md`, and `site/index.html`.
+This guards the files a user actually reads: `README.md`,
+`examples/README.md`, and `site/index.html`.
 
-Same class of failure, different blast radius. The backlog rotting misleads
-whoever is about to do work. A landing page rotting misleads everyone, and the
-landing page is where a claim is most likely to be written optimistically and
-corrected never.
+Same class of failure as anything else that rots silently. The backlog
+rotting misleads whoever is about to do work. A landing page rotting
+misleads everyone, and the landing page is where a claim is most likely to
+be written optimistically and corrected never.
 
 The specific rot this exists for, found in review:
 
     site/index.html:279
     "closed-loop holds concurrency fixed and lets offered load self-limit"
 
-`--concurrency` is inert in BOTH modes, because `testinghq` has no executor. The
-public page was telling visitors that closed mode does something it does not.
+`--concurrency` did nothing in either mode, because `testinghq` had no
+executor. The public page was telling visitors that closed mode does
+something it does not. That is now fixed: Barrage dispatches through a
+thread pool and `--concurrency` is the number of requests in flight. The
+phrases stay forbidden anyway, because a claim that was once false is
+exactly the kind that comes back.
 
-Mechanism, and why it is a word list rather than a marker scheme. The backlog
-can use inline `<!-- stale-if-exists: -->` markers because it is written by this
-repo's own agents and they can be taught the convention. A README and a
-marketing page cannot: they are edited freely and nobody reads a comment
-convention there. So the claims are instead pinned as forbidden phrases. Each
-entry is a sentence that was once true, is now false, and is specific enough
-that a future reader would not independently write it.
+Mechanism, and why it is a word list rather than a marker scheme. A README
+and a marketing page cannot carry a comment convention: they are edited
+freely and nobody reads one. So the claims are instead pinned as forbidden
+phrases. Each entry is a sentence that was once true, is now false, and
+is specific enough that a future reader would not independently write it.
 
 The limitation is worth stating plainly. This catches a fixed set of known
 rotten claims. It cannot catch a new false claim, because there is no general
@@ -52,14 +54,16 @@ FORBIDDEN_CLAIMS: list[tuple[str, str, str]] = [
     (
         "site/index.html",
         "closed-loop holds concurrency fixed",
-        "closed mode is serial today. --concurrency is inert in BOTH modes "
-        "because testinghq has no executor. Issue #38.",
+        "closed mode WAS serial, and --concurrency WAS inert in BOTH modes, "
+        "because testinghq had no executor. Fixed in issue #38; the phrase "
+        "is kept forbidden so the claim does not come back.",
     ),
     (
         "site/index.html",
         "open-loop holds a fixed arrival rate and finds the breaking point",
-        "open mode cannot hold its arrival schedule against a target slower "
-        "than the interval, so it cannot find a breaking point. Issue #38.",
+        "open mode COULD NOT hold its arrival schedule against a target slower "
+        "than the interval, so it could not find a breaking point. Fixed in "
+        "issue #38.",
     ),
     (
         "site/index.html",
@@ -71,7 +75,7 @@ FORBIDDEN_CLAIMS: list[tuple[str, str, str]] = [
     (
         "README.md",
         "closed-loop holds concurrency fixed",
-        "same rot as the landing page. Closed mode is serial.",
+        "same rot as the landing page. Closed mode WAS serial.",
     ),
     (
         "README.md",

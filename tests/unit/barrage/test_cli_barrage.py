@@ -443,12 +443,13 @@ def test_require_synthetic_pool_refuses_a_non_reserved_address():
 
 
 # ---------------------------------------------------------------------------
-# --concurrency in open mode.
+# --concurrency, in both modes.
 #
-# Barrage has no executor. testinghq does not import threading anywhere, and
-# there is no concurrent.futures or asyncio in testinghq or core/transport. A
-# request is issued, its response read, and only then is the next dispatched,
-# so exactly one is ever in flight and --concurrency cannot mean anything.
+# Barrage used to have no executor: `testinghq` imported no threading
+# anywhere, there was no concurrent.futures or asyncio in `testinghq` or in
+# core/transport, and a request was issued, its response read, and only then
+# was the next dispatched. So exactly one was ever in flight and
+# --concurrency could not mean anything.
 #
 # Measured against a real local server sleeping 300ms, driving the shipped
 # binary at 6 req/s: open mode achieved 3.14 req/s at --concurrency 1, 3.13 at
@@ -456,7 +457,12 @@ def test_require_synthetic_pool_refuses_a_non_reserved_address():
 # validated, stored in the plan, written into the run artifact and printed by
 # the dry-run preview, and did nothing.
 #
-# These pin the two things that make the tool honest about it.
+# That is issue #38 and it is fixed: runs dispatch through a pool of
+# plan.concurrency workers. The two tests here pin that the flag is accepted
+# and that the preview says what will actually happen. The measurement, the
+# concurrency itself, is pinned in tests/unit/barrage/test_runner.py with a
+# real-time probe and in tests/e2e/test_real_sockets.py against a real socket,
+# because a fake clock cannot see concurrency.
 # ---------------------------------------------------------------------------
 
 
@@ -468,8 +474,8 @@ def test_concurrency_is_accepted_in_both_modes(mode, capsys):
     right at the time: the dispatcher was serial, so `--concurrency` could not
     mean anything and refusing it was the honest thing to do. Its own docstring
     carried the measurement: "concurrency 1, 4 and 64 all produced the same
-    throughput in both modes, because `testinghq` has no executor and a send is
-    never more than one request in flight."
+    throughput in both modes, because `testinghq` had no executor and a send
+    was never more than one request in flight."
 
     The executor exists now, so the flag is the control that decides how much
     load is in flight, and refusing it would be refusing the tool's one job.

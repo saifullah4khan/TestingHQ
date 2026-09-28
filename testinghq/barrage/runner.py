@@ -252,9 +252,11 @@ def _pace_and_gate(bucket: TokenBucket) -> float:
     Why the gate is not the pacer, which is the actual decision here: a
     blocking gate would throttle the offered load down exactly when the target
     is slow, and measuring that is the whole point of an open-loop run. See
-    docs/decisions/0001-barrage-pacing.md, which also records the larger
-    finding that the shipped dispatch is serial, so today neither mechanism is
-    what limits throughput.
+    docs/decisions/0001-barrage-pacing.md, which records that decision and the
+    larger finding that came out of it: the dispatch here used to be serial, so
+    neither the gate nor the schedule was what limited throughput, and the
+    reported rate was a measurement of this loop. That is fixed, in
+    testinghq/barrage/executor.py.
 
     Note the asymmetry if this is ever revisited: a closed-loop run has no
     arrival schedule to hold, so a blocking acquire would be the right tool

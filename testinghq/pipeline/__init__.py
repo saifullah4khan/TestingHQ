@@ -10,10 +10,10 @@ ground truth the tools built on it will check against.
   expectations  ground truth in, a PASSED/FAILED/SKIPPED verdict out
   adapters      turning `[readback]` configuration into a live adapter
   common        the send and read phases, and the shared exit codes
-  corpus        the payloads all three tools send, and their tags
+  corpus        the payloads all five tools send, and their tags
 
-A tool is not in this package. `verify`, `ledger` and `redeliver` live beside
-it, one per concern, and none of them imports another.
+A tool is not in this package. `verify`, `ledger`, `redeliver`, `loop` and
+`steady` live beside it, one per concern, and none of them imports another.
 
 Two rules run through all of it, and they are the difference between this
 finding bugs and manufacturing green.

@@ -29,10 +29,12 @@ endpoints you do not own.
 
 The suite ships as one installable package, `testinghq`, with subcommands
 (`testinghq blast ...`, `testinghq barrage ...`, `testinghq verify ...`,
-`testinghq ledger ...`, `testinghq redeliver ...`). They share a common core: the firing transport, target configuration,
-guardrails, and rate limiting.
-A readback seam is built on that core, described below, and `verify` and
-`ledger` and `redeliver` are the tools on it.
+`testinghq ledger ...`, `testinghq redeliver ...`, `testinghq loop ...`,
+`testinghq steady ...`, `testinghq compare ...`, `testinghq report ...`,
+`testinghq config validate ...`). They share a common core: the firing
+transport, target configuration, guardrails, and rate limiting.
+A readback seam is built on that core, described below, and the five pipeline
+tools (`verify`, `ledger`, `redeliver`, `loop`, `steady`) are the tools on it.
 
 **Loop.** Auto-reply and mail-loop detection. Two auto-responders answering each
 other create thousands of tickets overnight. `loop` sends a corpus a correct
@@ -46,8 +48,8 @@ and whether anything was emitted outbound. It reproduces the single-hop shape of
 a loop, not a live two-party loop.
 
 The auto-reply check needs somewhere to read what the pipeline tried to send.
-Configure `[loop.outbound]` and it becomes a finding; without it the check
-reports **SKIPPED, never passed**, because a tool that cannot see whether a
+Configure `[loop.outbound]` and it becomes a finding; without it the check is
+reported as **NOT CHECKED, never passed**, because a tool that cannot see whether a
 reply was sent has no evidence that one was not, and the report says so in its
 own headline line.
 
@@ -181,13 +183,11 @@ reporting with pass/fail assertions, and byte-identical replay from a saved run.
 
 **Barrage**: closed-loop and open-loop firing, a rate-controlled schedule with a
 warmup ramp, throughput and latency percentile reporting, a run artifact, and
-replay from a saved run. **It has no executor yet**, so requests are dispatched
-one at a time in both modes and `--concurrency` is refused in both of them
-because it cannot mean anything there. Against a target slower than the arrival
-interval, achieved throughput is capped by the target's response time rather
-than by the rate you asked for, so the number a run reports is a measurement of
-Barrage's dispatch loop rather than of your endpoint. Tracked in
-[issue #38](https://github.com/saifullah4khan/TestingHQ/issues/38).
+replay from a saved run. `--concurrency` is the number of requests in flight at
+once, and it is honoured in both modes: runs dispatch through a pool of that
+many worker threads, so a slow target can no longer cap the achieved rate at
+`1 / its response time`. Each worker is one interpreter thread, so a high
+concurrency is a memory cost rather than a free setting.
 
 **Loop**: auto-reply and mail-loop detection. Two auto-responders answering each
 other is the failure that never shows up in a test, and this is the tool that
@@ -197,7 +197,7 @@ finds it.
 transforms of the same input, to see whether a classifier's answer survives a
 rewrite it should not have noticed.
 
-**Verify**: the six per-field checks plus the two threading checks, per-message
+**Verify**: the six per-field checks, per-message
 tagging so a run is reproducible and two concurrent runs cannot read each other's
 records, a readback phase that runs after every send, and an artifact that is a
 blast artifact with an extra block on each record, so `testinghq compare` reads
@@ -274,8 +274,8 @@ testinghq barrage fire --target local --rate 20 --duration 60
 # actually run the load test against a configured target
 testinghq barrage fire --target local --rate 20 --duration 60 --send
 
-# closed-loop is the other mode. It is also serial today, so --concurrency is
-# refused in both modes until an executor lands (issue #38)
+# closed-loop is the other mode. Both dispatch through a pool of --concurrency
+# workers, so a slow target cannot cap the achieved rate at 1 / its latency
 testinghq barrage fire --target local --mode closed --send
 
 # write the run artifact, then re-run it later from its seed and config
@@ -342,8 +342,8 @@ path = "./outbound-sink.jsonl"
 reply_address = "no-reply@example.com"
 ```
 
-Without `[loop.outbound]` the auto-reply check reports **SKIPPED, never passed**,
-and the verdict line says so.
+Without `[loop.outbound]` the auto-reply check is reported as **NOT CHECKED, never
+passed**, and the verdict line says so.
 
 Steady, for how often the classifier's label moves when it should not:
 
@@ -367,7 +367,7 @@ Redeliver, for what your pipeline does when the provider misbehaves:
 # four scenarios: duplicate, slow-retry, reply-first, references
 testinghq redeliver fire --target local --send
 
-# just one of them, and with a longer retry gap than the default 120s
+# just one of them, and with a shorter retry gap than the default 120s
 testinghq redeliver fire --target local --send --scenario slow-retry --retry-after 30
 ```
 
@@ -380,7 +380,7 @@ Message-ID will pass this and still duplicate a real retry.
 
 Every `testinghq` command in this file is executed as a dry run by
 `tests/unit/test_readme_examples.py`, so an example cannot rot into a command
-that exits non-zero without the suite noticing. The three pipeline commands are
+that exits non-zero without the suite noticing. The five pipeline commands are
 run with a mail-sink adapter the harness supplies, because they refuse to run
 without one by design.
 
@@ -483,7 +483,7 @@ Verify also fires clean payloads only, for the same structural reason and a
 different one: verify grades results, and a deliberately mangled payload has no
 correct parse to grade against. Blast owns messy input.
 
-All three pipeline tools are correctness tools rather than load tools, so none
+All five pipeline tools are correctness tools rather than load tools, so none
 of them carries `--allow-high-rate`: the thing that needs a hard ceiling is
 sustained load, and that is Barrage's job with the ceiling already in place.
 

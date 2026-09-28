@@ -6,8 +6,17 @@
 
 # Configuration reference
 
-Every table TestingHQ reads from a config file, generated from the code so it
-cannot drift. A key added to a loader without a line here fails the suite.
+The tables below, generated from the code so they cannot drift. A key added to
+a loader without a line here fails the suite.
+
+**Scope, because a generated reference that claims more than it covers is worse
+than one that does not.** This covers `[targets.<name>]`, `[readback]`,
+`[readback.fields]` and `[readback.headers]`, which is every table the
+`core.config` loader reads. It does not cover `[loop]` or `[loop.outbound]`,
+which `testinghq loop fire` reads from the same file: those keys are
+`reply_address` and `ticket_policy`, and the outbound table is
+`[readback]`-shaped. They are absent from the schema rather than silently
+misdescribed here.
 
 Validate a file and see what the loaders make of it:
 
@@ -32,11 +41,11 @@ Named firing targets. Only a target declared here may be fired at: `core.guardra
 | --- | --- | --- | --- | --- |
 | `url` | string | none | yes | Where to POST. Must start with http:// or https://. May be overridden per run by the environment variable TESTINGHQ_TARGET_<NAME>_URL, which replaces the URL and nothing else. |
 | `name` | string | none | no | Redundant with the table name and ignored if it disagrees. Present because the earlier example config had it and removing it would have broken a file people had copied. |
-| `format` | string | `"sendgrid"` | no | Which wire format to serialize this target's messages in. One of: sendgrid (multipart/form-data, the SendGrid Inbound Parse shape), mailgun, postmark, mime. Absent means sendgrid, so a config written before formats were selectable is unchanged. An unknown name is refused at load, with the valid names. |
+| `format` | string | `"sendgrid"` | no | Which wire format to serialize this target's messages in. One of: sendgrid (multipart/form-data, the SendGrid Inbound Parse shape), mailgun, postmark, mime. Absent means sendgrid, so a config written before formats were selectable is unchanged, and an unknown name is refused at load with the valid ones. KNOWN LIMITATION: the value is validated and stored, and no send path reads it, so the wire bytes are SendGrid-shaped whatever it says. The encoders themselves exist and are tested; threading the key through to the transport is the outstanding work. Selecting a different format today validates and then has no effect. |
 
 ## `[readback]`
 
-Where the pipeline's own output can be read back from. Optional for blast, barrage and compare, which judge a run by the HTTP status. Required for verify, ledger and redeliver: without a way to ask the system what it made of a message, they can only report what it answered, which is a 200.
+Where the pipeline's own output can be read back from. Optional for blast, barrage and compare, which judge a run by the HTTP status. Required for the five pipeline tools: verify, ledger, redeliver, loop and steady. Without a way to ask the system what it made of a message, they can only report what it answered, which is a 200.
 
 | Key | Type | Default | Required | Meaning |
 | --- | --- | --- | --- | --- |

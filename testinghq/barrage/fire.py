@@ -81,8 +81,8 @@ def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
     the canonical guardrail TWICE: once on the configured name (the
     allow-list check) and once on the resolved URL (the public-host check).
 
-    Both calls are positional, matching testinghq/cli.py's blast fire path
-    and web/adapter.py.
+    Both calls are positional, matching the blast fire path in
+    testinghq/cli/blast.py and web/adapter.py.
 
     Checking only the name is the trap: a bare single-label target name
     like "local" has no dot, so guardrails' public-host hardening

@@ -18,7 +18,7 @@
       <li><a href="#spectrum">Messiness spectrum</a></li>
       <li><a href="#responsible-use">Responsible use</a></li>
       <li><a href="#install">Install</a></li>
-      <li><a href="#roadmap">Roadmap</a></li>
+      <li><a href="#roadmap">Tools</a></li>
       <li><a href="https://github.com/saifullah4khan/TestingHQ">GitHub</a></li>
     </ul>
   </div>
@@ -69,8 +69,12 @@
       same named multipart fields a real SendGrid Inbound Parse webhook sends
       in parsed mode: <code>headers</code>, <code>to</code>, <code>from</code>,
       <code>subject</code>, <code>text</code>, <code>html</code>,
-      <code>envelope</code>, <code>charsets</code>, an attachment count, and
-      one file part per attachment.
+      <code>envelope</code>, <code>charsets</code>, an attachment count, an
+      <code>attachment-info</code> field when there is at least one attachment,
+      and one file part per attachment. That shape is the default and the only
+      one the CLI sends today: Mailgun, Postmark and raw MIME encoders exist
+      and are tested, and a config key names one, but that key is validated
+      and then ignored, so the wire bytes are SendGrid-shaped whatever it says.
     </p>
     <ul>
       <li>
@@ -90,11 +94,16 @@
         code path.
       </li>
       <li>
-        <strong>Seeded attachments.</strong> Ordinary files with correct
-        magic bytes, zero-byte files, oversized files, and deliberately
-        awkward ones (empty, path-traversal-shaped, or reserved-device-name
-        filenames; mismatched or nonsense content types), all reproducible
-        from the same seed.
+        <strong>Seeded attachments, where the corpus is built to need them.</strong>
+        Ordinary files with correct magic bytes, zero-byte files, oversized
+        files, and deliberately awkward ones (empty, path-traversal-shaped, or
+        reserved-device-name filenames; mismatched or nonsense content types),
+        all reproducible from the same seed. Blast's own corpus attaches none of
+        them: <code>blast generate</code> and <code>blast fire</code> emit clean
+        payloads. The generators are used by <code>verify</code> and
+        <code>ledger</code>, which attach ordinary and zero-byte files, and by
+        three named catalog cases. Oversized attachments are reachable from the
+        Python API only.
       </li>
       <li>
         <strong>A named edge-case catalog.</strong> 20 individually named,
@@ -114,14 +123,16 @@
       There is also a small local web UI (plain HTML/CSS/JS over Python's
       stdlib <code>http.server</code>, nothing to build or install) that
       previews the dry-run and fire flow and an expectation-based results
-      view. Today it runs on a deterministic fixture stand-in rather than the
-      real engine described above; the two are expected to be wired together
-      as the engine and reporting work lands.
+      view. It runs the same engine as the CLI, not a fixture stand-in. Its fire
+      path is the one that is not rate limited: keep runs from the browser
+      short, and see <a href="https://github.com/saifullah4khan/TestingHQ/blob/main/docs/SECURITY.md">docs/SECURITY.md</a>.
     </p>
     <p>
       The suite ships as a single installable package, <code>testinghq</code>,
-      with subcommands for each tool: <code>testinghq blast ...</code> today,
-      and <code>testinghq barrage ...</code> once that tool exists.
+      with a subcommand per tool: <code>blast</code>, <code>barrage</code>,
+      <code>compare</code>, <code>verify</code>, <code>ledger</code>,
+      <code>redeliver</code>, <code>loop</code>, <code>steady</code>,
+      <code>report</code> and <code>config validate</code>. All ten ship.
     </p>
   </section>
 
@@ -133,8 +144,8 @@
       input that barely resembles an email at all. Every category past
       "clean" is a weighted recipe of how many times to apply the six
       mutators described above, not a separately written generator, so the
-      levels compose instead of drifting apart. Percentages below are the
-      default mix Blast draws from unless you override it.
+      levels compose instead of drifting apart. Percentages below are the fixed
+      mix the CLI draws from; picking categories by hand is a web UI feature.
     </p>
     <div class="spectrum-bar" aria-hidden="true"></div>
     <div class="spectrum">
@@ -228,8 +239,9 @@ testinghq blast fire --target local --send</code></pre>
       All of it. The commands above are the actual argument surface defined in
       the CLI: <code>testinghq blast generate</code>, <code>testinghq blast
       fire</code> (with <code>--target</code>, <code>--seed</code>,
-      <code>--count</code>, <code>--config</code>, <code>--rate</code>, and
-      <code>--send</code>), and <code>testinghq blast replay &lt;run&gt;</code>.
+      <code>--count</code>, <code>--config</code>, <code>--rate</code>,
+      <code>--out</code>, and <code>--send</code>), and <code>testinghq blast
+      replay &lt;run&gt;</code>.
       Each one runs against the real engine underneath it. <code>generate</code>
       writes a corpus and a manifest to disk, <code>fire</code> either previews
       what it would send or posts it, and <code>replay</code> rebuilds the
@@ -244,16 +256,21 @@ testinghq blast fire --target local --send</code></pre>
       is what the run artifact records per record.
     </p>
     <p>
-      The local web UI runs the same engine rather than a fixture stand-in. See
-      <a href="#roadmap">Roadmap</a> for what is still open.
+      The local web UI runs the same engine rather than a fixture stand-in. The
+      <a href="#roadmap">Tools</a> section below covers the two tools that
+      generate and apply load.
     </p>
   </section>
 
   <section id="roadmap">
-    <h2>Roadmap</h2>
+    <h2>Tools</h2>
     <p>
-      TestingHQ ships as one package with subcommands, built one tool at a
-      time.
+      TestingHQ ships as one package with a subcommand per tool, built one at a
+      time. The two that generate and apply the load are below. The other eight
+      are named in
+      <a href="https://github.com/saifullah4khan/TestingHQ#tools">Tools</a> in
+      the README, with what each one checks. Nothing is currently in progress,
+      so there is no roadmap to report.
     </p>
     <div class="roadmap-grid">
       <div class="roadmap-card">
@@ -275,15 +292,16 @@ testinghq blast fire --target local --send</code></pre>
         <p>
           Volume and throughput. Where Blast proves a parser is correct under
           messy input, Barrage drives load at a controlled rate. Both firing
-          modes are built, and both modes are
-          <strong>serial</strong>: there is no executor yet, so requests are
-          dispatched one at a time and a target slower than the arrival
-          interval will cap the achieved rate below the rate you asked for.
-          Neither mode currently finds a breaking point, because the run
-          throttles itself before the target does. Reports throughput against
-          target, p50/p90/p99 latency, and error rate over time, and writes a
-          run artifact that can be replayed later from its seed and config.
-          <a href="https://github.com/saifullah4khan/TestingHQ/issues/38">Tracked in issue #38</a>.
+          modes are built, and both dispatch through a pool of
+          <code>--concurrency</code> worker threads, so a target slower than the
+          arrival interval no longer caps the achieved rate below the rate you
+          asked for. Open-loop holds its arrival schedule regardless of target
+          latency, which is the condition a breaking point exists to find.
+          Reports throughput against target, p50/p90/p99 latency, error rate
+          over time, and the knee where the endpoint starts shedding load or
+          slowing; a run that held reports no knee, which is a result rather
+          than a missing value. Writes a run artifact that can be replayed
+          later from its seed and config.
         </p>
       </div>
     </div>

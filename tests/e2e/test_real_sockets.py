@@ -1,12 +1,17 @@
 """End to end, over real sockets, with the real transport.
 
-Every other test in this repository injects a fake HTTP client. That is
-correct and it is also a gap: nothing has ever run the actual binary against an
-actual socket, so nothing has proved the parts that only appear when a socket
-is real. A wrong Content-Length, a chunked-encoding assumption, a connection
-that is accepted and then reset, a client that works in-process and not as a
-subprocess: none of that is reachable from a fake, and all of it is what a user
-meets first.
+Most of this repository injects a fake HTTP client. That is correct for most
+things and blind to everything that only appears when a socket is real, which is
+what this file exists for. A wrong Content-Length, a chunked-encoding
+assumption, a connection that is accepted and then reset, a client that works
+in-process and not as a subprocess: none of that is reachable from a fake, and
+all of it is what a user meets first.
+
+So this is not the only place a real socket appears. `tests/web/test_server.py`
+and `tests/integration/test_pipeline_verification.py` both bind loopback
+themselves, and all three run in the e2e job. What is unique here is driving
+the installed binary as a subprocess rather than importing the engine, which is
+the one thing an in-process fake cannot substitute for.
 
 This file is the one place it is reached. The sink is a real `http.server` on a
 loopback port. The tool runs as a real subprocess. The transport is

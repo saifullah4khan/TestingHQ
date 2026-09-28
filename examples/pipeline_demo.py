@@ -1,9 +1,9 @@
-"""An end-to-end demonstration of verify, ledger and redeliver.
+"""An end-to-end demonstration of verify, ledger, redeliver, loop and steady.
 
-Everything else in this repository's suite is hermetic. This script is not, and
+Most of this repository's suite is hermetic. This script is not, and
 deliberately so: it starts a real HTTP server on 127.0.0.1 that parses multipart
 inbound payloads into "tickets" the way a real intake pipeline would, points the
-CLI at it over a real socket, and prints what the three tools say.
+CLI at it over a real socket, and prints what the five tools say.
 
 It exists because the injectable-client seam, which the whole suite relies on,
 also means no test in the suite proves that the real transport, the real

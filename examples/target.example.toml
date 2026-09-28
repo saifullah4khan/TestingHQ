@@ -25,9 +25,10 @@ url = "https://staging.example.com/intake/testinghq"
 # Readback: where the pipeline's own output can be read back from.
 #
 # Optional. `testinghq blast fire`, `testinghq barrage fire` and
-# `testinghq compare` do not need it. `testinghq verify`, `testinghq ledger`
-# and `testinghq redeliver` do: without a way to ask the system what it made of
-# a message, they can only report what it answered, which is a 200.
+# `testinghq compare` do not need it. The five pipeline tools do:
+# `testinghq verify`, `testinghq ledger`, `testinghq redeliver`, `testinghq
+# loop` and `testinghq steady`. Without a way to ask the system what it made
+# of a message, they can only report what it answered, which is a 200.
 #
 # The url below is gated by the same guardrail as a firing target. A public
 # host is refused unless you pass --allow-public-readback, because on a real

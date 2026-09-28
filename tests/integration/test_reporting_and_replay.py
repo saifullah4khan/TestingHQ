@@ -1,7 +1,7 @@
 """Integration: reporting and replay, end to end through the real CLI paths.
 
 The backlog's reporting and replay integration item. `core/report.py` and
-`testinghq/cli.py`'s replay path are both unit tested in isolation, and
+`testinghq/cli/blast.py`'s replay path are both unit tested in isolation, and
 `tests/unit/test_report.py` checks the report module against the shipped
 fixtures. Nothing checked the two together, which is where the claims actually
 live:

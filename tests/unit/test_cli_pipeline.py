@@ -3,8 +3,8 @@
 These tests are about the wiring, not the tools. The tools are covered in
 depth elsewhere; what has to be true here is narrower and just as important:
 
-  the three commands share one argument grammar, so learning one teaches the
-  other two
+  the five commands share one argument grammar, so learning one teaches the
+  other four
   the dry-run default holds, and a refusal happens before anything is sent
   `--readback` resolution works from a flag and from a config file, and the
   flag wins
@@ -431,9 +431,9 @@ def test_an_unknown_tool_is_rejected_by_the_parser():
 
 
 def test_the_tools_share_their_readback_arguments():
-    """One argument grammar for all three. An operator who has learned one has
-    learned the other two, and the guardrail on the readback URL is in one
-    place rather than three."""
+    """One argument grammar for all of them. An operator who has learned one has
+    learned the rest, and the guardrail on the readback URL is in one place
+    rather than once per tool."""
     parser = cli.build_parser()
     for argv in (
         ["verify", "fire"],
@@ -509,7 +509,7 @@ def test_a_dry_run_prints_the_plan_for_the_scenario_you_asked_for(target_config,
 
 
 def test_the_exit_codes_are_defined_in_exactly_one_place():
-    """All three tools share them so they script the same way. A second
+    """All five tools share them so they script the same way. A second
     definition would be two sets of numbers that agree today."""
     from testinghq import pipeline
     from testinghq.pipeline import common

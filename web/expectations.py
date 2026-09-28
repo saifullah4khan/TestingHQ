@@ -23,7 +23,7 @@ If you are reading this because a rule needs to change: change it in
 add one to `web/static/app.js` either; the server annotates each record with
 its outcome from the engine, and the browser reads that.
 
-`tests/test_lane_hygiene.py` enforces the structural half of this: a re-inline
+`tests/test_repo_invariants.py` enforces the structural half of this: a re-inline
 of a rule here fails the build.
 """
 from __future__ import annotations

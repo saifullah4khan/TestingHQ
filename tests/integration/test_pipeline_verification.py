@@ -1,10 +1,11 @@
 """End to end against a real pipeline, through the real transport.
 
-Every other test in this repository that involves a payload injects a fake
-client and asserts on what came back. This file is where the pipeline tools
-are judged, and the difference is that here the system under test actually
-parses what it receives and actually creates records, so the tests can assert
-the claim that matters: a pipeline which is quietly wrong gets caught.
+Most tests in this repository that involve a payload inject a fake client and
+assert on what came back. This file is where the pipeline tools are judged, and
+the difference is that here the system under test actually parses what it
+receives and actually creates records, so the tests can assert the claim that
+matters: a pipeline which is quietly wrong gets caught. It binds loopback
+itself, and is one of the three files that run in the e2e job.
 
 The pattern throughout is the same, and it is the pattern that makes these
 tests mean anything:

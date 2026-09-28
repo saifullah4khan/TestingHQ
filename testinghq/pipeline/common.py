@@ -1,6 +1,7 @@
-"""Shared plumbing for the three pipeline tools: verify, ledger, redeliver.
+"""Shared plumbing for the five pipeline tools: verify, ledger, redeliver,
+loop, steady.
 
-All three do the same three things in the same order, and the order is a safety
+All five do the same three things in the same order, and the order is a safety
 property rather than a convenience:
 
   1. build the payloads, and check every address in them is synthetic
@@ -121,11 +122,17 @@ def send_all(
     bucket, and return what happened to each.
 
     Serial, and that is a deliberate constraint rather than a missing feature.
-    The three tools in this package are about what the pipeline produced, not
-    about throughput, and `barrage` is the tool that measures throughput. Adding
-    a second, differently-shaped concurrency implementation here would mean two
-    dispatch behaviours to reason about when reading a run artifact, and the
-    one that already exists is the one that is honest about being serial.
+    The five tools in this package are about what the pipeline produced, not
+    about throughput, and `barrage` is the tool that measures throughput.
+
+    Barrage now dispatches through a thread pool, so there are two
+    differently-shaped concurrency implementations in the package rather than
+    one. The line is drawn at the question a tool answers, not at the mechanism:
+    a correctness tool's answer does not depend on how fast the target replies,
+    and adding a pool here would mean two dispatch behaviours to reason about
+    when reading a run artifact, only one of which a reader would expect to be
+    concurrent. A run artifact from any of these five is serial by construction,
+    and nothing in a report implies otherwise.
 
     `sleep` AND `clock` are threaded into the rate limiter, and both are
     parameters for the same reason. Injecting a no-op `sleep` while the bucket

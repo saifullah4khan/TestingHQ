@@ -98,10 +98,10 @@ def build_clean_corpus(
     """The clean corpus, with a deterministic subset of payloads carrying
     attachments.
 
-    Shared by all three pipeline tools, because the attachment check has to be
+    Shared by all five pipeline tools, because the attachment check has to be
     live in all of them or it is not a check. `blast.generate.generate_corpus`
     never attaches anything, so this is where the attachment evidence comes
-    from, and having one implementation is what stops the three tools from
+    from, and having one implementation is what stops the tools from
     quietly verifying different corpora.
 
     Deterministic in (seed, count, attachment_rate) and nothing else. The
