@@ -37,6 +37,9 @@ EXPECTED = {
     "freshdesk.toml": "http",
     "generic-rest.toml": "http",
     "mail-sink.toml": "mailbox",
+    # Added by the dogfood harness (#69), after this list was written. It runs
+    # through every check here as well as its own in test_dogfood_harness.py.
+    "handlehq.toml": "http",
 }
 
 
