@@ -1,0 +1,109 @@
+{
+  "_about": "Reviewed intent fixtures for the \\steady\\ metamorphic tool. Five category hints across ten intents, on purpose: a flip is only checkable against a peer that was supposed to get the same label, so a fixture with one label per intent would report moves to new categories and say nothing useful about stability.",
+  "_how_to_review": "Every entry is one intent written three ways by a person who reads all three. The claim each entry makes is that a human triager asked 'what does this person want' would give all three the same answer. Disagreeing with one line is the review; disagreeing with the idea of a fixture is a different conversation.",
+  "_why_not_generated": "The same complaint in English, Urdu and Roman Urdu cannot be machine-translated at run time and still be a meaningful test, because the tool would be measuring the translator. Ship a reviewed table and the 'same meaning' claim becomes auditable, which is what makes the flip rate worth reading.",
+  "_edit_this_first": "This file is the only part of `steady` a human has to think about. If an intent is wrong, the tool measures the wrong invariance and every number it reports is wrong in a way nothing downstream can detect.",
+  "schema_version": 1,
+  "intents": [
+    {
+      "id": "refund-request",
+      "category_hint": "billing",
+      "note": "A customer asking for money back. The category is the department, not the sentiment.",
+      "variants": {
+        "en": "I was charged twice this month. Please refund the duplicate charge to my card.",
+        "ur": "اس مہینے میرا کارڈ دو بار چارج ہوا ہے۔ براہ کرم نقلی چارج واپس کر دیں۔",
+        "roman_ur": "is mahine mein mera card do baar charge hua hai. bro please nakhli charge wapis kar dein."
+      }
+    },
+    {
+      "id": "password-reset-request",
+      "category_hint": "account",
+      "note": "Locked out, asking for a reset link. An account request rather than a complaint about one.",
+      "variants": {
+        "en": "I cannot log in to my account. Could you send me a password reset link?",
+        "ur": "میں اپنے اکاؤنٹ میں لاگ ان نہیں کر سکتا۔ کیا آپ مجھے پاس ورڈ ری سیٹ لنک بھیج سکتے ہیں؟",
+        "roman_ur": "main apne account mein log in nahin kar sakta. kya aap mujhe password reset link bhej sakte hain?"
+      }
+    },
+    {
+      "id": "delivery-delay",
+      "category_hint": "shipping",
+      "note": "An order is late. Not a cancellation, not a return.",
+      "variants": {
+        "en": "My order was due last Tuesday and it still has not arrived. When will it be delivered?",
+        "ur": "میرا آرڈر پچھلے منگل کو آنے والا تھا اور ابھی تک نہیں آیا۔ کب پہنچے گا؟",
+        "roman_ur": "mera order pichle mangal ko aane wala tha aur abhi tak nahi aya. kab pohanche ga?"
+      }
+    },
+    {
+      "id": "wrong-item-received",
+      "category_hint": "shipping",
+      "note": "The right item arrived in the wrong size. Distinct from delivery delay: something must be sent back.",
+      "variants": {
+        "en": "You sent size medium but the parcel contains a large. I need to exchange it.",
+        "ur": "آپ نے سائز میڈیم بھیجا مگر پارسل میں لارج ہے۔ میں اسے بدلوانا چاہتا ہوں۔",
+        "roman_ur": "aap ne size medium bheja magar parcel mein large hai. main ise badalwana chahta hoon."
+      }
+    },
+    {
+      "id": "product-defect-report",
+      "category_hint": "product",
+      "note": "Something arrived broken. A product problem, not a shipping one, even though shipping caused it.",
+      "variants": {
+        "en": "The kettle arrived with a crack in the base. I am attaching a photo of the damage.",
+        "ur": "کیتل کی تہہ میں دراڑ ہے۔ میں نقصان کی تصویر بھیج رہا ہوں۔",
+        "roman_ur": "kettle ki tih mein darad hai. main nuqsan ki tasveer bhej raha hoon."
+      }
+    },
+    {
+      "id": "subscription-cancel",
+      "category_hint": "account",
+      "note": "Ending a recurring charge. Not a refund: nothing has been overcharged, and the distinction is the whole point of keeping them apart.",
+      "variants": {
+        "en": "Please cancel my monthly subscription before the next renewal date.",
+        "ur": "براہ کرم اگلی تجدید سے پہلے میری ماہانہ سبسکرپشن منسوخ کر دیں۔",
+        "roman_ur": "bro please agli tajdid se pehle meri mahana subscription mansookh kar dein."
+      }
+    },
+    {
+      "id": "invoice-address-change",
+      "category_hint": "billing",
+      "note": "Correcting a detail on an existing invoice, not asking for a new one.",
+      "variants": {
+        "en": "The company name on invoice INV-40221 is wrong. Please reissue it with the correct name.",
+        "ur": "INV-40221 انوائس پر کمپنی کا نام غلط ہے۔ براہ کرم درست نام کے ساتھ دوبارہ جاری کریں۔",
+        "roman_ur": "INV-40221 invoice par company ka naam ghalat hai. bro please sahi naam ke sath dobara jari karein."
+      }
+    },
+    {
+      "id": "data-deletion-request",
+      "category_hint": "account",
+      "note": "Erasure, not export. A different legal obligation from requesting a copy, which is why it sits apart from a plain account request.",
+      "variants": {
+        "en": "Under GDPR I am requesting permanent deletion of my account and all associated data.",
+        "ur": "GDPR کے تحت میں اپنے اکاؤنٹ اور اس سے منسلک تمام ڈیٹا کا مستقل حذف کر رہا ہوں۔",
+        "roman_ur": "GDPR ke tehat main apne account aur us se mansook tamam data ka mustaqil hazf kar raha hoon."
+      }
+    },
+    {
+      "id": "feature-request",
+      "category_hint": "product",
+      "note": "Asking for something that does not exist yet. Grouped with product quality because both are about the product rather than the order.",
+      "variants": {
+        "en": "It would help if the app let us schedule reports rather than only sending them now.",
+        "ur": "اگر ایپ میں رپورٹس ابھی بھیجنے کے بجائے شیڈول کرنے کا آپشن ہوتا تو بہت بہتر ہوتا۔",
+        "roman_ur": "agar app mein reports abhi bhejne ke bajaye schedule karne ka option hota to behtar hota."
+      }
+    },
+    {
+      "id": "sales-enquiry",
+      "category_hint": "pre-sales",
+      "note": "Asking about buying, with nobody yet being a customer. Distinct from every billing intent above.",
+      "variants": {
+        "en": "Do you offer volume pricing for a team of twenty, and what would the annual cost be?",
+        "ur": "کیا آپ بیس جاسٹوں کے لیے رعایتی قیمت دیتے ہیں، اور سالانہ لاگت کتنا ہوگی؟",
+        "roman_ur": "kya aap bees jaston ke liye raiyati qeemat dete hain, aur salana kharcha kitna hoga?"
+      }
+    }
+  ]
+}
