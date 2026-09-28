@@ -24,7 +24,9 @@ for a blocking client.
 The cost of threads is real and is why `concurrency` stays a small number: a
 thread per in-flight request means one interpreter stack per request, so a
 run configured for thousands of concurrent requests would not do what it says.
-The CLI cap is on `concurrency`, not on the rate, and the README says so.
+That is enforced, not advised: `runner.check_rate_ceiling` refuses a
+`concurrency` above DEFAULT_MAX_CONCURRENCY unless `--allow-high-rate` is
+passed, the same opt-in that raises the rate and duration ceilings.
 
 INTERFACE, and why it exists at all. `SerialExecutor` is not a testing
 convenience bolted on: it is the correct implementation for `concurrency == 1`,
@@ -91,9 +93,13 @@ class SerialExecutor:
         self._pending: List[Future] = []
 
     def submit(self, fn, *args) -> Future:
+        # Exception, not BaseException. A KeyboardInterrupt or SystemExit must
+        # stop the run where it happened; recording it on a Future would defer
+        # it to the next drain, and the operator's Ctrl-C would be ignored until
+        # the stage finished sending.
         try:
             value = fn(*args)
-        except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised
+        except Exception as exc:  # noqa: BLE001 - recorded, re-raised by drain
             future = _Completed(exception=exc)
         else:
             future = _Completed(value=value)
@@ -105,7 +111,10 @@ class SerialExecutor:
             future.result()
         self._pending.clear()
 
-    def shutdown(self, wait: bool = True) -> None:
+    def shutdown(self, wait: bool = True, cancel_pending: bool = False) -> None:
+        if cancel_pending:
+            self._pending.clear()
+            return
         if wait:
             self.drain()
 
@@ -157,7 +166,20 @@ class PoolExecutor:
             for future in pending:
                 future.result()
 
-    def shutdown(self, wait: bool = True) -> None:
+    def shutdown(self, wait: bool = True, cancel_pending: bool = False) -> None:
+        """Release the workers.
+
+        `cancel_pending` is the abort path. After an error or a Ctrl-C the run is
+        over, and draining would keep sending every request still in the queue
+        to the target before the process could exit. Cancelled requests are
+        never sent; the ones already in flight finish, because a request on the
+        wire cannot be recalled.
+        """
+        if cancel_pending:
+            with self._lock:
+                self._pending = []
+            self._pool.shutdown(wait=wait, cancel_futures=True)
+            return
         try:
             if wait:
                 self.drain()

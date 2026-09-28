@@ -4,7 +4,7 @@ Barrage is a load generator for an endpoint the operator controls, not a
 flooding tool. Everything in this module exists to keep firing at a
 controlled, bounded rate: a warmup ramp eases into load instead of
 slamming an endpoint cold, a steady-state hold sustains the configured
-target, and a hard rate-and-duration ceiling refuses to run an
+target, and a hard rate, duration and concurrency ceiling refuses to run an
 unreasonably large load test unless the caller explicitly says so with
 `allow_high_rate=True`. That ceiling is a safety control, not a tuning
 knob: a typo in `--rate` or `--duration` must not turn into a
@@ -53,11 +53,17 @@ from .executor import PoolExecutor, SerialExecutor, make_executor
 
 DEFAULT_MAX_RATE_PER_SEC = 50.0
 DEFAULT_MAX_DURATION_SEC = 300.0
+#: Requests in flight at once. Each is a worker thread, so this is a memory
+#: ceiling as much as a load one. 64 covers the default rate ceiling against a
+#: target answering in over a second (50 req/s x 1.28s), which is already a
+#: target in trouble. Raised by the same --allow-high-rate opt-in as the others.
+DEFAULT_MAX_CONCURRENCY = 64
 
 
 class RateCeilingError(RuntimeError):
-    """Raised when a run would exceed the hard rate or duration ceiling and
-    the caller did not explicitly opt in to a higher limit."""
+    """Raised when a run would exceed the hard rate, duration or concurrency
+    ceiling and the caller did not explicitly opt in to a higher limit, or asks
+    for a concurrency below 1."""
 
 
 def check_rate_ceiling(
@@ -66,12 +72,30 @@ def check_rate_ceiling(
     allow_high_rate: bool = False,
     max_rate: float = DEFAULT_MAX_RATE_PER_SEC,
     max_duration: float = DEFAULT_MAX_DURATION_SEC,
+    concurrency: Optional[int] = None,
+    max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
 ) -> None:
-    """Refuse a run whose target rate or total duration exceeds the ceiling,
-    unless `allow_high_rate` is True. Checked once, up front, before any
-    stage is built or any request is dispatched."""
+    """Refuse a run whose target rate, total duration or concurrency exceeds
+    the ceiling, unless `allow_high_rate` is True. Checked once, up front,
+    before any stage is built or any request is dispatched.
+
+    A concurrency below 1 is refused whatever `allow_high_rate` says: it is not
+    a high setting but a meaningless one, and the pool would reject it later
+    with a less useful message."""
+    if concurrency is not None and concurrency < 1:
+        raise RateCeilingError(
+            f"concurrency {concurrency!r} must be at least 1: it is the number "
+            "of requests in flight at once"
+        )
     if allow_high_rate:
         return
+    if concurrency is not None and concurrency > max_concurrency:
+        raise RateCeilingError(
+            f"concurrency {concurrency!r} exceeds the safety ceiling of "
+            f"{max_concurrency!r} requests in flight. Each one is a worker "
+            "thread. Pass allow_high_rate=True (CLI: --allow-high-rate) to run "
+            "above this ceiling explicitly."
+        )
     if rate > max_rate:
         raise RateCeilingError(
             f"rate {rate!r} req/s exceeds the safety ceiling "
@@ -149,10 +173,9 @@ def total_duration(warmup_seconds: float, hold_seconds: float) -> float:
 
 SendFn = Callable[[int], Tuple[object, float]]
 
-#: What `run` needs from a dispatch strategy. Defined in
-#: `testinghq/barrage/executor.py` and imported here under `TYPE_CHECKING` plus
-#: a runtime import for the default, so the two modules do not have to import
-#: each other's names into a cycle at module scope.
+#: What `run` needs from a dispatch strategy: `submit`, `drain` and `shutdown`,
+#: as defined by the two executors in `testinghq/barrage/executor.py`. A string,
+#: because it is only ever used in annotations.
 DispatchExecutor = "SerialExecutor | PoolExecutor"
 
 
@@ -168,6 +191,11 @@ class DispatchRecord:
     dispatch_time: float
     waited: float
     result: object
+    #: Seconds the request spent waiting for a free worker after it was
+    #: scheduled. `dispatch_time` is when it actually went out, so a saturated
+    #: pool shows up as achieved throughput falling behind the target, and this
+    #: says by how much each request was held back. Always 0 for serial dispatch.
+    queued: float = 0.0
 
 
 # Headroom for the gate bucket. See _pace_and_gate: the schedule is the
@@ -273,8 +301,9 @@ def _submit(
     target_rate: float,
     waited: float,
     records: List[DispatchRecord],
+    clock: Callable[[], float],
 ) -> None:
-    """Hand one request to the executor and record the dispatch.
+    """Hand one request to the executor and record it.
 
     The record is appended in submission order, before the request has
     completed. `DispatchRecord.index` is the payload identity and the artifact's
@@ -283,10 +312,19 @@ def _submit(
     between executions of the same plan cannot be compared, and `compare`
     aligns on exactly that index.
 
-    `result` is None until `drain` fills it in. Nothing reads a record's result
-    before the run is drained, and a partially filled record is what a crash
-    mid-run would leave behind, which is the honest state for one.
+    `dispatch_time` on the finished record is when the request actually went
+    out, read from `clock` by the worker as it starts, not when it was handed to
+    the executor. The first version recorded the hand-off. With every worker
+    busy, requests wait in the pool's queue, and a hand-off timestamp reported
+    them as sent on schedule: achieved throughput equalled the target and the
+    knee never showed, while the target was in fact falling behind. The gap
+    between the two is kept as `queued`.
+
+    `result` is None until the request completes. Nothing reads a record's
+    result before the run is drained, and a partially filled record is what a
+    crash mid-run would leave behind, which is the honest state for one.
     """
+    position = len(records)
     records.append(
         DispatchRecord(
             index=index,
@@ -296,27 +334,29 @@ def _submit(
             result=None,
         )
     )
-    # The future carries the RESULT only, not `send_fn`'s whole
-    # `(result, service_seconds)` tuple. Unwrapping here rather than in
-    # `_bind_result` keeps the record's contract in one place: a
-    # DispatchRecord's result is whatever the caller handed back, and the
-    # service time is an artefact of the loop that never reaches a record.
-    future = executor.submit(lambda: send_fn(index)[0])
-    future.add_done_callback(_bind_result(records, index))
+
+    def _send():
+        started = clock()
+        # The future carries the RESULT and the start time only, not
+        # `send_fn`'s service seconds, which are an artefact of the loop.
+        return send_fn(index)[0], started
+
+    future = executor.submit(_send)
+    future.add_done_callback(_bind_result(records, position))
 
 
-def _bind_result(records: List[DispatchRecord], index: int):
+def _bind_result(records: List[DispatchRecord], position: int):
     """A callback that writes a completed request's result back into its record.
 
-    Bound per-request rather than collected in a list, because a list would
-    have to be in completion order and then be sorted, and a list that is in
-    completion order and then sorted is a list whose order is wrong twice. The
-    record is found by index, which is the only ordering this module promises.
+    By position, captured at submission, rather than by searching for the
+    index. The first version scanned the list on every completion, which is
+    quadratic in the run: at the default ceiling that is 15,000 requests and
+    over a hundred million comparisons, on the worker threads that are meant
+    to be sending.
 
     `DispatchRecord` is frozen, so this replaces the element rather than
-    mutating it. A record that a caller is still holding stays as it was, which
-    is the safe direction: a stale None result is visible, a mutated record is
-    not.
+    mutating it. Item assignment on a list is atomic under the GIL, and each
+    position is written by exactly one callback.
     """
 
     def _write(future) -> None:
@@ -324,20 +364,18 @@ def _bind_result(records: List[DispatchRecord], index: int):
         # executor.drain() against the future that carries it, so a failure
         # surfaces at the point the run waits for the request rather than
         # inside a worker thread where the traceback would be lost.
-        if future.cancelled():  # pragma: no cover - nothing cancels today
+        if future.cancelled() or future.exception() is not None:
             return
-        if future.exception() is not None:
-            return
-        for position, record in enumerate(records):
-            if record.index == index:
-                records[position] = DispatchRecord(
-                    index=record.index,
-                    target_rate=record.target_rate,
-                    dispatch_time=record.dispatch_time,
-                    waited=record.waited,
-                    result=future.result(),
-                )
-                return
+        result, started = future.result()
+        record = records[position]
+        records[position] = DispatchRecord(
+            index=record.index,
+            target_rate=record.target_rate,
+            dispatch_time=started,
+            waited=record.waited,
+            result=result,
+            queued=max(started - record.dispatch_time, 0.0),
+        )
 
     return _write
 
@@ -365,11 +403,11 @@ def _run_open_loop_stages(
     way a p90 over a queue is a measurement of the target rather than of this
     loop.
 
-    `dispatch_time` is recorded at submit. The request is handed to the executor
-    at that instant; the transport measures its own latency inside the worker.
-    A future returned here is deliberately not awaited: an open-loop run's
-    arrivals must not wait on service, and draining happens at the stage
-    boundary in `_finish_stage`.
+    The loop records the hand-off, and the worker overwrites it with the time
+    the request actually went out (see `_submit`), so a pool that cannot keep
+    up shows as a shortfall rather than as a schedule met. A future returned
+    here is deliberately not awaited: an open-loop run's arrivals must not wait
+    on service, and draining happens at the stage boundary, below.
     """
     records: List[DispatchRecord] = []
     index = 0
@@ -390,7 +428,7 @@ def _run_open_loop_stages(
                 _sleep_until(stage_start + step * interval, clock, sleep)
                 waited = _pace_and_gate(bucket)
                 dispatch_time = clock()
-                _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records)
+                _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records, clock)
                 index += 1
         # Drain before the stage's window closes, so a request submitted in
         # this stage cannot be reported in a later one and so a stage's error
@@ -442,7 +480,7 @@ def _run_closed_loop_stages(
                 break
             waited = _pace_and_gate(bucket)
             dispatch_time = clock()
-            _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records)
+            _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records, clock)
             index += 1
             dispatched += 1
         executor.drain()
@@ -511,7 +549,7 @@ def run(
     """Run `plan`, dispatching through `send_fn`, and return the ordered
     list of DispatchRecord.
 
-    Enforces the hard rate-and-duration ceiling before building any stage
+    Enforces the hard rate, duration and concurrency ceiling before building any stage
     or dispatching anything: a run that would exceed it raises
     RateCeilingError unless `allow_high_rate=True`.
 
@@ -535,6 +573,7 @@ def run(
         allow_high_rate=allow_high_rate,
         max_rate=max_rate,
         max_duration=max_duration,
+        concurrency=plan.concurrency,
     )
     stages = build_stages(plan.rate, plan.warmup_seconds, plan.hold_seconds, plan.ramp_step_count)
     owned = executor is None
@@ -550,7 +589,14 @@ def run(
                 stages, plan.concurrency, send_fn, clock, sleep, executor
             )
         executor.drain()
-    finally:
+    except BaseException:
+        # An error or a Ctrl-C ends the run. Cancel what is still queued rather
+        # than draining it: a drain would keep sending to the target until the
+        # queue was empty, and would re-raise a worker's exception over the one
+        # that actually stopped the run.
         if owned:
-            executor.shutdown(wait=True)
+            executor.shutdown(wait=False, cancel_pending=True)
+        raise
+    if owned:
+        executor.shutdown(wait=True)
     return records

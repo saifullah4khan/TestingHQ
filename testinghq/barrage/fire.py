@@ -15,7 +15,7 @@ module is where all three are enforced on the way to the wire:
 2. Configured targets ONLY. guardrails.require_configured_target gates
    both the target name (the allow-list check) and the resolved URL (the
    public-host check).
-3. A hard rate-and-duration ceiling, enforced by runner.check_rate_ceiling
+3. A hard rate, duration and concurrency ceiling, enforced by runner.check_rate_ceiling
    before any dispatch.
 
 None of these may be weakened. If a test disagrees with a guardrail, the
@@ -319,6 +319,48 @@ def execute(
         run_config(plan, seed, pool_size, target_name, dry_run=False),
         samples_from_records(records),
     )
+    artifact["dispatch"] = dispatch_summary(records, plan.concurrency)
     printer(barrage_report.format_summary(artifact))
+    note = format_dispatch_note(artifact["dispatch"])
+    if note:
+        printer(note)
     write_artifact(out, artifact)
     return EXIT_OK
+
+
+#: A request held back longer than this for a free worker counts as queued.
+#: Ten milliseconds: half the arrival interval at the 50 req/s ceiling, and well
+#: above thread start-up jitter, which measured at up to 2.4ms on a healthy
+#: 8-worker run and would otherwise print a saturation warning on every run.
+QUEUED_THRESHOLD_SECONDS = 0.010
+
+
+def dispatch_summary(records: List[DispatchRecord], concurrency: int) -> Dict[str, Any]:
+    """How long requests waited for a free worker.
+
+    Throughput already shows a saturated pool, because each record's
+    `dispatch_time` is when the request actually went out. This names the
+    cause, so a report that falls short of its target says whether the target
+    was slow or the pool was too small to keep the schedule.
+    """
+    waits = [r.queued for r in records]
+    queued = [w for w in waits if w > QUEUED_THRESHOLD_SECONDS]
+    return {
+        "concurrency": concurrency,
+        "queued_requests": len(queued),
+        "max_queue_wait_ms": round(max(waits) * 1000.0, 3) if waits else 0.0,
+    }
+
+
+def format_dispatch_note(dispatch: Dict[str, Any]) -> str:
+    """One warning line when the pool was the bottleneck, and nothing when it
+    was not. Silence is the normal case; a line on every run would teach an
+    operator to skip it."""
+    if not dispatch.get("queued_requests"):
+        return ""
+    return (
+        f"dispatch: {dispatch['queued_requests']} request(s) waited for a free "
+        f"worker, up to {dispatch['max_queue_wait_ms']:g}ms. All "
+        f"{dispatch['concurrency']} workers were busy, so the schedule was not "
+        "held and the shortfall above is partly this tool's. Raise --concurrency."
+    )

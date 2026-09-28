@@ -27,6 +27,13 @@ testinghq = "testinghq.cli:main"
 [tool.setuptools.packages.find]
 include = ["testinghq*"]
 
+# Non-Python files the package reads at run time. `steady` loads its reviewed
+# intent fixture by path, and without this a wheel install shipped a `steady`
+# that raised FileNotFoundError on every run. tests/unit/test_package_data.py
+# checks every non-Python file under testinghq/ is covered by a pattern here.
+[tool.setuptools.package-data]
+"testinghq.pipeline" = ["fixtures/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Put the repo root on sys.path for the whole suite. Without this, `pytest -q`

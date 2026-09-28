@@ -45,7 +45,8 @@ def _add_barrage_parser(sub) -> None:
         help=(
             "requests in flight at once. Both modes dispatch through a pool of "
             "this many worker threads, so one is a serial send. Each worker is "
-            "an interpreter thread, so a high value is a memory cost. Open "
+            "an interpreter thread, so it is capped at 64 unless "
+            "--allow-high-rate is passed. Open "
             "mode's is a ceiling on what is outstanding rather than a worker "
             "count, because its arrivals are on a schedule"
         ),
@@ -68,7 +69,8 @@ def _add_barrage_parser(sub) -> None:
     b_fire.add_argument(
         "--allow-high-rate", action="store_true",
         help=(
-            "raise the hard safety ceiling on rate and duration. This exists "
+            "raise the hard safety ceiling on rate, duration and concurrency. "
+            "This exists "
             "so a mistake cannot become a self-inflicted denial of service; "
             "pass it only deliberately, for a target you own"
         ),
@@ -85,7 +87,7 @@ def _add_barrage_parser(sub) -> None:
     )
     b_replay.add_argument(
         "--allow-high-rate", action="store_true",
-        help="raise the hard safety ceiling on rate and duration",
+        help="raise the hard safety ceiling on rate, duration and concurrency",
     )
     b_replay.add_argument("--out", help="path to write the run artifact JSON")
     b_replay.add_argument(
@@ -148,10 +150,9 @@ def _cmd_barrage_fire(args) -> int:
     # through a pool of plan.concurrency workers, and the flag is the one
     # control that decides how much load is in flight at once.
     #
-    # The cap that remains is the rate-and-duration ceiling, checked below,
-    # and the number of workers is bounded by the thread cost rather than by a
-    # separate rule: see testinghq/barrage/executor.py on why a high
-    # concurrency is a memory cost and not a free setting.
+    # It is capped instead, with the rate and duration, by the ceiling checked
+    # below: 64 in flight unless --allow-high-rate is passed, because each one
+    # is a worker thread. See testinghq/barrage/executor.py.
     #
     # Arguments are validated before anything is announced, so a refusal does
     # not follow a line describing what the command was about to do.
@@ -163,7 +164,8 @@ def _cmd_barrage_fire(args) -> int:
         # dry run reports an over-limit plan as refused instead of
         # cheerfully previewing a run that would never be allowed.
         barrage_fire.check_rate_ceiling(
-            args.rate, args.duration, allow_high_rate=args.allow_high_rate
+            args.rate, args.duration, allow_high_rate=args.allow_high_rate,
+            concurrency=plan.concurrency,
         )
     except (RateCeilingError, barrage_fire.BarrageError, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
