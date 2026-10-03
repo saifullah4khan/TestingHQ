@@ -24,6 +24,17 @@ on:
   push:
     branches: [main]
 
+# The workflow only reads the repository. Declared so a change to the
+# repository's default token permissions cannot widen what these jobs can do.
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes the older run. Runs on main
+# are never cancelled, so every merge keeps a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
@@ -35,6 +46,7 @@ jobs:
   # matrix, and branch protection matches a fixed string.
   e2e-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       # Floor and ceiling only. These tests exercise the wire format and the
       # process boundary, neither of which varies by interpreter, and the full
@@ -104,6 +116,7 @@ jobs:
     needs: [e2e-version]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Fail if either e2e leg failed
         if: >-
@@ -113,4 +126,3 @@ jobs:
           exit 1
       - name: Both end-to-end legs passed
         run: echo "every end-to-end leg passed"
-
