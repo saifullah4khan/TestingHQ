@@ -20,8 +20,9 @@ TWO PROPERTIES WORTH KNOWING BEFORE YOU TRUST IT:
    because there is nothing to gate. Every other subcommand can put bytes on a
    wire; this one cannot, by construction rather than by policy. That is also
    why it needs no configured target. It refuses only artifacts it cannot
-   compare: a dry run, which has no responses, and a pair with no record in
-   common.
+   compare: a dry run, which has no responses, a pair with no record in
+   common, and a pair from two different tools. Two blast runs are compared
+   payload by payload (runs.py), two barrage runs by load metrics (load.py).
 
 2. It defines no classification rules of its own. Outcomes come from
    `testinghq.core.report.classify_record`, the same canonical implementation

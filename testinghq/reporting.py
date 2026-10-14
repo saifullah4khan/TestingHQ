@@ -795,8 +795,10 @@ def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
     fixes = artifact.get("fixes") or {}
     regressed = bool(artifact.get("regressed"))
 
+    # A barrage comparison's entries name a metric and carry a detail line;
+    # a blast comparison's name the record.
     findings = [
-        Finding(kind="regression", detail=str(r.get("id")))
+        Finding(kind="regression", detail=str(r.get("detail") or r.get("id")))
         for r in (regressions.get("records") or [])
         if isinstance(r, dict)
     ]
