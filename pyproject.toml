@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "testinghq"
 version = "0.1.0"
-description = "Self-testing tools for intake pipelines. Blast fires realistic-to-garbled inbound-email payloads at an endpoint you control."
+description = "Fuzz, load-test and verify your inbound email webhook. Catches lost, duplicated, mis-threaded and looped mail that a 200 OK hides."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Saifullah Khan", email = "saifullah4khan@gmail.com" }]
 # Only the TOML parser. The stdlib grew `tomllib` in 3.11, so below that
 # `tomli` is the same package under its old name and `core/config.py` imports
@@ -19,7 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+# setuptools is here for the wheel test in tests/unit/test_release.py, which
+# builds without isolation so the suite never downloads anything.
+dev = ["pytest>=7", "ruff>=0.6", "setuptools>=77"]
 
 [project.scripts]
 testinghq = "testinghq.cli:main"
@@ -27,9 +30,7 @@ testinghq = "testinghq.cli:main"
 [tool.setuptools.packages.find]
 include = ["testinghq*"]
 
-# Non-Python files the package reads at run time. `steady` loads its reviewed
-# intent fixture by path, and without this a wheel install shipped a `steady`
-# that raised FileNotFoundError on every run. tests/unit/test_package_data.py
+# Non-Python files the package reads at run time. tests/unit/test_package_data.py
 # checks every non-Python file under testinghq/ is covered by a pattern here.
 [tool.setuptools.package-data]
 "testinghq.pipeline" = ["fixtures/*.json"]
@@ -37,13 +38,8 @@ include = ["testinghq*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Put the repo root on sys.path for the whole suite. Without this, `pytest -q`
-# (what ci.yml runs) and `python -m pytest -q` disagree: the -m form inserts the
-# working directory and the bare form does not, so anything importing a
-# non-installed top-level package from the root, such as `web`, passes locally
-# and dies in CI. Only `testinghq*` is an installed package; `web` is served
-# from the tree. Do not remove without making `pytest -q` green from a clean
-# clone first.
+# Put the repo root on sys.path so `pytest -q` and `python -m pytest -q` import
+# the same tree, installed or not.
 pythonpath = ["."]
 markers = [
   "allow_network: opt out of the suite-wide network block in tests/conftest.py. Only for tests that genuinely need loopback, such as the ones that start a real HTTP server. Registering it matters: an unregistered marker is silently ignored, so a typo would leave the test blocked rather than the misspelling being an error.",
