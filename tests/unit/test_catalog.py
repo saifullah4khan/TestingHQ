@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from testinghq.blast.catalog import CATALOG, build, build_all
@@ -200,3 +202,18 @@ def quote_depth(line):
 
 def email_content_type(email):
     return email.headers["Content-Type"]
+
+
+def test_hostile_form_shapes_survive_the_default_send_format():
+    """The parts a catalog case adds must be in the bytes blast actually
+    sends, not only in the serializer's part list."""
+    from testinghq.core.transport import build_request
+
+    def wire(name):
+        return build_request(build(name, seed=2), "http://localhost/x").body
+
+    assert b"Content-Disposition: form-data\r\n\r\n" in wire("missing_boundary_field")
+    assert wire("duplicate_form_field").count(b'form-data; name="subject"') == 2
+    envelope = wire("malformed_envelope_json").split(b'name="envelope"\r\n\r\n')[1]
+    with pytest.raises(ValueError):
+        json.loads(envelope.split(b"\r\n")[0])
