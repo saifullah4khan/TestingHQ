@@ -200,11 +200,32 @@ def _base(artifact: Dict[str, Any], tool: str) -> Dict[str, Any]:
     }
 
 
+#: The newest blast and compare artifact schema these readers know.
+_BLAST_SCHEMA_VERSION = 1
+
+
+def _check_schema_version(artifact: Dict[str, Any], tool: str, known: int) -> int:
+    """The artifact's schema_version: missing is 0, above `known` is refused."""
+    version = artifact.get("schema_version", 0)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version!r}, which is not "
+            "a non-negative integer"
+        )
+    if version > known:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version}; this build "
+            f"reads {tool} artifacts up to schema_version {known}"
+        )
+    return version
+
+
 def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
+    _check_schema_version(artifact, "blast", _BLAST_SCHEMA_VERSION)
     summary = _summary(artifact)
     records = artifact.get("records") or []
-    by_status = summary.get("by_status_class") or {}
     flags = summary.get("flags") or []
+    aborted = artifact.get("aborted") is True
 
     passed = sum(
         1 for r in records
@@ -212,15 +233,25 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
     failed = len(records) - passed
 
-    findings = tuple(
-        Finding(kind="flag", detail=str(flag)) for flag in flags
-    )
-    verdict = "FLAGGED" if flags else "CLEAN"
+    # Each flag names its own reason, including why a request got no
+    # response, so the flags are the findings.
+    findings = [Finding(kind="flag", detail=str(flag)) for flag in flags]
+    if aborted:
+        findings.append(
+            Finding(
+                kind="aborted",
+                detail="interrupted before every payload was sent; the counts are partial",
+            )
+        )
+        verdict = "ABORTED"
+    else:
+        verdict = "FLAGGED" if flags else "CLEAN"
     return ArtifactSummary(
         verdict=verdict,
-        # blast never recorded a verdict, so this one is derived from flags.
+        # blast prints its verdict but the artifact carries the flags it is
+        # derived from, so it is derived here the same way.
         verdict_source="derived",
-        exit_code=EXIT_FINDING if flags else EXIT_OK,
+        exit_code=EXIT_FINDING if (flags or aborted) else EXIT_OK,
         exit_code_source="derived",
         counts=Counts(
             sent=len(records),
@@ -228,7 +259,7 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
             failed=failed,
             records=len(records),
         ),
-        findings=findings,
+        findings=tuple(findings),
         **_base(artifact, "blast"),
     )
 
@@ -439,6 +470,7 @@ def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
+    _check_schema_version(artifact, "compare", _BLAST_SCHEMA_VERSION)
     regressions = artifact.get("regressions") or {}
     fixes = artifact.get("fixes") or {}
     regressed = bool(artifact.get("regressed"))
