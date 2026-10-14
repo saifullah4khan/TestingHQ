@@ -68,9 +68,12 @@ def test_text_only_no_html_case_has_no_html():
     assert email.text
 
 
-def test_many_recipients_case_has_many_envelope_recipients():
+def test_many_recipients_puts_500_in_the_to_header_and_one_on_the_envelope():
     email = build("many_recipients", seed=1)
-    assert len(email.envelope.to) >= 20
+    assert len(email.headers["To"].split(", ")) == 500
+    assert email.headers["To"] == email.to
+    assert len(email.envelope.to) == 1
+    assert email.envelope.to[0] in email.to.split(", ")
 
 
 def test_plus_addressing_case_has_plus_tag():
@@ -108,9 +111,92 @@ def test_declared_charset_mismatch_case_sets_a_charset_label():
 
 def test_extremely_long_subject_case_is_much_longer_than_normal():
     email = build("extremely_long_subject", seed=1)
-    assert len(email.subject) > 500
+    assert len(email.subject) == 10_000
+    assert email.headers["Subject"] == email.subject
 
 
 def test_unicode_heavy_subject_case_has_non_ascii_content():
     email = build("unicode_heavy_subject", seed=1)
     assert any(ord(ch) > 127 for ch in email.subject)
+
+
+def test_every_case_has_a_verdict_category():
+    from testinghq.blast.catalog import CATALOG_CATEGORIES
+    from testinghq.core.report import CATEGORIES
+
+    assert set(CATALOG_CATEGORIES) == set(CATALOG)
+    assert set(CATALOG_CATEGORIES.values()) <= set(CATEGORIES)
+
+
+def test_cases_do_not_share_one_base_message():
+    subjects = {build(name, seed=1).ground_truth.body_core for name in ("plus_addressing", "reply_to_mismatch", "empty_subject")}
+    assert len(subjects) == 3
+
+
+def test_null_byte_in_body_case():
+    email = build("null_byte_in_body", seed=2)
+    assert "\x00" in email.text and "\x00" in email.html
+
+
+def test_rtl_override_in_filename_case():
+    (attachment,) = build("rtl_override_in_filename", seed=2).attachments
+    assert "\u202e" in attachment.filename
+    assert attachment.filename.endswith(".exe")
+    assert attachment.content_type == "application/pdf"
+    assert attachment.content.startswith(b"MZ")
+
+
+def test_missing_boundary_field_case_writes_a_part_with_no_name():
+    from testinghq.core.transport import encode_multipart
+
+    body = encode_multipart(to_multipart_parts(build("missing_boundary_field", seed=2)))
+    assert b"Content-Disposition: form-data\r\n\r\n" in body
+
+
+def test_duplicate_form_field_case_sends_two_subject_parts():
+    parts = to_multipart_parts(build("duplicate_form_field", seed=2))
+    assert [p.name for p in parts].count("subject") == 2
+
+
+def test_malformed_envelope_json_case_is_not_json():
+    import json
+
+    parts = {p.name: p.value for p in to_multipart_parts(build("malformed_envelope_json", seed=2))}
+    with pytest.raises(ValueError):
+        json.loads(parts["envelope"])
+
+
+def test_oversized_body_case_is_exactly_one_mebibyte():
+    email = build("oversized_body_1mb", seed=2)
+    assert len(email.text.encode("utf-8")) == 1024 * 1024
+    assert email.ground_truth.body_core in email.text
+
+
+def test_heavily_quoted_reply_chain_is_fixed_in_shape():
+    for seed in range(5):
+        email = build("heavily_quoted_reply_chain", seed=seed)
+        lines = email.text.splitlines()
+        attributions = [line for line in lines if line.lstrip("> ").endswith("wrote:")]
+        assert len(attributions) == 4, attributions
+        depths = [quote_depth(line) for line in attributions]
+        assert depths == [0, 1, 2, 3]
+        original = [line for line in lines if "-----Original Message-----" in line]
+        assert len(original) == 1
+        assert quote_depth(original[0]) == 4
+        assert email.html.count('class="gmail_quote"') == 8
+        assert email.subject.startswith("Re: ")
+        assert len(email.headers["References"].split()) == 5
+
+
+def test_attachment_cases_switch_to_multipart_mixed():
+    for name in ("zero_byte_attachment", "degenerate_attachment", "rtl_override_in_filename"):
+        assert email_content_type(build(name, seed=3)).startswith("multipart/mixed")
+
+
+def quote_depth(line):
+    prefix = line[: len(line) - len(line.lstrip("> "))]
+    return prefix.count(">")
+
+
+def email_content_type(email):
+    return email.headers["Content-Type"]
