@@ -380,5 +380,9 @@ class PersistentHttpClient(HttpClient):
             self._used = True
             if response.will_close:
                 self.close()
-            return ClientResponse(status=response.status, body=body)
+            # Same shape UrllibHttpClient returns: the readback adapter reads
+            # `Retry-After` from here, and loses it if this client drops it.
+            raw_headers = getattr(response, "headers", None)
+            headers = dict(raw_headers.items()) if raw_headers is not None else {}
+            return ClientResponse(status=response.status, body=body, headers=headers)
         raise AssertionError("unreachable")  # pragma: no cover
