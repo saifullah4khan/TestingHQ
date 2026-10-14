@@ -252,3 +252,65 @@ def test_acquire_never_asks_the_clock_for_less_than_a_nanosecond():
     from testinghq.core.ratelimit import _MIN_WAIT
 
     assert _MIN_WAIT == 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Thread safety and the closed-loop helpers (set_rate, wait_time).
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_try_acquire_never_hands_out_more_than_the_bucket_holds():
+    """Barrage's closed-loop workers share one bucket. Without the lock two
+    threads could both see the last token and both take it."""
+    import threading
+
+    clock = FakeClock()
+    bucket = TokenBucket(rate_per_sec=1, capacity=500, clock=clock.now, sleep=lambda s: None)
+    taken = []
+    start = threading.Barrier(8)
+
+    def grab():
+        start.wait()
+        mine = 0
+        for _ in range(200):
+            if bucket.try_acquire():
+                mine += 1
+        taken.append(mine)
+
+    threads = [threading.Thread(target=grab) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sum(taken) == 500
+
+
+def test_wait_time_reports_the_deficit_without_consuming():
+    clock = FakeClock()
+    bucket = TokenBucket(rate_per_sec=4, capacity=1, clock=clock.now, sleep=lambda s: None)
+    assert bucket.wait_time() == 0.0
+    assert bucket.try_acquire() is True
+    assert bucket.wait_time() == pytest.approx(0.25)
+    assert bucket.wait_time() == pytest.approx(0.25), "wait_time must not consume"
+    clock.advance(0.25)
+    assert bucket.wait_time() == 0.0
+
+
+def test_set_rate_keeps_credit_earned_at_the_old_rate():
+    clock = FakeClock()
+    bucket = TokenBucket(rate_per_sec=1, capacity=10, clock=clock.now, sleep=lambda s: None)
+    bucket.acquire(tokens=10)
+    clock.advance(2.0)  # 2 tokens earned at 1/s
+    bucket.set_rate(10)
+    assert bucket.rate == 10.0
+    assert bucket.try_acquire(tokens=2) is True
+    assert bucket.try_acquire() is False
+    clock.advance(0.1)  # one more at the new rate
+    assert bucket.try_acquire() is True
+
+
+def test_set_rate_rejects_a_non_positive_rate():
+    bucket = TokenBucket(rate_per_sec=1, capacity=1, clock=lambda: 0.0, sleep=lambda s: None)
+    with pytest.raises(ValueError):
+        bucket.set_rate(0)
