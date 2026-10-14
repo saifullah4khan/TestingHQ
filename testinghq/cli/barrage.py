@@ -284,12 +284,10 @@ def _cmd_compare(args) -> int:
 
     print(compare_runs.format_any(diff))
 
+    code = compare_runs.record_exit_code(diff, args.fail_on_regression)
     if args.out:
         Path(args.out).write_text(
             json.dumps(diff, indent=2, sort_keys=False), encoding="utf-8"
         )
         print(f"\nwrote {args.out}")
-
-    if args.fail_on_regression and diff["regressed"]:
-        return compare_runs.EXIT_REGRESSION
-    return compare_runs.EXIT_NO_REGRESSION
+    return code

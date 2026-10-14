@@ -74,6 +74,7 @@ __all__ = [
     "format_any",
     "format_diff",
     "load_artifact",
+    "record_exit_code",
     "read_artifact",
     "validate_artifact",
 ]
@@ -156,6 +157,22 @@ def compare_paths(baseline_path: str, candidate_path: str) -> Dict[str, Any]:
         )
     except load.LoadCompareError as exc:
         raise CompareError(str(exc)) from None
+
+
+def record_exit_code(diff: Dict[str, Any], fail_on_regression: bool) -> int:
+    """The exit code `compare` returns for `diff`, written into it.
+
+    The code depends on `--fail-on-regression` as well as on `regressed`, and
+    without the flag a regression still exits 0. Recording both keeps
+    `testinghq report` on the artifact giving the answer the command gave,
+    rather than deriving one from `regressed` alone."""
+    if fail_on_regression and diff.get("regressed"):
+        code = EXIT_REGRESSION
+    else:
+        code = EXIT_NO_REGRESSION
+    diff["fail_on_regression"] = bool(fail_on_regression)
+    diff["exit_code"] = code
+    return code
 
 
 def format_any(diff: Dict[str, Any]) -> str:

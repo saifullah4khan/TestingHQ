@@ -368,8 +368,9 @@ def test_the_derived_exit_code_matches_each_tool_s_own_decision():
     assert summarize(loop_artifact(findings=0)).exit_code == EXIT_OK
     assert summarize(loop_artifact(findings=2)).exit_code == EXIT_FINDING
 
-    # compare: regressed
-    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_FINDING
+    # compare: an artifact from before the exit code was recorded gets the
+    # command's default, which exits 0 without --fail-on-regression
+    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_OK
     assert summarize(compare_artifact(regressed=False)).exit_code == EXIT_OK
 
 

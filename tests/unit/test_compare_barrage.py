@@ -225,13 +225,14 @@ def test_an_artifact_from_the_barrage_builder_compares(tmp_path, capsys):
 
 def test_report_reads_the_barrage_difference_report(tmp_path, capsys):
     candidate = _barrage(_with(bad=dict(count=5, status=500)))
-    _, _, diff = _compare(tmp_path, capsys, _barrage(), candidate)
+    _, _, diff = _compare(tmp_path, capsys, _barrage(), candidate, "--fail-on-regression")
     path = _write(tmp_path, "diff-copy.json", diff)
     assert main(["report", path, "--json"]) == EXIT_OK
     summary = json.loads(capsys.readouterr().out)
     assert summary["tool"] == "compare"
     assert summary["verdict"] == "REGRESSED"
     assert summary["exit_code"] == EXIT_FINDING
+    assert summary["exit_code_source"] == "recorded"
     assert any("error rate 0.0% -> 5.0%" in f["detail"] for f in summary["findings"])
 
 
