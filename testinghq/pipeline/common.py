@@ -27,8 +27,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.config import load_config
+from ..core.formats import WireFormat
 from ..core.ratelimit import TokenBucket
+from ..core.targets import resolve_target
 from ..core.transport import TransportResult, post
 from .adapters import BudgetExhausted, ReadbackConfig, build_adapter, parse_readback_config
 from .messages import Probe
@@ -92,24 +93,14 @@ def require_synthetic(emails: Sequence[InboundEmail]) -> None:
     guardrails.require_synthetic_content(fields)
 
 
-def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, gating both
-    the configured name and the resolved URL through the canonical guardrail.
-
-    Two calls, on purpose, and the reason is the same one given in
-    `barrage/fire.py`: a bare single-label name like "local" has no dot, so the
-    public-host hardening classifies it as internal and passes it
-    unconditionally. The hardening then looks correct while being inert, and a
-    public URL hiding behind a friendly name fires. Checking the resolved URL
-    too is what makes it bite.
-    """
-    if not target_name:
-        raise guardrails.GuardrailError("refusing to fire: --send requires --target")
-    config = load_config(config_path)
-    guardrails.require_configured_target(target_name, config.allowed_target_names())
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
+def resolve_target_url(
+    target_name: Optional[str], config_path: str, *, allow_public_target: bool = False
+) -> str:
+    """Deprecated: use `testinghq.core.targets.resolve_target`, which also
+    returns the target's wire format. Kept as a wrapper for one release."""
+    return resolve_target(
+        target_name, config_path, allow_public_target=allow_public_target
+    ).url
 
 
 def send_all(
@@ -119,6 +110,7 @@ def send_all(
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    wire_format: Optional[WireFormat] = None,
 ) -> List[SentMessage]:
     """Fire every (email, tag, record_id, probe) in order, paced by a token
     bucket, and return what happened to each.
@@ -149,7 +141,7 @@ def send_all(
     sent: List[SentMessage] = []
     for index, (email, tag, record_id, probe) in enumerate(items):
         bucket.acquire()
-        result = post(email, url, client=client)
+        result = post(email, url, client=client, wire_format=wire_format)
         sent.append(
             SentMessage(
                 index=index,
