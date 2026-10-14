@@ -13,7 +13,12 @@ from ..pipeline import redeliver as pipeline_redeliver
 from ..pipeline import steady as pipeline_steady
 from ..pipeline import verify as pipeline_verify
 from ..pipeline.adapters import AdapterError
-from ..pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
+from ..pipeline.common import (
+    EXIT_DRY_RUN,
+    EXIT_REFUSED,
+    adapter_rate,
+    settle_time_warning,
+)
 from .common import (
     _EXIT_CODE_HELP,
     DEFAULT_TARGET_CONFIG,
@@ -245,6 +250,16 @@ def _drop_option(parser, option: str) -> None:
             group._group_actions.remove(action)
 
 
+def _print_settle_warning(args, readback, tags: int) -> None:
+    """A dry run's warning that the real run's readback may not have time to
+    settle within --max-wait. Printed by every pipeline tool's dry run."""
+    warning = settle_time_warning(
+        tags, adapter_rate(readback), args.quiet_window, args.max_wait
+    )
+    if warning:
+        print(warning)
+
+
 def _readback_for_dry_run(args):
     """(readback config or None, refusal message or None). A dry run sends
     nothing and reads nothing, so a missing readback is reported, not refused."""
@@ -403,6 +418,7 @@ def _cmd_verify_fire(args) -> int:
                 corpus, readback, args.tag_prefix, **_match_kwargs(args)
             )
         )
+        _print_settle_warning(args, readback, len(corpus))
         return EXIT_DRY_RUN
 
     return pipeline_verify.execute(
@@ -464,6 +480,7 @@ def _cmd_ledger_fire(args) -> int:
                 attachment_match=match["attachment_match"],
             )
         )
+        _print_settle_warning(args, readback, args.count)
         return EXIT_DRY_RUN
 
     return pipeline_ledger.execute(
@@ -510,6 +527,8 @@ def _cmd_loop_fire(args) -> int:
         print(pipeline_loop.format_dry_run(
             [*corpus, bait], readback, policy, reply_address, outbound
         ))
+        # The precursor message is read back too.
+        _print_settle_warning(args, readback, len(corpus) + 2)
         return EXIT_DRY_RUN
 
     return pipeline_loop.execute(
@@ -563,6 +582,10 @@ def _cmd_steady_fire(args) -> int:
             return EXIT_REFUSED
         print(f"steady fire: {decision.reason}")
         print(pipeline_steady.format_dry_run(families, readback, label_field, args.transform))
+        repeated = len(families) * args.repeats if args.repeats > 1 else 0
+        _print_settle_warning(
+            args, readback, sum(len(f.variants) for f in families) + repeated
+        )
         return EXIT_DRY_RUN
 
     print(f"steady fire: {decision.reason}")
@@ -615,6 +638,9 @@ def _cmd_redeliver_fire(args) -> int:
                 subject_match=match["subject_match"],
                 attachment_match=match["attachment_match"],
             )
+        )
+        _print_settle_warning(
+            args, readback, len({tag for scenario in scenarios for tag in scenario.tags})
         )
         return EXIT_DRY_RUN
 
