@@ -215,11 +215,12 @@ object with `fetch`, or a function taking one probe and returning records.
 The readback settles once what it sees (which payloads are found, how many records each, the field
 values the checks read) has held still for `--quiet-window` seconds (default 5); a payload still not
 found then is lost. A store still changing when `--max-wait` (default 60) runs out is UNSETTLED
-(exit 3), not a loss, and anything already proven, such as a duplicate, is still listed. For a slow
-or async pipeline, raise `--quiet-window` above its worst processing latency. Lookups retry 429, 5xx
-and timeouts with backoff, honour `Retry-After`, and are paced to `--readback-rate` (default 4 per
-second). A public readback host needs `--allow-public-readback`. Recipes for Zendesk, Freshdesk,
-Mailpit, Chatwoot, a generic REST API and a mail sink are in
+(exit 3), not a loss, and anything already proven, such as a duplicate, is still listed. A run whose
+every lookup was a 404 is READBACK FAILED (exit 3): the url is almost certainly wrong, so nothing is
+reported as lost. For a slow or async pipeline, raise `--quiet-window` above its worst processing
+latency. Lookups retry 429, 5xx and timeouts with backoff, honour `Retry-After`, and are paced to
+`--readback-rate` (default 4 per second). A public readback host needs `--allow-public-readback`.
+Recipes for Zendesk, Freshdesk, Mailpit, Chatwoot, a generic REST API and a mail sink are in
 [examples/readback/](examples/readback/).
 
 ## Responsible use

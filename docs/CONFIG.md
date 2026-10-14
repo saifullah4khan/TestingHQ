@@ -68,7 +68,7 @@ Where the pipeline's own output can be read back from. Optional for blast, barra
 
 Before anything is sent, the http adapter makes one lookup and, when listing is on, one listing request: a 401 or 403, a 404 list url, a response that is not JSON, or records with no identifier are refused then rather than discovered after the run.
 
-The readback is SETTLED once what it sees (which tags are found, how many records each, and the field values the checks read) has not changed for --quiet-window seconds; a tag still not found then is MISSING and is reported as lost. It is UNSETTLED only when --max-wait runs out while that state is still changing, which exits 3 with an UNSETTLED headline and keeps every finding already proven. For a slow or async pipeline, raise --quiet-window above the pipeline's worst processing latency (a search-indexed store such as Zendesk or Freshdesk can take minutes to index a new ticket), and keep --max-wait well above --quiet-window.
+The readback is SETTLED once what it sees (which tags are found, how many records each, and the field values the checks read) has not changed for --quiet-window seconds; a tag still not found then is MISSING and is reported as lost. It is UNSETTLED only when --max-wait runs out while that state is still changing, which exits 3 with an UNSETTLED headline and keeps every finding already proven. A run whose every lookup was a 404 is READBACK FAILED (exit 3): the readback url is almost certainly wrong, so no message is reported as lost. For a slow or async pipeline, raise --quiet-window above the pipeline's worst processing latency (a search-indexed store such as Zendesk or Freshdesk can take minutes to index a new ticket), and keep --max-wait well above --quiet-window.
 
 ## `[readback.fields]`
 

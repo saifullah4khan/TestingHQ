@@ -105,10 +105,11 @@ reported as lost. That default suits a local process. For a deployment that
 creates or fills in the record on a queue consumer, raise `--quiet-window`
 above its worst processing latency, and keep `--max-wait` well above it: a run
 whose store is still changing when `--max-wait` runs out is UNSETTLED, which is
-not a loss. A search-indexed store can take minutes to index a new record; the
-Zendesk and Freshdesk recipes suggest `--quiet-window 120 --max-wait 600`. The
-readback paces itself to `--readback-rate` (default 4 per second) and backs off
-on 429.
+not a loss. A run whose every lookup was a 404 is READBACK FAILED (exit 3): the
+readback url is almost certainly wrong, so no message is reported as lost. A
+search-indexed store can take minutes to index a new record; the Zendesk and
+Freshdesk recipes suggest `--quiet-window 120 --max-wait 600`. The readback
+paces itself to `--readback-rate` (default 4 per second) and backs off on 429.
 
 ## Before trusting a result
 
