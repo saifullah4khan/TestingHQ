@@ -485,7 +485,23 @@ class Planned:
     fixed_headers: Optional[Dict[str, str]] = None
 
 
-def sample_payload(tampered: bool = False) -> InboundEmail:
+#: The Message-ID a dry-run plan shows. A real run draws one per run.
+SAMPLE_MESSAGE_ID = "<sigcheck-1042@hq.example.test>"
+
+
+def run_message_id() -> str:
+    """A Message-ID no other run sends. Every variant of one run shares it, so
+    the replay stays the valid request byte for byte; a fixed id would let an
+    endpoint that refuses a repeated Message-ID refuse the next run's valid
+    request and have it reported as a finding."""
+    from .messages import run_tag_prefix
+
+    return f"<sigcheck-{run_tag_prefix()}@hq.example.test>"
+
+
+def sample_payload(
+    tampered: bool = False, message_id: str = SAMPLE_MESSAGE_ID
+) -> InboundEmail:
     """The message every variant carries. `tampered` changes the subject."""
     sender = "sigcheck@example.com"
     to = "intake@example.com"
@@ -501,15 +517,17 @@ def sample_payload(tampered: bool = False) -> InboundEmail:
         html=f"<html><body><p>{body}</p></body></html>",
         envelope=Envelope(to=(to,), from_addr=sender),
         ground_truth=GroundTruth(from_addr=sender, subject=subject, body_core=body),
-        headers={"Message-ID": "<sigcheck-1042@hq.example.test>", "Subject": subject},
+        headers={"Message-ID": message_id, "Subject": subject},
     )
 
 
-def plan(scheme, secret: Any, *, now: int, window: float, encode: Callable[[InboundEmail, Signed], bytes]) -> List[Planned]:
+def plan(scheme, secret: Any, *, now: int, window: float, encode: Callable[[InboundEmail, Signed], bytes],
+         message_id: str = SAMPLE_MESSAGE_ID) -> List[Planned]:
     """Every variant for `scheme`, in send order. `encode(payload, signed)` is
-    the body bytes the wire format produces, which SendGrid's signature covers."""
-    original = sample_payload()
-    tampered = sample_payload(tampered=True)
+    the body bytes the wire format produces, which SendGrid's signature covers.
+    Every variant carries `message_id`."""
+    original = sample_payload(message_id=message_id)
+    tampered = sample_payload(tampered=True, message_id=message_id)
     stale_ts = now - int(window) - 60
 
     def signed_for(payload: InboundEmail, key: Any, timestamp: int, nonce: str) -> Signed:
@@ -913,7 +931,8 @@ def execute(
             SendgridScheme._key(secret)
         encode, wire_format_for = _encoder(scheme.name, target.wire_format)
         now = int(clock())
-        planned = plan(scheme, secret, now=now, window=window, encode=encode)
+        planned = plan(scheme, secret, now=now, window=window, encode=encode,
+                       message_id=run_message_id())
     except Exception as exc:  # noqa: BLE001 - every setup failure is a refusal
         printer(f"refused: {exc}")
         return EXIT_REFUSED
