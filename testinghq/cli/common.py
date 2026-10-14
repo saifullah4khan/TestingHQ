@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import math
 import sys
 from pathlib import Path
 
@@ -140,6 +141,22 @@ def _add_readback_poll_args(parser) -> None:
     )
 
 
+def positive_number(text: str) -> float:
+    """Argparse `type=` for a rate: a finite number above zero.
+
+    Checked by the parser so a zero, negative or non-finite rate is refused
+    (exit 1) before anything is announced or sent, rather than reaching a
+    token bucket that raises mid-run.
+    """
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not (value > 0 and math.isfinite(value)):
+        raise argparse.ArgumentTypeError(f"must be a number > 0, got {text}")
+    return value
+
+
 def _add_readback_args(parser) -> None:
     """The arguments every pipeline tool needs to find a system to read.
 
@@ -150,15 +167,6 @@ def _add_readback_args(parser) -> None:
     names an import path is the only way to bring your own, because a Python
     object cannot be spelled on a command line.
     """
-
-    def positive_rate(text: str) -> float:
-        try:
-            value = float(text)
-        except ValueError:
-            raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
-        if not value > 0:
-            raise argparse.ArgumentTypeError(f"must be > 0, got {text}")
-        return value
 
     parser.add_argument(
         "--readback",
@@ -179,7 +187,7 @@ def _add_readback_args(parser) -> None:
     )
     parser.add_argument(
         "--readback-rate",
-        type=positive_rate,
+        type=positive_number,
         default=pipeline_adapters.DEFAULT_READBACK_RATE,
         help=(
             "most readback requests per second, across every lookup, page and "

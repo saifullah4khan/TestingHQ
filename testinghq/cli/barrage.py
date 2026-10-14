@@ -13,7 +13,7 @@ from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
 from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_REFUSED
-from .common import DEFAULT_TARGET_CONFIG, add_send_args
+from .common import DEFAULT_TARGET_CONFIG, add_send_args, positive_number
 
 
 def _add_send_shape_args(parser) -> None:
@@ -66,7 +66,7 @@ def _add_barrage_parser(sub) -> None:
         help="payload pool seed (default %(default)s)",
     )
     b_fire.add_argument(
-        "--rate", type=float, default=barrage_fire.DEFAULT_RATE,
+        "--rate", type=positive_number, default=barrage_fire.DEFAULT_RATE,
         help="target requests per second (default %(default)s)",
     )
     b_fire.add_argument(

@@ -26,6 +26,7 @@ from .common import (
     DEFAULT_RATE,
     DEFAULT_TARGET_CONFIG,
     add_send_args,
+    positive_number,
     resolve_for_send,
 )
 
@@ -77,7 +78,7 @@ def add_blast_parser(sub):
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     fire.add_argument(
-        "--rate", type=float, default=DEFAULT_RATE, help="max requests per second"
+        "--rate", type=positive_number, default=DEFAULT_RATE, help="max requests per second"
     )
     fire.add_argument("--out", help="path to write the run artifact JSON")
     fire.add_argument(
@@ -95,7 +96,7 @@ def add_blast_parser(sub):
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     replay.add_argument(
-        "--rate", type=float, default=DEFAULT_RATE, help="max requests per second"
+        "--rate", type=positive_number, default=DEFAULT_RATE, help="max requests per second"
     )
     replay.add_argument("--out", help="path to write the run artifact JSON")
     replay.add_argument(

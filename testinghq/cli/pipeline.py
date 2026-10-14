@@ -21,6 +21,7 @@ from .common import (
     _add_readback_poll_args,
     _resolve_readback,
     add_send_args,
+    positive_number,
 )
 
 
@@ -108,7 +109,7 @@ def _add_verify_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     v_fire.add_argument(
-        "--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
+        "--rate", type=positive_number, default=pipeline_verify.DEFAULT_RATE,
         help="max requests per second",
     )
     v_fire.add_argument(
@@ -174,7 +175,7 @@ def _add_ledger_parser(sub) -> None:
     l_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
-    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    l_fire.add_argument("--rate", type=positive_number, default=pipeline_verify.DEFAULT_RATE)
     l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
@@ -221,7 +222,7 @@ def _add_redeliver_parser(sub) -> None:
     r_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
-    r_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
+    r_fire.add_argument("--rate", type=positive_number, default=pipeline_verify.DEFAULT_RATE)
     r_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
     r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
@@ -286,7 +287,7 @@ def _add_loop_parser(sub) -> None:
     l_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
-    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
+    l_fire.add_argument("--rate", type=positive_number, default=pipeline_verify.DEFAULT_RATE,
                         help="messages per second (default %(default)s)")
     l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix(),
                         help="tag prefix (default: unique per run)")
@@ -345,7 +346,7 @@ def _add_steady_parser(sub) -> None:
     s_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
-    s_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
+    s_fire.add_argument("--rate", type=positive_number, default=pipeline_verify.DEFAULT_RATE,
                         help="messages per second (default %(default)s)")
     s_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix(),
                         help="tag prefix (default: unique per run)")
