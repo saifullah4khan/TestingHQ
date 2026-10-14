@@ -10,6 +10,7 @@ from ..barrage.runner import RateCeilingError
 from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
+from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_REFUSED
 from .common import DEFAULT_TARGET_CONFIG
 
 
@@ -180,12 +181,12 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
         barrage_fire.BarrageError,
     ) as exc:
         print(f"refused: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
     except KeyboardInterrupt:
         # Only reachable before the run starts or after it ended; the run
         # itself turns Ctrl-C into a partial artifact.
         print("barrage: interrupted", file=sys.stderr)
-        return barrage_fire.EXIT_FINDING
+        return EXIT_FINDING
 
 
 def _cmd_barrage_fire(args) -> int:
@@ -205,7 +206,7 @@ def _cmd_barrage_fire(args) -> int:
         )
     except (RateCeilingError, barrage_fire.BarrageError, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
 
     keepalive = not args.no_keepalive
     decision = guardrails.evaluate_send(args.send)
@@ -215,7 +216,7 @@ def _cmd_barrage_fire(args) -> int:
         print(barrage_fire.format_dry_run_preview(
             plan, args.seed, args.pool_size, timeout=args.timeout, keepalive=keepalive,
         ))
-        return barrage_fire.EXIT_DRY_RUN
+        return EXIT_DRY_RUN
 
     return _barrage_execute(
         args, plan, args.seed, args.pool_size, args.target, args.timeout, keepalive,
@@ -227,17 +228,17 @@ def _cmd_barrage_replay(args) -> int:
         data = json.loads(Path(args.run).read_text(encoding="utf-8"))
     except OSError as exc:
         print(f"barrage replay: could not read {args.run!r}: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
     except json.JSONDecodeError as exc:
         print(f"barrage replay: {args.run!r} is not valid JSON: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
 
     try:
         plan, seed, pool_size, target, options = barrage_fire.plan_from_artifact(data)
         barrage_fire.check_timeout(options["timeout"])
     except barrage_fire.BarrageError as exc:
         print(f"barrage replay: {args.run!r}: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
 
     decision = guardrails.evaluate_send(args.send)
     print(f"barrage replay: {decision.reason}")
@@ -246,7 +247,7 @@ def _cmd_barrage_replay(args) -> int:
         print(barrage_fire.format_dry_run_preview(
             plan, seed, pool_size, timeout=options["timeout"], keepalive=options["keepalive"],
         ))
-        return barrage_fire.EXIT_DRY_RUN
+        return EXIT_DRY_RUN
 
     return _barrage_execute(
         args, plan, seed, pool_size, target, options["timeout"], options["keepalive"],

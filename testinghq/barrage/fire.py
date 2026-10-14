@@ -26,8 +26,9 @@ from ..blast.payload import InboundEmail
 from ..core import guardrails
 from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED  # noqa: F401
 from ..core.targets import resolve_target
-from ..core.transport import PersistentHttpClient, UrllibHttpClient, post
+from ..core.transport import PersistentHttpClient, TransportResult, UrllibHttpClient, post
 from . import report as barrage_report
+from .executor import PoolExecutor
 from .payloads import DEFAULT_POOL_SIZE, build_payload_pool, payload_for_index  # noqa: F401
 from .runner import (  # noqa: F401
     DEFAULT_GRACE_SECONDS,
@@ -158,6 +159,12 @@ def plan_from_artifact(data: Dict[str, Any]) -> Tuple[RunPlan, int, int, Optiona
     for an artifact that cannot be reproduced."""
     seed = data.get("seed") if isinstance(data, dict) else None
     config = (data.get("config") or {}) if isinstance(data, dict) else {}
+    version = data.get("schema_version", 0) if isinstance(data, dict) else 0
+    if isinstance(version, int) and version > barrage_report.SCHEMA_VERSION:
+        raise BarrageError(
+            f"schema_version {version} is newer than this version of barrage "
+            f"understands ({barrage_report.SCHEMA_VERSION}), cannot reproduce the run"
+        )
     if seed is None or any(config.get(key) is None for key in REPLAY_REQUIRED):
         raise BarrageError(
             f"missing seed or config {REPLAY_REQUIRED}, cannot reproduce the run"
@@ -187,13 +194,21 @@ def plan_from_artifact(data: Dict[str, Any]) -> Tuple[RunPlan, int, int, Optiona
 # ---------------------------------------------------------------------------
 
 
+class _ConnectFailed(Exception):
+    def __init__(self, error: Exception, elapsed_ms: float):
+        super().__init__(str(error))
+        self.elapsed_ms = elapsed_ms
+
+
 class _Sender:
     """The runner's send hook: post payload `index` and return the
     TransportResult.
 
     With keep-alive, each worker thread gets its own PersistentHttpClient,
     connected once before its first request so the handshake is measured on
-    its own and kept out of every service latency."""
+    its own and kept out of every service latency. If that connect fails, the
+    request it was for is reported as a transport error rather than tried a
+    second time, so one request never waits out two timeouts."""
 
     def __init__(self, pool, url, *, client, clock, timeout, wire_format, keepalive):
         self._pool = pool
@@ -219,18 +234,27 @@ class _Sender:
             self._local.client = client
             with self._lock:
                 self._clients.append(client)
+            started = self._clock()
             try:
                 client.connect(self._url, self._timeout)
-            except Exception:  # noqa: BLE001 - the send below reports the failure
+            except Exception as exc:  # noqa: BLE001 - reported as this request's error
                 with self._lock:
                     self._connect_failures += 1
+                raise _ConnectFailed(exc, (self._clock() - started) * 1000.0) from None
         return client
 
     def __call__(self, index: int):
+        try:
+            client = self._client()
+        except _ConnectFailed as failed:
+            return TransportResult(
+                status=None, latency_ms=failed.elapsed_ms, body_snippet="",
+                error=f"connect failed: {failed}",
+            )
         return post(
             payload_for_index(self._pool, index),
             self._url,
-            client=self._client(),
+            client=client,
             timeout=self._timeout,
             clock=self._clock,
             wire_format=self._wire_format,
@@ -416,12 +440,24 @@ def execute(
         pool, resolved.url, client=client, clock=clock, timeout=timeout,
         wire_format=resolved.wire_format, keepalive=keepalive,
     )
+    owned = None
+    if executor is None and client is None:
+        check_rate_ceiling(  # before starting any thread
+            plan.rate, plan.duration_seconds, allow_high_rate=allow_high_rate,
+            concurrency=plan.concurrency,
+        )
+        # Real sends always run on pool threads, even with one worker, so the
+        # main thread never blocks on a socket: the run ends at its deadline
+        # and Ctrl-C lands in the runner's wait, not inside a request.
+        executor = owned = PoolExecutor(plan.concurrency)
     try:
         result = run(
             plan, sender, clock=clock, sleep=sleep,
             allow_high_rate=allow_high_rate, executor=executor,
         )
     finally:
+        if owned is not None:
+            owned.shutdown(cancel_pending=True)
         sender.close()
 
     artifact = barrage_report.build_artifact(
@@ -429,7 +465,7 @@ def execute(
         run_config(
             plan, seed, pool_size, target_name, dry_run=False, timeout=timeout,
             keepalive=keepalive, format_name=resolved.format_name,
-            allow_public_target=allow_public_target,
+            allow_public_target=resolved.public,
         ),
         samples_from_records(result, plan.warmup_seconds),
         stages=[(s.rate, s.duration) for s in plan.stages],
