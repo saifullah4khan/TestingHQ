@@ -261,14 +261,18 @@ def test_there_are_shipped_configs_to_check():
 
 
 @pytest.mark.parametrize("path", _shipped_configs(), ids=lambda p: p.name)
-def test_every_shipped_config_loads(path, monkeypatch):
-    for variable in ("CHATWOOT_API_TOKEN", "FRESHDESK_AUTH", "HANDLEHQ_TOKEN",
-                     "ZENDESK_AUTH", "HQ_READBACK_TOKEN"):
-        monkeypatch.setenv(variable, "placeholder")
+def test_every_shipped_config_loads(path):
     config = load_config(path)
     assert config.targets
-    if config.readback_table() is not None:
-        parse_readback_config(config.readback_table())
+    table = config.readback_table()
+    if table is not None:
+        # The header variables a recipe names, bound to a placeholder in a
+        # private env mapping: the real environment is never read.
+        env = {
+            reference.split(":", 1)[1]: "placeholder"
+            for reference in (table.get("headers") or {}).values()
+        }
+        parse_readback_config(table, env=env)
     load_loop_config(str(path))
     load_steady_config(str(path))
     load_sigcheck_config(str(path))
