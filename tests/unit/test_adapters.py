@@ -828,8 +828,8 @@ def test_a_config_with_no_headers_still_sends_none():
 
 
 def test_a_custom_adapter_is_not_handed_the_secret():
-    """The factory receives `to_json`, which carries header names and not
-    values. A custom adapter that needs auth reads the environment itself."""
+    """The factory's table carries header names and not values. A custom
+    adapter that needs auth reads the environment itself."""
     module = types.ModuleType("hdr_spec_probe")
     module.seen = {}
 
@@ -1133,6 +1133,152 @@ def test_a_module_that_fails_to_import_is_a_refusal_not_a_traceback():
     finally:
         sys.meta_path.remove(finder)
         sys.modules.pop("testinghq_broken_import_probe", None)
+
+
+# ---------------------------------------------------------------------------
+# A custom adapter's own keys reach it
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def keys_module(monkeypatch):
+    """A class adapter, a `config` factory, and a zero-argument factory that
+    returns the class, each recording the table it was built with."""
+    module = types.ModuleType("hq_adapter_keys_probe")
+    module.seen = []
+
+    class Recorder:
+        def __init__(self, table):
+            module.seen.append(table)
+
+        def fetch(self, probe):
+            return []
+
+    def build(config):
+        module.seen.append(config)
+        return Recorder.__new__(Recorder)
+
+    module.Recorder = Recorder
+    module.build = build
+    module.make_class = lambda: Recorder
+    monkeypatch.setitem(sys.modules, "hq_adapter_keys_probe", module)
+    return module
+
+
+def _readback_from_toml(tmp_path, readback: str, env=None):
+    """A `[readback]` table read the way every tool reads one: through the
+    config loader, which accepts a custom adapter's own keys."""
+    from testinghq.core.config import load_config
+
+    path = tmp_path / "target.toml"
+    path.write_text(
+        '[targets.local]\nurl = "http://127.0.0.1:9/intake"\n\n' + readback,
+        encoding="utf-8",
+    )
+    return parse_readback_config(load_config(str(path)).readback_table(), env=env)
+
+
+@pytest.mark.parametrize("attribute", ["Recorder", "build", "make_class"])
+def test_a_custom_adapter_receives_its_own_keys_from_the_toml(
+    tmp_path, keys_module, attribute
+):
+    """The config loader accepts `project_id` in a custom adapter's table
+    because it may be the adapter's own key. It used to be accepted and then
+    dropped: the class or factory got only the built-in keys, so an adapter
+    configured in the file could not read its own configuration."""
+    config = _readback_from_toml(
+        tmp_path,
+        f'[readback]\nkind = "hq_adapter_keys_probe:{attribute}"\n'
+        'project_id = "proj-42"\n'
+        "[readback.options]\nregion = \"eu\"\n",
+    )
+    build_adapter(config)
+    (table,) = keys_module.seen
+    assert table["project_id"] == "proj-42"
+    assert table["options"] == {"region": "eu"}
+
+
+def test_a_custom_adapter_still_gets_the_builtin_keys_as_normalised(
+    tmp_path, keys_module
+):
+    """Adapters written against the built-in keys see what they always saw:
+    the loader's defaults and its normalised spellings, `field_map` included."""
+    config = _readback_from_toml(
+        tmp_path,
+        '[readback]\nkind = "hq_adapter_keys_probe:Recorder"\n'
+        'url = "http://127.0.0.1:8000/tickets"\nmethod = "get"\n'
+        'project_id = "proj-42"\n'
+        '[readback.fields]\nsubject = "title"\n',
+    )
+    build_adapter(config)
+    (table,) = keys_module.seen
+    expected = config.to_json()
+    assert {key: table[key] for key in expected} == expected
+    assert table["method"] == "GET"
+    assert table["timeout"] == adapters.DEFAULT_HTTP_TIMEOUT
+    assert table["field_map"]["subject"] == "title"
+    assert table["fields"] == {"subject": "title"}
+    assert table["spec"] == "hq_adapter_keys_probe:Recorder"
+
+
+def test_an_env_reference_in_an_adapters_own_key_is_passed_through(
+    tmp_path, keys_module
+):
+    """Only `[readback.headers]` values are resolved, and those reach a custom
+    adapter by name only. An adapter's own key is its own business: a value
+    spelled `env:NAME` arrives as that string, for the adapter to resolve."""
+    config = _readback_from_toml(
+        tmp_path,
+        '[readback]\nkind = "hq_adapter_keys_probe:build"\n'
+        'api_key = "env:HQ_ADAPTER_KEY"\n'
+        '[readback.headers]\nAuthorization = "env:HQ_READBACK_TOKEN"\n',
+        env={"HQ_READBACK_TOKEN": "s3cr3t-value", "HQ_ADAPTER_KEY": "other-secret"},
+    )
+    build_adapter(config)
+    (table,) = keys_module.seen
+    assert table["api_key"] == "env:HQ_ADAPTER_KEY"
+    assert table["headers"] == ["Authorization"]
+    serialized = json.dumps(table)
+    assert "s3cr3t-value" not in serialized
+    assert "other-secret" not in serialized
+
+
+def test_an_adapter_that_edits_its_table_does_not_change_the_config(
+    tmp_path, keys_module
+):
+    config = _readback_from_toml(
+        tmp_path,
+        '[readback]\nkind = "hq_adapter_keys_probe:build"\n'
+        "[readback.options]\nregion = \"eu\"\n",
+    )
+    build_adapter(config)
+    keys_module.seen[0]["options"]["region"] = "us"
+    build_adapter(config)
+    assert keys_module.seen[1]["options"] == {"region": "eu"}
+
+
+def test_a_bare_spec_string_gives_a_table_with_its_kind(keys_module):
+    build_adapter(parse_readback_config("hq_adapter_keys_probe:Recorder"))
+    (table,) = keys_module.seen
+    assert table["kind"] == "hq_adapter_keys_probe:Recorder"
+
+
+def test_a_loop_outbound_adapter_receives_its_own_keys(tmp_path, keys_module):
+    """`[loop.outbound]` is read by the same loader and accepts the same
+    custom keys, so its adapter gets them the same way."""
+    from testinghq.pipeline import loop
+
+    path = tmp_path / "target.toml"
+    path.write_text(
+        '[targets.local]\nurl = "http://127.0.0.1:9/intake"\n\n'
+        '[loop.outbound]\nkind = "hq_adapter_keys_probe:Recorder"\n'
+        'mailbox_name = "replies"\n',
+        encoding="utf-8",
+    )
+    outbound = loop.build_outbound_config(loop.load_loop_config(str(path)), str(path))
+    build_adapter(outbound)
+    (table,) = keys_module.seen
+    assert table["mailbox_name"] == "replies"
 
 
 def test_required_positional_ignores_defaults_and_star_args():
