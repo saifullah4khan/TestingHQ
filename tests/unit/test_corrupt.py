@@ -3,7 +3,7 @@ from collections import Counter
 
 import pytest
 
-from testinghq.blast.generate import RESERVED_DOMAINS, generate_corpus, generate_email
+from testinghq.blast.generate import generate_corpus, generate_email
 from testinghq.blast.corrupt import (
     DEFAULT_MIX,
     MUTATORS,
