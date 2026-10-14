@@ -17,11 +17,11 @@ import io
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Protocol
 
 from ..blast.payload import InboundEmail
-from ..blast.serialize import FormField, FormFile, FormPart, to_multipart_parts
+from ..blast.serialize import FormField, FormFile, FormPart
 from .formats import WireFormat, get_format
 
 # Fixed multipart boundary. Blast fires at endpoints the operator controls

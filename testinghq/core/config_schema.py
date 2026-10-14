@@ -25,7 +25,7 @@ being generated from is checked against the thing that actually runs.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 #: Values that mean "not given", rendered as such rather than as a literal, so
