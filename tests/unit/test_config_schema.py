@@ -201,12 +201,6 @@ def test_the_schema_does_not_describe_a_key_the_loaders_ignore():
     """The other direction. A documented key that does nothing is worse than an
     undocumented one: an operator sets it, sees no error, and concludes it took
     effect."""
-    described = {
-        key.name
-        for table in config_schema.TABLES
-        if not table.free_form
-        for key in table.keys
-    }
     unknown = {
         key.name for key in config_schema.READBACK.keys
         if key.name not in READBACK_KEYS
