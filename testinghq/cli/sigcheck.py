@@ -7,7 +7,7 @@ import sys
 from ..core import guardrails
 from ..pipeline import sigcheck as pipeline_sigcheck
 from ..pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
-from .common import _EXIT_CODE_HELP, DEFAULT_TARGET_CONFIG
+from .common import _EXIT_CODE_HELP, DEFAULT_TARGET_CONFIG, add_send_args
 
 
 def add_sigcheck_parser(sub) -> None:
@@ -51,9 +51,7 @@ def add_sigcheck_parser(sub) -> None:
              f"{pipeline_sigcheck.DEFAULT_WINDOW:g})",
     )
     fire.add_argument("--out", help="path to write the sigcheck artifact JSON")
-    from . import pipeline as cli_pipeline
-
-    cli_pipeline._add_send_args(fire)
+    add_send_args(fire)
 
 
 def _cmd_sigcheck_fire(args) -> int:
@@ -96,7 +94,7 @@ def _cmd_sigcheck_fire(args) -> int:
         config_path=args.config,
         out=args.out,
         window=settings.window,
-        allow_public_target=getattr(args, "allow_public_target", False),
+        allow_public_target=args.allow_public_target,
     )
 
 

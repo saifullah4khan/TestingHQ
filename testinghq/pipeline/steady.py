@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..blast.payload import Envelope, GroundTruth, InboundEmail
+from ..core.targets import resolve_target
 from .common import (
     DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
@@ -32,19 +33,14 @@ from .common import (
     EXIT_OK,
     EXIT_REFUSED,
     close_adapter,
+    prepare_readback,
     read_back_all,
+    readback_verdict,
     require_synthetic,
+    send_all,
 )
 from .messages import DEFAULT_TAG_PREFIX, make_tag, probe_for, stamp
-from .sendpath import (
-    ToolConfigError,
-    is_unsettled,
-    open_readback,
-    read_tool_table_if_present,
-    readback_json,
-    resolve_send_target,
-    send_items,
-)
+from .toolconfig import ToolConfigError, read_tool_table_if_present
 
 SCHEMA_VERSION = 1
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "steady_intents.json"
@@ -953,7 +949,7 @@ def run_config(
         "count": count,
         "tag_prefix": tag_prefix,
         "target": target_name,
-        "readback": readback_json(readback),
+        "readback": readback.to_json(),
         "label_field": label_field,
         "transforms": list(transforms),
         "repeats": repeats,
@@ -1082,7 +1078,8 @@ def execute(
 ) -> int:
     """Send every variant, read every label back, report, gate. Every refusal
     lands before the first send. `label_field=None` means not given.
-    `readback` is a `ReadbackConfig` or a ready adapter."""
+    `readback` is a `ReadbackConfig`; its adapter is built and preflighted
+    before the first send."""
     field_name = label_field or LABEL_FIELD
     if field_name not in LABEL_FIELDS:
         printer(f"refused: --label-field must be one of {list(LABEL_FIELDS)}, got {field_name!r}.")
@@ -1119,7 +1116,7 @@ def execute(
     repeated = repeat_items(families, repeats, tag_prefix, seed) if repeats > 1 else []
     try:
         require_synthetic([email for email, _t, _r, _p in items + repeated])
-        target = resolve_send_target(target_name, config_path, allow_public_target=allow_public_target)
+        target = resolve_target(target_name, config_path, allow_public_target=allow_public_target)
     except Exception as exc:  # noqa: BLE001 - every pre-send failure is a refusal
         printer(f"refused: {exc}")
         return EXIT_REFUSED
@@ -1137,11 +1134,12 @@ def execute(
     sent: List[Any] = []
     try:
         try:
-            adapter = open_readback(readback, client=readback_client, config_path=config_path)
+            adapter = prepare_readback(readback, client=readback_client, config_path=config_path)
         except Exception as exc:  # noqa: BLE001 - nothing has been sent yet
             printer(f"refused: {exc}")
             return EXIT_REFUSED
-        sent = send_items(items + repeated, target, rate, client=client, sleep=sleep, clock=clock)
+        sent = send_all(items + repeated, target.url, rate, client=client, sleep=sleep,
+                        clock=clock, wire_format=target.wire_format)
         outcome = read_back_all(
             adapter, [probe for _e, _t, _r, probe in items + repeated],
             sleep=sleep, clock=clock, quiet_window=quiet_window,
@@ -1175,12 +1173,13 @@ def execute(
         label_field=field_name,
     )
     failed, reason = gate(report, max_dissent_rate, max_flip_rate)
-    unsettled = is_unsettled(outcome)
+    unsettled = outcome.unsettled
     if unsettled:
         failed, reason = True, "UNSETTLED: the readback was still changing at --max-wait; " + reason
     artifact = build_artifact(seed, config, labelled, report)
     summary = artifact["stability"]
-    summary["verdict"] = "UNSETTLED" if unsettled else verdict_for(report)
+    summary["verdict"], summary["verdict_source"] = readback_verdict(verdict_for(report), outcome)
+    summary["readback_headline"] = outcome.headline()
     summary["gate"] = {"failed": failed, "reason": reason,
                        "max_dissent_rate": max_dissent_rate, "max_flip_rate": max_flip_rate}
     summary["sent"] = len(sent)
@@ -1188,6 +1187,8 @@ def execute(
     summary["readback"] = outcome.to_json()
 
     printer(format_run(report, failed, reason, max_dissent_rate))
+    if outcome.headline():
+        printer(f"  readback: {outcome.headline()}")
     if out:
         Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
     return EXIT_MISMATCH if failed else EXIT_OK

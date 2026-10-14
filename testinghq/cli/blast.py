@@ -8,12 +8,18 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..blast.corrupt import DEFAULT_MIX, corrupt_corpus
 from ..blast.generate import generate_corpus
 from ..blast.payload import InboundEmail
-from ..blast.serialize import to_multipart_parts
 from ..core import guardrails, report
-from ..core.config import ConfigError
+from ..core.config import ConfigError, load_config
+from ..core.formats import get_format
 from ..core.ratelimit import TokenBucket
-from ..core.transport import encode_multipart, post
-from .common import DEFAULT_RATE, DEFAULT_TARGET_CONFIG, _resolve_target_url
+from ..core.targets import resolve_target, wire_format_for
+from ..core.transport import DEFAULT_BOUNDARY, DEFAULT_FORMAT, post
+from .common import (
+    DEFAULT_RATE,
+    DEFAULT_TARGET_CONFIG,
+    add_send_args,
+    resolve_for_send,
+)
 
 
 def add_blast_parser(sub):
@@ -30,6 +36,12 @@ def add_blast_parser(sub):
     gen.add_argument("--count", type=int, default=100)
     gen.add_argument("--seed", type=int, default=0)
     gen.add_argument("--out", default="corpus")
+    gen.add_argument(
+        "--target", help="write files in this configured target's wire format"
+    )
+    gen.add_argument(
+        "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
+    )
 
     fire = blast_sub.add_parser("fire", help="generate and send to a configured target")
     fire.add_argument("--target")
@@ -45,6 +57,7 @@ def add_blast_parser(sub):
     fire.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(fire)
 
     replay = blast_sub.add_parser("replay", help="re-fire a saved run exactly")
     replay.add_argument("run", help="path to a previously written run artifact JSON")
@@ -58,6 +71,7 @@ def add_blast_parser(sub):
     replay.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(replay)
     return blast
 
 
@@ -113,6 +127,7 @@ def _fire_corpus(
     url: str,
     rate: float,
     client=None,
+    wire_format=None,
 ) -> List[Dict[str, Any]]:
     """Fire every payload in `pairs` at `url`, paced by a token bucket at
     `rate` requests per second, and build one schema-shaped record per
@@ -121,7 +136,7 @@ def _fire_corpus(
     records = []
     for index, (email, label) in enumerate(pairs):
         bucket.acquire()
-        result = post(email, url, client=client)
+        result = post(email, url, client=client, wire_format=wire_format)
         response = {
             "status": result.status,
             "latency_ms": result.latency_ms,
@@ -138,8 +153,7 @@ def _write_artifact(path: Optional[str], artifact: Dict[str, Any]) -> None:
 
 
 def _validate_send_plan(
-    pairs: List[Tuple[InboundEmail, str]], target_name: Optional[str],
-    config_path: str,
+    pairs: List[Tuple[InboundEmail, str]], args, target_name: Optional[str],
 ) -> Optional[str]:
     """Check that a send is permitted, returning the refusal or None.
 
@@ -152,7 +166,7 @@ def _validate_send_plan(
     """
     try:
         _require_synthetic_corpus(pairs)
-        _resolve_target_url(target_name, config_path)
+        resolve_for_send(args, "blast", target_name=target_name)
     except (guardrails.GuardrailError, ConfigError) as exc:
         return str(exc)
     return None
@@ -167,6 +181,7 @@ def _run_fire(
     out: Optional[str],
     config_path: str,
     client=None,
+    allow_public_target: bool = False,
 ) -> int:
     """The shared send path for `fire` and `replay`. Returns a process exit
     code. Never called unless guardrails.evaluate_send already said yes.
@@ -176,18 +191,23 @@ def _run_fire(
     expose no CLI flag for injecting one."""
     try:
         _require_synthetic_corpus(pairs)
-        url = _resolve_target_url(target_name, config_path)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except (guardrails.GuardrailError, ConfigError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
 
-    records = _fire_corpus(pairs, seed, url, rate, client=client)
+    records = _fire_corpus(
+        pairs, seed, target.url, rate, client=client, wire_format=target.wire_format
+    )
     config_dict = {
         "mix": _mix_labels(),
         "count": count,
         "seed": seed,
         "dry_run": False,
         "target": target_name,
+        **target.artifact_config(),
     }
     artifact = report.build_artifact(seed, config_dict, records)
     print(report.format_summary(artifact))
@@ -195,7 +215,22 @@ def _run_fire(
     return 0
 
 
+#: File extension per wire format for `blast generate`.
+_GENERATE_SUFFIX = {"postmark": ".json", "mime": ".eml"}
+
+
 def _cmd_generate(args) -> int:
+    format_name = DEFAULT_FORMAT
+    wire_format = get_format(DEFAULT_FORMAT, DEFAULT_BOUNDARY)
+    if getattr(args, "target", None):
+        try:
+            target = load_config(args.config).get(args.target)
+        except ConfigError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+        format_name, wire_format = target.wire_format, wire_format_for(target)
+    suffix = _GENERATE_SUFFIX.get(format_name, ".multipart")
+
     pairs = _build_corpus(args.seed, args.count)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -203,8 +238,8 @@ def _cmd_generate(args) -> int:
     manifest_items = []
     for index, (email, label) in enumerate(pairs):
         item_id = f"{label}-{args.seed}-{index:04d}"
-        body = encode_multipart(to_multipart_parts(email))
-        (out_dir / f"{item_id}.multipart").write_bytes(body)
+        body = wire_format.encode(email).body
+        (out_dir / f"{item_id}{suffix}").write_bytes(body)
         manifest_items.append(
             {
                 "id": item_id,
@@ -217,6 +252,7 @@ def _cmd_generate(args) -> int:
         "seed": args.seed,
         "count": args.count,
         "mix": _mix_labels(),
+        "format": format_name,
         "items": manifest_items,
     }
     (out_dir / "manifest.json").write_text(
@@ -237,7 +273,7 @@ def _cmd_fire(args) -> int:
     # saying "I would send nothing" is the point of a dry run, and requiring a
     # configured target to say it makes the safe command the inconvenient one.
     if args.send:
-        refusal = _validate_send_plan(pairs, args.target, args.config)
+        refusal = _validate_send_plan(pairs, args, args.target)
         if refusal is not None:
             print(f"refused: {refusal}", file=sys.stderr)
             return 1
@@ -279,7 +315,8 @@ def _cmd_fire(args) -> int:
         return 2
 
     return _run_fire(
-        pairs, args.seed, args.count, args.target, args.rate, args.out, args.config
+        pairs, args.seed, args.count, args.target, args.rate, args.out, args.config,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -342,7 +379,7 @@ def _cmd_replay(args, client=None) -> int:
     # and the blast replay parser has no --target flag, so this cannot read
     # `args.target`.
     if args.send:
-        refusal = _validate_send_plan(pairs, target_name, args.config)
+        refusal = _validate_send_plan(pairs, args, target_name)
         if refusal is not None:
             print(f"refused: {refusal}", file=sys.stderr)
             return 1
@@ -363,4 +400,5 @@ def _cmd_replay(args, client=None) -> int:
         args.out,
         args.config,
         client=client,
+        allow_public_target=args.allow_public_target,
     )

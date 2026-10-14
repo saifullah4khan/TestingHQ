@@ -380,8 +380,10 @@ def test_a_sink_that_cannot_enumerate_qualifies_the_verdict(
                 for line in pipeline.outbound if line.get("tag") == probe.tag
             ]
 
+    spec_probe.tag_only = TagOnly
     code, artifact, _text = _execute(
-        pipeline, target_config, tmp_path, spec_probe, "tagonly.json", TagOnly()
+        pipeline, target_config, tmp_path, spec_probe, "tagonly.json",
+        ReadbackConfig(kind="python", spec=f"{SPEC_MODULE}:tag_only"),
     )
     assert code == EXIT_OK
     assert artifact["summary"]["outbound_enumerated"] is False

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from .. import config_doc
+from .. import report_html
 from .. import reporting
 from ..core.exit_codes import EXIT_OK, EXIT_REFUSED
 from .common import DEFAULT_TARGET_CONFIG, _EXIT_CODE_HELP
@@ -19,19 +20,25 @@ def _add_report_parser(sub) -> None:
     """
     report_cmd = sub.add_parser(
         "report",
-        help="summarize a run artifact from any tool, in text or JSON",
+        help="summarize a run artifact from any tool, in text, JSON or HTML",
         epilog=_EXIT_CODE_HELP,
     )
     report_cmd.add_argument(
         "artifact",
-        help="path to a run artifact written by blast, barrage, verify, "
-             "ledger, redeliver, loop or compare",
+        help="path to a run artifact written by any testinghq tool",
     )
     report_cmd.add_argument(
         "--json",
         action="store_true",
         help="print the stable machine-readable summary instead of text. One "
              "shape for every tool, so a CI system has a single thing to parse.",
+    )
+    report_cmd.add_argument(
+        "--html",
+        metavar="OUT",
+        help="also write a self-contained HTML report to OUT: verdict, counts, "
+             "findings, records, Barrage charts and config, with no external "
+             "resources. The text or JSON summary is still printed.",
     )
 
 
@@ -47,6 +54,17 @@ def _cmd_report(args) -> int:
     except reporting.ArtifactError as exc:
         print(f"report: {exc}", file=sys.stderr)
         return EXIT_REFUSED
+
+    if args.html:
+        try:
+            # Read again for the parts the summary leaves out: records,
+            # buckets and config. load() above already refused a bad file.
+            raw = json.loads(Path(args.artifact).read_text(encoding="utf-8"))
+            report_html.write_html(Path(args.html), summary.to_json(), raw)
+        except OSError as exc:
+            print(f"report: could not write {args.html}: {exc}", file=sys.stderr)
+            return EXIT_REFUSED
+        print(f"report: wrote {args.html}", file=sys.stderr)
 
     if args.json:
         print(json.dumps(summary.to_json(), indent=2, sort_keys=True))
@@ -108,7 +126,7 @@ def _cmd_config_validate(args) -> int:
     print(f"config: {args.config_file}")
     print(f"targets: {len(targets)}")
     for name, target in targets.items():
-        print(f"  {name}: {target['url']} (format {target['format']})")
+        print(f"  {config_doc.describe_target(name, target)}")
 
     if readback is None:
         print("readback: none configured")

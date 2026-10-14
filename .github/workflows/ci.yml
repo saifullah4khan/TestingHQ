@@ -5,6 +5,17 @@ on:
   push:
     branches: [main]
 
+# The workflow only reads the repository. Declared so a change to the
+# repository's default token permissions cannot widen what these jobs can do.
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes the older run. Runs on main
+# are never cancelled, so every merge keeps a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
@@ -14,6 +25,7 @@ jobs:
   # keep the name "tests".
   test-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       # Every version pyproject.toml claims, not a sample of them. The claim
       # was once >=3.9 while only 3.11 was ever run, which is a promise nothing
@@ -39,11 +51,8 @@ jobs:
       - name: Run tests
         # -m "not allow_network" is what keeps this job hermetic. `testpaths`
         # is "tests", so a bare `pytest -q` collects every test marked
-        # allow_network, and those open real sockets. Selecting on the marker
-        # rather than ignoring a directory: tests/web/test_server.py is also
-        # exempt and is not under tests/e2e, so a directory ignore would leave
-        # a dozen socket tests running here. A local `pytest -q` deliberately
-        # still runs them.
+        # allow_network, and those open real sockets; e2e.yml runs them. A
+        # local `pytest -q` deliberately still runs everything.
         run: |
           set -euo pipefail
           pytest -q -m "not allow_network"
@@ -57,15 +66,12 @@ jobs:
   # drift: the ruleset matches on the string. When this job was first given a
   # matrix its name became "tests (py3.11)" and the rule stopped ever being
   # satisfied, so the PR sat blocked forever with nothing visibly wrong.
-  #
-  # `tests/unit/test_ci_gate_names.py` asserts this job exists under this name
-  # and that it needs the matrix, so the required name cannot quietly disappear
-  # again.
   tests:
     name: tests
     needs: [test-version]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Fail if any interpreter leg failed
         if: >-
@@ -76,35 +82,65 @@ jobs:
       - name: All interpreter legs passed
         run: echo "every claimed Python version passed"
 
-  # The web UI's rendering, in a language nothing else here runs.
-  #
-  # Until this job existed, no JavaScript ran in CI at all. That is not a
-  # theoretical gap: `app.js` ended with `window.__testingHQBlast = {
-  # classifyRecord }`, referring to a function the refactor that made the
-  # browser read the engine's outcome had already deleted. Naming an undefined
-  # identifier is a ReferenceError in strict mode, so the page threw on every
-  # load and the web UI did not work. The Python lane-hygiene test passed the
-  # whole time, because it checked that `function classifyRecord(` was absent,
-  # which it was. It said nothing about the line that still referenced it.
-  #
-  # No npm install and no lockfile: `node --test` and `node:assert` are in the
-  # standard library, and the module under test is loaded with `require` rather
-  # than bundled. Adding a dependency tree to test one file of vanilla
-  # JavaScript would be a bad trade.
-  #
-  # Deliberately not a required context. A rendering change should not be able
-  # to block a merge of an unrelated Python fix, and the required gates stay
-  # `tests` and `end-to-end`. A broken render is caught here on every push
-  # instead.
-  web-tests:
-    name: web tests
+  # Pyflakes-class errors only (undefined names, unused imports, shadowed
+  # tests). ruff.toml selects F; the version is pinned so a ruff release cannot
+  # turn a green tree red overnight.
+  lint:
+    name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v7
         with:
-          node-version: "22"
-      - name: Run the browser rendering tests
+          python-version: "3.13"
+      - name: ruff check --select F
         run: |
           set -euo pipefail
-          node --test web/tests/*.test.cjs
+          pip install "ruff==0.17.0"
+          ruff check --select F .
+
+  # `report --html` as a user gets it: built into a wheel, installed into a
+  # fresh venv outside the checkout, run on a real artifact, and the Node tests
+  # pointed at the render.js that the wheel installed. No npm, no lockfile:
+  # `node --test` and `node:assert` are in Node's standard library.
+  #
+  # Not a required context. The required gates stay `tests` and `end-to-end`.
+  report-html-tests:
+    name: report-html tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Build the wheel and install it into a fresh venv
+        run: |
+          set -euo pipefail
+          pip install build
+          python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install "$RUNNER_TEMP"/dist/testinghq-*.whl
+      - name: Render an artifact from outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cp "$GITHUB_WORKSPACE/tests/fixtures/sample_run_with_failures.json" run.json
+          "$RUNNER_TEMP/venv/bin/testinghq" report run.json --html out.html
+          grep -q "FLAGGED" out.html
+          if grep -Eq "https?://" out.html; then
+            echo "out.html names an external URL"
+            exit 1
+          fi
+      - name: Run the render.js tests against the installed file
+        run: |
+          set -euo pipefail
+          export TESTINGHQ_RENDER_JS="$("$RUNNER_TEMP/venv/bin/python" -c 'from testinghq import report_html; print(report_html.script_path())')"
+          case "$TESTINGHQ_RENDER_JS" in
+            "$GITHUB_WORKSPACE"*) echo "render.js resolved inside the checkout"; exit 1 ;;
+          esac
+          node --test tests/report_html/*.test.cjs

@@ -1,5 +1,7 @@
 # Readback recipe: an outbound mail sink
 #
+# STATUS: RUN by this repository's own tests and the loopback e2e job.
+#
 # WHAT IS VERIFIED AND WHAT IS NOT
 #
 #   This one WAS run. The sink line format below is what

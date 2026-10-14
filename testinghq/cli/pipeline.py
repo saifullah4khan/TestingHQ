@@ -20,6 +20,7 @@ from .common import (
     _add_readback_args,
     _add_readback_poll_args,
     _resolve_readback,
+    add_send_args,
 )
 
 def _add_verify_parser(sub) -> None:
@@ -55,10 +56,11 @@ def _add_verify_parser(sub) -> None:
         help="max requests per second",
     )
     v_fire.add_argument(
-        "--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX,
+        "--tag-prefix", default=pipeline_messages.run_tag_prefix(),
         help=(
-            "prefix for the per-message tag. Change it when two runs hit the "
-            "same system at once, so neither reads the other's records"
+            "prefix for the per-message tag. The default is drawn per run "
+            "(hq-<yymmddHHMM>-<4 hex>), so no two runs share tags; pass a "
+            "fixed value to reproduce an earlier run's tags"
         ),
     )
     v_fire.add_argument(
@@ -71,6 +73,7 @@ def _add_verify_parser(sub) -> None:
     )
     v_fire.add_argument("--out", help="path to write the verification artifact JSON")
     v_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(v_fire)
     _add_readback_args(v_fire)
     _add_readback_poll_args(v_fire)
 
@@ -117,9 +120,10 @@ def _add_ledger_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
 
@@ -162,9 +166,10 @@ def _add_redeliver_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     r_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    r_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    r_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
     r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(r_fire)
     _add_readback_args(r_fire)
     _add_readback_poll_args(r_fire)
 
@@ -181,27 +186,6 @@ def _drop_option(parser, option: str) -> None:
     for group in parser._action_groups:
         if action in group._group_actions:
             group._group_actions.remove(action)
-
-
-def _default_tag_prefix() -> str:
-    """A tag prefix unique to this run when the readback layer provides one,
-    else the fixed default."""
-    per_run = getattr(pipeline_messages, "run_tag_prefix", None)
-    return per_run() if callable(per_run) else pipeline_messages.DEFAULT_TAG_PREFIX
-
-
-def _add_send_args(parser) -> None:
-    """`--allow-public-target`, from the shared helper when it exists."""
-    from . import common as cli_common
-
-    add = getattr(cli_common, "add_send_args", None)
-    if callable(add):
-        add(parser)
-    elif "--allow-public-target" not in parser._option_string_actions:
-        parser.add_argument(
-            "--allow-public-target", action="store_true",
-            help="allow --target to name a public host",
-        )
 
 
 def _readback_for_dry_run(args):
@@ -247,7 +231,7 @@ def _add_loop_parser(sub) -> None:
     )
     l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
                         help="messages per second (default %(default)s)")
-    l_fire.add_argument("--tag-prefix", default=None,
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix(),
                         help="tag prefix (default: unique per run)")
     l_fire.add_argument("--out", help="path to write the loop artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG,
@@ -269,7 +253,7 @@ def _add_loop_parser(sub) -> None:
         help="seconds to wait for the pipeline's reply to the ordinary message "
              "before the bait falls back to a fabricated parent (default %(default)s)",
     )
-    _add_send_args(l_fire)
+    add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
     _drop_option(l_fire, "--expect-route")
@@ -306,7 +290,7 @@ def _add_steady_parser(sub) -> None:
     )
     s_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
                         help="messages per second (default %(default)s)")
-    s_fire.add_argument("--tag-prefix", default=None,
+    s_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix(),
                         help="tag prefix (default: unique per run)")
     s_fire.add_argument(
         "--repeats", type=int, default=1,
@@ -336,7 +320,7 @@ def _add_steady_parser(sub) -> None:
     s_fire.add_argument("--out", help="path to write the stability artifact JSON")
     s_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG,
                         help="target config file (default %(default)s)")
-    _add_send_args(s_fire)
+    add_send_args(s_fire)
     _add_readback_args(s_fire)
     _add_readback_poll_args(s_fire)
     _drop_option(s_fire, "--expect-route")
@@ -374,6 +358,7 @@ def _cmd_verify_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -431,6 +416,7 @@ def _cmd_ledger_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -442,7 +428,7 @@ def _cmd_loop_fire(args) -> int:
             section, flag_policy=args.ticket_policy, flag_reply=args.reply_address
         )
         outbound = pipeline_loop.build_outbound_config(section, args.config)
-        tag_prefix = args.tag_prefix or _default_tag_prefix()
+        tag_prefix = args.tag_prefix
         corpus = pipeline_loop.build_machine_corpus(args.seed, args.count, tag_prefix)
     except (AdapterError, pipeline_loop.LoopConfigError, ConfigError, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
@@ -479,7 +465,7 @@ def _cmd_loop_fire(args) -> int:
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
         ack_wait=args.ack_wait,
-        allow_public_target=getattr(args, "allow_public_target", False),
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -494,7 +480,7 @@ def _cmd_steady_fire(args) -> int:
         return EXIT_REFUSED
     label_field = args.label_field or section.get("label_field")
     intents_path = section.get("intents_path")
-    tag_prefix = args.tag_prefix or _default_tag_prefix()
+    tag_prefix = args.tag_prefix
 
     readback, missing = _readback_for_dry_run(args)
     if missing is not None and decision.will_send:
@@ -535,7 +521,7 @@ def _cmd_steady_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
-        allow_public_target=getattr(args, "allow_public_target", False),
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -575,4 +561,5 @@ def _cmd_redeliver_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )

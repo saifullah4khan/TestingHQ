@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import Attachment, Envelope, GroundTruth, InboundEmail
+from ..core.targets import resolve_target
 from .adapters import ReadbackConfig, parse_readback_config
 from .common import (
     DEFAULT_MAX_WAIT,
@@ -37,22 +38,16 @@ from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    VERDICT_SOURCE_READBACK,
     close_adapter,
+    prepare_readback,
     read_back_all,
     require_synthetic,
+    send_all,
 )
 from .messages import build_chain_message_id, make_tag, probe_for, stamp
 from .readback import Probe, can_enumerate
-from .sendpath import (
-    ToolConfigError,
-    is_unsettled,
-    open_readback,
-    read_tool_table,
-    read_tool_table_if_present,
-    readback_json,
-    resolve_send_target,
-    send_items,
-)
+from .toolconfig import ToolConfigError, read_tool_table, read_tool_table_if_present
 
 SCHEMA_VERSION = 1
 
@@ -587,8 +582,8 @@ def run_config(
         "count": count,
         "tag_prefix": tag_prefix,
         "target": target_name,
-        "readback": readback_json(readback),
-        "outbound": readback_json(outbound) if outbound is not None else None,
+        "readback": readback.to_json(),
+        "outbound": outbound.to_json() if outbound is not None else None,
         "ticket_policy": ticket_policy,
         "reply_address": reply_address,
         "readback_poll": dict(poll),
@@ -671,6 +666,8 @@ def format_results(results: Sequence[LoopResult], summary: Dict[str, Any]) -> st
         f"loop: {headline(summary)}  ({summary['checked']} machine-generated message(s) judged)",
         "",
         f"  sent:                {summary['sent']} (including the ordinary precursor)",
+        *([f"  readback:            {summary['readback_headline']}"]
+          if summary.get("readback_headline") else []),
         f"  tickets opened:      {summary['tickets_opened']}",
         f"  auto-replies sent:   {summary['auto_replies_emitted']}",
         f"  loop bait answered:  {summary['loop_bait_answered']}",
@@ -807,10 +804,8 @@ def build_artifact(
 
 def enumerable(adapter: Any) -> bool:
     """True when `adapter` can list every record it holds. An http adapter
-    configured with `enumerate = false` cannot, whatever it defines."""
-    if adapter is None or not can_enumerate(adapter):
-        return False
-    return getattr(adapter, "enumerate_records", True) is not False
+    configured with `enumerate = false` cannot."""
+    return adapter is not None and can_enumerate(adapter)
 
 
 def _list_all(adapter: Any) -> Tuple[List[Any], bool]:
@@ -876,8 +871,9 @@ def execute(
     """Send the precursor, read its reply, send the corpus and the bait, read
     both directions back, report. Every refusal lands before the first send.
 
-    `readback` and `outbound` are `ReadbackConfig`s or ready adapters;
-    `outbound` None means no sink, so the auto-reply check is not run.
+    `readback` and `outbound` are `ReadbackConfig`s; `outbound` None means no
+    sink, so the auto-reply check is not run. Both adapters are built and
+    preflighted before the first send.
     """
     if ticket_policy not in TICKET_POLICIES:
         printer(f"refused: --ticket-policy must be one of {list(TICKET_POLICIES)}")
@@ -888,7 +884,7 @@ def execute(
         precursor = build_precursor(seed, count, tag_prefix)
         provisional_bait = build_loop_bait(seed, count, tag_prefix, reply_address, None)
         require_synthetic([m.email for m in [*corpus, precursor, provisional_bait]])
-        target = resolve_send_target(
+        target = resolve_target(
             target_name, config_path, allow_public_target=allow_public_target
         )
     except Exception as exc:  # noqa: BLE001 - every pre-send failure is a refusal
@@ -916,9 +912,9 @@ def execute(
                 max_wait=max_wait, poll_interval=poll_interval, require_all_found=False)
     try:
         try:
-            adapter = open_readback(readback, client=readback_client, config_path=config_path)
+            adapter = prepare_readback(readback, client=readback_client, config_path=config_path)
             if outbound is not None:
-                outbound_adapter = open_readback(
+                outbound_adapter = prepare_readback(
                     outbound, client=readback_client, config_path=config_path
                 )
             can_list = enumerable(outbound_adapter)
@@ -927,8 +923,8 @@ def execute(
             printer(f"refused: {exc}")
             return EXIT_REFUSED
 
-        sent += send_items(build_items([precursor]), target, rate,
-                           client=client, sleep=sleep, clock=clock)
+        sent += send_all(build_items([precursor]), target.url, rate, client=client,
+                         sleep=sleep, clock=clock, wire_format=target.wire_format)
         if outbound_adapter is not None:
             reply = _find_reply(
                 outbound_adapter, precursor, baseline, can_list, sleep=sleep, clock=clock,
@@ -944,16 +940,16 @@ def execute(
         require_synthetic([bait.email])
 
         judged = [*corpus, bait]
-        sent += send_items(build_items(judged), target, rate,
-                           client=client, sleep=sleep, clock=clock)
+        sent += send_all(build_items(judged), target.url, rate, client=client,
+                         sleep=sleep, clock=clock, wire_format=target.wire_format)
         outcome = read_back_all(adapter, [m.probe() for m in [precursor, *judged]], **poll)
         outbound_by_tag = None
         unattributed: List[Any] = []
         partial = False
-        unsettled = is_unsettled(outcome)
+        unsettled = outcome.unsettled
         if outbound_adapter is not None:
             outbound_outcome = read_back_all(outbound_adapter, [m.probe() for m in judged], **poll)
-            unsettled = unsettled or is_unsettled(outbound_outcome)
+            unsettled = unsettled or outbound_outcome.unsettled
             tags = [m.tag for m in judged]
             message_ids = {m.message_id: m.tag for m in judged}
             message_ids[precursor.message_id] = precursor.tag
@@ -989,7 +985,9 @@ def execute(
         outbound_enumerated=None if outbound_adapter is None else can_list,
         outbound_partial=partial, bait_parent=bait_parent, unsettled=unsettled,
     )
+    summary["verdict_source"] = VERDICT_SOURCE_READBACK if unsettled else "tool"
     summary["readback"] = outcome.to_json()
+    summary["readback_headline"] = outcome.headline()
     artifact = build_artifact(seed, config, [precursor, *judged], results, summary,
                               unattributed=unattributed)
     printer(format_results(results, summary))

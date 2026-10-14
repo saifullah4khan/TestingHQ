@@ -21,14 +21,17 @@ processing yet.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.config import load_config
+from ..core.formats import WireFormat
 from ..core.ratelimit import TokenBucket
+from ..core.targets import resolve_target
 from ..core.transport import TransportResult, post
+from .adapters import BudgetExhausted, ReadbackConfig, build_adapter, parse_readback_config
 from .messages import Probe
 from .readback import Readback, ReadbackAdapter, ReadbackError
 
@@ -90,24 +93,14 @@ def require_synthetic(emails: Sequence[InboundEmail]) -> None:
     guardrails.require_synthetic_content(fields)
 
 
-def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, gating both
-    the configured name and the resolved URL through the canonical guardrail.
-
-    Two calls, on purpose, and the reason is the same one given in
-    `barrage/fire.py`: a bare single-label name like "local" has no dot, so the
-    public-host hardening classifies it as internal and passes it
-    unconditionally. The hardening then looks correct while being inert, and a
-    public URL hiding behind a friendly name fires. Checking the resolved URL
-    too is what makes it bite.
-    """
-    if not target_name:
-        raise guardrails.GuardrailError("refusing to fire: --send requires --target")
-    config = load_config(config_path)
-    guardrails.require_configured_target(target_name, config.allowed_target_names())
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
+def resolve_target_url(
+    target_name: Optional[str], config_path: str, *, allow_public_target: bool = False
+) -> str:
+    """Deprecated: use `testinghq.core.targets.resolve_target`, which also
+    returns the target's wire format. Kept as a wrapper for one release."""
+    return resolve_target(
+        target_name, config_path, allow_public_target=allow_public_target
+    ).url
 
 
 def send_all(
@@ -117,6 +110,7 @@ def send_all(
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    wire_format: Optional[WireFormat] = None,
 ) -> List[SentMessage]:
     """Fire every (email, tag, record_id, probe) in order, paced by a token
     bucket, and return what happened to each.
@@ -147,7 +141,7 @@ def send_all(
     sent: List[SentMessage] = []
     for index, (email, tag, record_id, probe) in enumerate(items):
         bucket.acquire()
-        result = post(email, url, client=client)
+        result = post(email, url, client=client, wire_format=wire_format)
         sent.append(
             SentMessage(
                 index=index,
@@ -161,13 +155,32 @@ def send_all(
     return sent
 
 
+#: The verdict a run gets when its readback did not settle within --max-wait.
+#: Distinct from loss: a message not seen yet is not a message the pipeline
+#: lost, and saying it was is the false alarm that teaches people to ignore
+#: the tool.
+UNSETTLED = "UNSETTLED"
+
+#: `verdict_source` for a verdict decided by the readback phase rather than by
+#: the tool's own checks.
+VERDICT_SOURCE_READBACK = "readback"
+
+#: The headline line for a run whose every lookup was a 404.
+ALL_404_HEADLINE = "every lookup was 404: check the readback url"
+
+
 @dataclass(frozen=True)
 class ReadbackOutcome:
     """What the readback phase found, and how long it took to settle.
 
-    `stable` is False when the phase hit `max_wait` before the counts held
-    steady, which is a different statement from "everything was found": a run
-    that gave up early cannot claim its answer was quiet.
+    `stable` is False when the phase ran out of `max_wait` before the
+    readbacks held steady, which makes the run UNSETTLED: a run that gave up
+    early cannot claim its answer was quiet, and cannot claim a message it had
+    not seen yet was lost. `budget_exhausted` says the budget ran out in the
+    middle of a poll or a retry wait. `partial` names the tags whose lookup hit
+    `max_pages`. `all_404` is True when every lookup of every poll got a 404,
+    which is almost always a wrong url rather than a pipeline that lost
+    everything.
     """
 
     readbacks: Dict[str, List[Readback]]
@@ -175,14 +188,64 @@ class ReadbackOutcome:
     polls: int
     stable: bool
     missing: Tuple[str, ...] = ()
+    budget_exhausted: bool = False
+    partial: Tuple[str, ...] = ()
+    all_404: bool = False
+    detail: Optional[str] = None
+
+    @property
+    def unsettled(self) -> bool:
+        return not self.stable
+
+    def headline(self) -> Optional[str]:
+        """One line for the top of a tool's report, or None when the readback
+        settled normally."""
+        if self.all_404:
+            return ALL_404_HEADLINE
+        if self.unsettled:
+            missing = (
+                f", {len(self.missing)} tag(s) not seen yet" if self.missing else ""
+            )
+            return (
+                f"{UNSETTLED}: the readback did not settle within --max-wait "
+                f"({self.elapsed:.1f}s, {self.polls} poll(s){missing}). Unseen "
+                "is not lost: raise --max-wait for a slow or async pipeline"
+            )
+        return None
 
     def to_json(self) -> Dict[str, Any]:
         return {
             "elapsed_s": round(self.elapsed, 3),
             "polls": self.polls,
             "stable": self.stable,
+            "unsettled": self.unsettled,
+            "verdict": UNSETTLED if self.unsettled else None,
+            "budget_exhausted": self.budget_exhausted,
             "missing_tags": list(self.missing),
+            "partial_tags": list(self.partial),
+            "all_404": self.all_404,
+            "headline": self.headline(),
+            "detail": self.detail,
         }
+
+
+def readback_verdict(verdict: str, outcome: Optional[ReadbackOutcome]) -> Tuple[str, str]:
+    """(verdict, verdict_source) after the readback has had its say.
+
+    An unsettled readback replaces the tool's own verdict with UNSETTLED,
+    because every absence that verdict rests on is unproven. The findings the
+    tool did make still stand and are still listed; the exit code stays 3.
+    """
+    if outcome is not None and outcome.unsettled:
+        return UNSETTLED, VERDICT_SOURCE_READBACK
+    return verdict, "tool"
+
+
+def _signature(readbacks: Sequence[Readback]) -> Tuple[Readback, ...]:
+    """What the quiet window watches for one tag: every readback, every field
+    value. Sorted so an API that returns the same records in a different order
+    does not look like a change."""
+    return tuple(sorted(readbacks, key=lambda r: (r.ticket_id or "", repr(r))))
 
 
 def read_back_all(
@@ -198,28 +261,32 @@ def read_back_all(
 ) -> ReadbackOutcome:
     """Ask the system what it holds for every probe, until it stops changing.
 
-    Believed stable when every tag has been found and the per-tag counts have
-    not moved for `quiet_window`. Waiting for the counts specifically is what
-    catches a duplicate that appears late: a read at t=0 sees one ticket, and
-    one that only required "all found" would finish there and report a clean
-    run moments before the second ticket lands.
+    Believed stable when every tag has been found and nothing about the
+    readbacks has changed for `quiet_window`: not the counts, and not the
+    field values the checks read. Watching the values is what catches an
+    async pipeline that creates a ticket first and fills its route or body a
+    moment later; watching the counts is what catches the late duplicate.
 
-    `require_all_found=False` relaxes the first half of that condition, and one
-    tool needs it. `loop` asks whether a pipeline filed a ticket for
-    machine-generated mail, and under the default ticket policy a CORRECT
-    pipeline files none, so "every tag found" is not a condition the run can ever
-    satisfy. Left on, every `loop` run polls until `max_wait` and reports a
-    readback that gave up, which is both a slow run and a report that says
-    nothing about the thing being measured. There, absence is the expected
-    answer and the counts-steady condition is what settles it.
+    GUIDANCE FOR ASYNC PIPELINES. If the pipeline acknowledges the POST and
+    does its work on a queue consumer, the quiet window has to be longer than
+    the consumer's worst gap between writing a record and finishing it, and
+    `max_wait` longer than the backlog it can build. A search-indexed store
+    (Zendesk, Freshdesk) can take minutes to index a new ticket; start with
+    `--max-wait 300` there.
 
-    An adapter that raises is not swallowed. A readback that fails halfway is a
-    broken run, and reporting the first half as "the pipeline produced nothing
-    else" would be a lie with a number attached.
+    `max_wait` is a hard budget: it is checked before every lookup, and an
+    adapter that supports `bind_clock` is told the deadline, so its request
+    timeouts, retry waits and rate-limit waits spend the same budget. A run
+    that runs out is UNSETTLED, not lost.
 
-    A tag is asked once per poll, not once per delivery: a redelivery scenario
-    sends the same message twice on purpose, and asking twice would either
-    double-count the answer or return a different one the second time.
+    `require_all_found=False` relaxes the "every tag found" half of the
+    condition, for `loop`, where absence is the correct answer.
+
+    An adapter that raises is not swallowed, with one exception: running out
+    of budget inside the adapter ends the poll like running out of budget
+    between lookups does.
+
+    A tag is asked once per poll, not once per delivery.
     """
     if quiet_window < 0:
         raise ValueError(f"quiet_window must be >= 0, got {quiet_window}")
@@ -228,59 +295,131 @@ def read_back_all(
     if poll_interval <= 0:
         raise ValueError(f"poll_interval must be > 0, got {poll_interval}")
 
-    asked: List[str] = []
+    by_tag: Dict[str, Probe] = {}
     for probe in probes:
-        if probe.tag not in asked:
-            asked.append(probe.tag)
+        by_tag.setdefault(probe.tag, probe)
+    asked = list(by_tag)
 
     started = clock()
+    deadline = started + max_wait
+    binder = getattr(adapter, "bind_clock", None)
+    if callable(binder):
+        binder(clock, sleep, deadline)
+
     found: Dict[str, List[Readback]] = {tag: [] for tag in asked}
-    previous: Optional[Tuple[int, ...]] = None
+    partial: Dict[str, bool] = {tag: False for tag in asked}
+    statuses: Dict[str, List[Optional[int]]] = {tag: [] for tag in asked}
+    previous: Optional[Tuple[Tuple[Readback, ...], ...]] = None
     unchanged_since: Optional[float] = None
     polls = 0
     stable = False
+    exhausted = False
+    detail: Optional[str] = None
+    lookups = 0
 
-    while True:
-        polls += 1
-        for tag in asked:
-            found[tag] = list(adapter.fetch(_probe_by_tag(probes, tag)) or [])
-
-        now = clock()
-        counts = tuple(len(found[tag]) for tag in asked)
-        settled_enough = all(found[tag] for tag in asked) or not require_all_found
-
-        if settled_enough and counts == previous:
-            if unchanged_since is None:
-                unchanged_since = now
-            if now - unchanged_since >= quiet_window:
-                stable = True
+    try:
+        while True:
+            if polls and clock() >= deadline:
                 break
-        else:
-            # Either something is still missing or a count moved. Both reset the
-            # window: a count moving is a late duplicate arriving, and believing
-            # the earlier sighting is the bug this exists to prevent.
-            unchanged_since = None
-        previous = counts
+            polls += 1
+            for tag in asked:
+                if lookups and clock() >= deadline:
+                    exhausted = True
+                    break
+                lookups += 1
+                try:
+                    result = adapter.fetch(by_tag[tag])
+                except BudgetExhausted as exc:
+                    exhausted = True
+                    detail = str(exc)
+                    break
+                partial[tag] = bool(getattr(result, "partial", False))
+                statuses[tag].append(getattr(result, "status", None))
+                found[tag] = list(result or [])
+            if exhausted:
+                break
 
-        if now - started >= max_wait:
-            break
-        sleep(poll_interval)
+            now = clock()
+            signature = tuple(_signature(found[tag]) for tag in asked)
+            settled_enough = all(found[tag] for tag in asked) or not require_all_found
 
-    missing = tuple(tag for tag in asked if not found[tag])
+            if settled_enough and signature == previous:
+                if unchanged_since is None:
+                    unchanged_since = now
+                if now - unchanged_since >= quiet_window:
+                    stable = True
+                    break
+            else:
+                # Something is missing or something changed. Both reset the
+                # window: believing the earlier sighting is the bug this exists
+                # to prevent.
+                unchanged_since = None
+            previous = signature
+
+            if now - started >= max_wait:
+                break
+            sleep(min(poll_interval, deadline - now))
+    finally:
+        if callable(binder):
+            binder(clock, sleep, None)
+
+    seen_statuses = [s for tag in asked for s in statuses[tag]]
+    all_404 = bool(seen_statuses) and all(s == 404 for s in seen_statuses) and all(
+        statuses[tag] for tag in asked
+    )
     return ReadbackOutcome(
         readbacks=found,
         elapsed=clock() - started,
         polls=polls,
         stable=stable,
-        missing=missing,
+        missing=tuple(tag for tag in asked if not found[tag]),
+        budget_exhausted=exhausted,
+        partial=tuple(tag for tag in asked if partial[tag]),
+        all_404=all_404,
+        detail=detail,
     )
 
 
-def _probe_by_tag(probes: Sequence[Probe], tag: str) -> Probe:
-    for probe in probes:
-        if probe.tag == tag:
-            return probe
-    raise ReadbackError(f"no probe carries tag {tag!r}")
+def prepare_readback(
+    args_or_config: Any,
+    *,
+    client: Any = None,
+    config_path: Optional[str] = None,
+    config_dir: Optional[str] = None,
+    preflight: bool = True,
+) -> ReadbackAdapter:
+    """Build the readback adapter and check it works, before anything is sent.
+
+    The one call every tool makes in place of `build_adapter`, so the three
+    things that must happen before the first send happen everywhere:
+
+      1. the adapter is built, with a relative mailbox path resolved against
+         the directory of the config file (`config_path`, or `config_dir`);
+      2. a `module:attribute` that cannot be imported or built is refused;
+      3. `preflight()` runs when the adapter has one: refused credentials, a
+         404 list path, a response that is not JSON, or a sink directory that
+         does not exist are refusals now, not a broken run later.
+
+    `args_or_config` is a `ReadbackConfig`, a raw `[readback]` table, or a kind
+    string. Raises `AdapterError`; the adapter is closed when preflight fails.
+    """
+    config = (
+        args_or_config
+        if isinstance(args_or_config, ReadbackConfig)
+        else parse_readback_config(args_or_config)
+    )
+    if config_dir is None and config_path:
+        config_dir = str(Path(config_path).resolve().parent)
+    adapter = build_adapter(config, client=client, config_dir=config_dir)
+    if preflight:
+        check = getattr(adapter, "preflight", None)
+        if callable(check):
+            try:
+                check()
+            except Exception:
+                close_adapter(adapter)
+                raise
+    return adapter
 
 
 def close_adapter(adapter: Optional[ReadbackAdapter]) -> None:
@@ -309,14 +448,20 @@ def status_class(result: TransportResult) -> str:
 
 
 __all__ = [
+    "ALL_404_HEADLINE",
     "EXIT_DRY_RUN",
     "EXIT_MISMATCH",
     "EXIT_OK",
     "EXIT_REFUSED",
     "ReadbackError",
+    "ReadbackOutcome",
     "SentMessage",
+    "UNSETTLED",
+    "VERDICT_SOURCE_READBACK",
     "close_adapter",
+    "prepare_readback",
     "read_back_all",
+    "readback_verdict",
     "require_synthetic",
     "resolve_target_url",
     "send_all",

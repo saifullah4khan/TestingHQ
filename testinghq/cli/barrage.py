@@ -10,7 +10,7 @@ from ..barrage.runner import RateCeilingError
 from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
-from .common import DEFAULT_TARGET_CONFIG
+from .common import DEFAULT_TARGET_CONFIG, add_send_args
 
 def _add_barrage_parser(sub) -> None:
     """The `barrage` subcommand: load-test a configured target.
@@ -79,6 +79,7 @@ def _add_barrage_parser(sub) -> None:
     b_fire.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(b_fire)
 
     b_replay = barrage_sub.add_parser("replay", help="re-run a saved barrage run")
     b_replay.add_argument("run", help="path to a previously written barrage artifact JSON")
@@ -93,6 +94,7 @@ def _add_barrage_parser(sub) -> None:
     b_replay.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(b_replay)
 
     # compare. Note the absence of --target, --send and --config, which is the
     # point: it reads two files and compares them. There is no network path to
@@ -132,6 +134,7 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
             args.config,
             args.out,
             allow_high_rate=args.allow_high_rate,
+            allow_public_target=args.allow_public_target,
         )
     except (
         guardrails.GuardrailError,

@@ -790,7 +790,7 @@ class Settings:
 def load_sigcheck_config(path: Optional[str], *, required: bool = True) -> Dict[str, Any]:
     """The validated `[sigcheck]` table. With `required=False` a missing config
     file reads as an empty table, for a dry run."""
-    from .sendpath import ToolConfigError, read_tool_table, read_tool_table_if_present
+    from .toolconfig import ToolConfigError, read_tool_table, read_tool_table_if_present
 
     reader = read_tool_table if required else read_tool_table_if_present
     try:
@@ -838,7 +838,7 @@ def effective_settings(
 
 def resolve_secret(settings: Settings, env: Optional[Dict[str, str]] = None) -> str:
     """The secret's value, from the environment variable its reference names."""
-    from .sendpath import ToolConfigError, resolve_env_secret
+    from .toolconfig import ToolConfigError, resolve_env_secret
 
     if not settings.secret_ref:
         raise SigcheckError(
@@ -893,12 +893,12 @@ def execute(
 ) -> int:
     """Send every applicable variant once, in order, and judge each answer."""
     from ..core import guardrails
+    from ..core.targets import resolve_target
     from ..core.transport import post
-    from .sendpath import resolve_send_target
 
     try:
         scheme = get_scheme(scheme_name)
-        target = resolve_send_target(target_name, config_path, allow_public_target=allow_public_target)
+        target = resolve_target(target_name, config_path, allow_public_target=allow_public_target)
         allowed = SCHEME_FORMATS[scheme.name]
         if target.format_name not in allowed:
             raise SigcheckError(
@@ -919,7 +919,7 @@ def execute(
         return EXIT_REFUSED
 
     config = run_config(scheme.name, target.name, target.format_name, window, secret_ref,
-                        False, allow_public_target and target.public)
+                        False, target.public)
     outcomes: List[Outcome] = []
     aborted = False
     try:

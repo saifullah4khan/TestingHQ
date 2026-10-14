@@ -1,25 +1,26 @@
 # Readback recipe: Zendesk Support API
 #
-# WHAT IS VERIFIED AND WHAT IS NOT
-#
-#   The TOML parses with the real loader, and the field paths are checked
-#   against sample records in tests/test_readback_recipes.py, which are
-#   modelled on the shapes in Zendesk's published API documentation.
-#
-#   It has NOT been run against a live Zendesk account. Nobody on this project
-#   has one. So read the field paths as "what their documentation says the
-#   response looks like", not as "this was seen to work". If one is wrong the
-#   failure is visible and safe: that check reports NOT CHECKED and the run
-#   tells you which field the adapter could not see.
+# STATUS: NOT RUN against a live Zendesk account. Written from Zendesk's
+# published API documentation (Search API, Tickets API, Ticket Via Object).
+# Read the field paths as "what the documentation says the response looks
+# like", not as "this was seen to work". If one is wrong the failure is
+# visible and safe: that check reports NOT CHECKED and says which field the
+# adapter could not see.
 #
 # Copy to target.toml, fill in your subdomain, and pass --config.
 #
-#   export ZENDESK_TOKEN="..."      # API token, Settings > APIs
-#   testinghq verify fire --target zendesk --send --config target.toml
+#   export ZENDESK_AUTH="Basic $(printf '%s/token:%s' "$ZENDESK_EMAIL" "$ZENDESK_API_TOKEN" | base64 | tr -d '\n')"
+#   testinghq verify fire --target zendesk --send --config target.toml --max-wait 300
 #
-# Never put the token in this file. A [readback.headers] value that is not an
-# `env:` reference is refused, not warned about, because a config file is a
-# file that gets shared.
+# AUTH. Zendesk API tokens use Basic auth with the username
+# "<agent email>/token" and the token as the password, base64 encoded behind a
+# "Basic " prefix. The shell line above builds exactly that, so the value is
+# assembled outside this file. A [readback.headers] value that is not an
+# `env:` reference is refused, because a config file is a file that gets shared.
+#
+# WAITING. Zendesk search is backed by an index that lags ticket creation by
+# seconds to a few minutes. With the default --max-wait of 60 a slow index
+# reads as UNSETTLED rather than as loss, but start with --max-wait 300 here.
 
 [targets.zendesk]
 name = "zendesk"
@@ -29,99 +30,74 @@ url = "http://127.0.0.1:8000/intake"
 # Readback
 # ---------------------------------------------------------------------------
 #
-# Zendesk's search endpoint is a GET on /api/v2/search.json with a query
-# string. This adapter appends the tag as a query parameter to `url`, so the
-# parameter name has to be one Zendesk already understands. `query` is the
-# one: set tag_param = "query" and the lookup becomes
+# The lookup is GET /api/v2/search.json?query=type:ticket tags:<tag>.
+# `type:ticket` keeps users and organizations out of the results, and
+# `tags:<tag>` matches a ticket carrying the TestingHQ tag as a Zendesk tag.
+# That needs the pipeline to copy the X-TestingHQ-Tag header (or the
+# [testinghq:<tag>] body marker) into the ticket's tags: one trigger, or one
+# line in the code that creates the ticket. If it does not, search the text
+# instead, since the tag is in the body:
 #
-#   /api/v2/search.json?query=hq-1-0000
+#   query = 'type:ticket "{tag}"'
 #
-# which searches ticket text. That works because TestingHQ stamps its tag into
-# the message body, so the tag is in the searchable text.
+# Search results come 100 to a page, with the next page's url in `next_page`.
 #
 # `allow_public_hosts` is REQUIRED here and you should think twice before
-# keeping it. The readback guardrail refuses a public host by default, and this
-# recipe has to override that because a real Zendesk is a public host. The
-# override is deliberate and visible rather than hidden in a flag: the guardrail
-# exists because a readback URL is often a ticket store holding other people's
-# data, and the cost of being wrong is reading someone else's tickets.
-#
-# Remove the line and pass --allow-public-readback per run instead if you would
-# rather the guardrail be re-decided every time.
+# keeping it. A real Zendesk is a public host, and the readback guardrail
+# exists because a readback URL is usually a ticket store holding other
+# people's data. Remove the line and pass --allow-public-readback per run if
+# you would rather the decision be made every time.
 
 [readback]
 kind = "http"
 url = "https://your-subdomain.zendesk.com/api/v2/search.json"
 tag_param = "query"
+query = "type:ticket tags:{tag}"
 items_key = "results"
+next_path = "next_page"
 timeout = 20.0
 allow_public_hosts = true
 
+# Search needs a query, so it cannot list every ticket: stray detection is off
+# and the ledger reports strays as not searched rather than as none.
+enumerate = false
+
 [readback.headers]
-Authorization = "env:ZENDESK_TOKEN"
+Authorization = "env:ZENDESK_AUTH"
 
 # ---------------------------------------------------------------------------
 # Field map
 # ---------------------------------------------------------------------------
 #
-# Zendesk nests almost everything under `subject`/`description` at the top level
-# of a search result, and a search result is a ticket. The names below follow
-# their Search Results documentation.
+# A search result of type ticket is a ticket object. `via.source.from.address`
+# is the sender of a ticket created from email. The plain-text body is
+# `description`; the HTML part of a multipart message is stored as a comment,
+# not in `description`, so only the plain-text part is checked.
 #
-# THE ONE THING THAT WILL NOT WORK, stated plainly: Zendesk's ticket object has
-# no single body field. The plain-text body lives in `description` and the HTML
-# in `description_html`, and for a multipart message Zendesk stores the parts as
-# separate comments, not merged into `description`. So mapping `body` to
-# `description` checks the plain-text part, and the HTML part of a message with
-# both is not checked at all. That is better than mapping it to something that
-# does not exist, which would report the body as invisible for every ticket.
-#
-# Skip reasons you should expect to see for this recipe:
-#   "adapter cannot see field" for body, when a ticket has only an HTML part.
-#   "no record found" when the message never became a ticket at all.
+# `priority = false` unmaps a default: a stock Zendesk `priority` is the
+# ticket's urgency, not a classifier's label, and reading it as one would make
+# a steady run measure the wrong thing.
 
 [readback.fields]
 ticket_id = "id"
-# `.address`, not `.from`. `via.followup_source.from` is an object
-# (`{"rel":..., "address":..., "name":...}`), and this adapter accepts a string
-# or null for a field, so pointing it at the object is refused at load with
-# "a readback field must be a string or null, got dict".
-from_addr = "via.followup_source.from.address"
+from_addr = "via.source.from.address"
 subject = "subject"
 body = "description"
-message_id = "metadata.system.message_id"
 route = "group_id"
+priority = false
 
-# NOT MAPPED, and the reason is worth reading before you add it:
+# NOT MAPPED, each for a reason:
 #
-#   tag  A Zendesk ticket's `tags` is a LIST, and this adapter accepts a list
-#        only for attachment_names and references. Mapping tag to "tags" is
-#        refused at load with "a readback field must be a string or null, got
-#        list". It is also unnecessary here: the search already found the
-#        ticket BY the tag, so the response does not need to carry it back.
-#        If your pipeline copies the TestingHQ tag into a single-valued custom
-#        field, map that field's API name instead.
-
-# ---------------------------------------------------------------------------
-# What this recipe cannot check, and why
-# ---------------------------------------------------------------------------
-#
-# Not mapped, deliberately, each with the reason rather than left to be
-# discovered:
-#
-#   attachment_names  Zendesk's search result does not inline the attachment
-#                     list, it carries a count. A count is not a name, and
-#                     mapping `attachments_count` would let a check compare the
-#                     number 2 against ["invoice.pdf"] and pass by accident.
-#                     Attachments need the /api/v2/tickets/{id}/attachments
-#                     endpoint, which this single-GET adapter cannot follow.
-#
-#   in_reply_to       Not a field on a Zendesk ticket. Zendesk threads tickets
-#   references        by its own conversation model, not by RFC 5322 headers,
-#                     so a threading check here would be comparing a different
-#                     system's idea of threading.
-#
-#   category          Only if you have a custom triage field. Map it to your own
-#   priority          field's API name if you have one; the default keys
-#                     `category` and `priority` match nothing in a stock
-#                     Zendesk, so those checks will be SKIPPED as invisible.
+#   attachment_names  A ticket in a search result carries no attachment list.
+#                     Attachments live on comments
+#                     (/api/v2/tickets/{id}/comments), a second request this
+#                     adapter does not make. Write a custom adapter if you need
+#                     them.
+#   message_id,       Zendesk threads by its own conversation model, not by
+#   in_reply_to,      RFC 5322 headers, and a ticket does not expose them.
+#   references
+#   tag               `tags` is a list of every tag on the ticket. The search
+#                     already found the ticket by the tag, so nothing needs to
+#                     carry it back.
+#   category          Only if you have a custom triage field, which needs a
+#                     custom adapter to read out of `custom_fields`.

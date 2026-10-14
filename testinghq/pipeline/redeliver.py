@@ -47,6 +47,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core.ratelimit import TokenBucket
+from ..core.targets import resolve_target
 from ..core.transport import post
 from . import messages
 from .adapters import ReadbackConfig, build_adapter
@@ -62,7 +63,6 @@ from .common import (
     ReadbackOutcome,
     read_back_all,
     require_synthetic,
-    resolve_target_url,
 )
 from .expectations import (
     Expectations,
@@ -535,6 +535,7 @@ def send_scenario(
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    wire_format: Any = None,
 ) -> List[SentMessage]:
     """Deliver one scenario in order, honouring each delivery's `delay_before`.
 
@@ -553,7 +554,7 @@ def send_scenario(
         if delivery.delay_before > 0:
             sleep(delivery.delay_before)
         bucket.acquire()
-        result = post(delivery.email, url, client=client)
+        result = post(delivery.email, url, client=client, wire_format=wire_format)
         sent.append(
             SentMessage(
                 index=index,
@@ -885,6 +886,7 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     printer: Callable[[str], None] = print,
+    allow_public_target: bool = False,
 ) -> int:
     """Run every scenario, read back, report. Never called unless
     `guardrails.evaluate_send` already said yes.
@@ -900,7 +902,9 @@ def execute(
 
     try:
         require_synthetic([d.email for d in every_delivery])
-        url = resolve_target_url(target_name, config_path)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED
@@ -915,7 +919,8 @@ def execute(
         for scenario in built:
             sent.extend(
                 send_scenario(
-                    scenario, url, rate, client=client, sleep=sleep, clock=clock
+                    scenario, target.url, rate, client=client, sleep=sleep,
+                    clock=clock, wire_format=target.wire_format,
                 )
             )
         outcome = read_back_all(
@@ -944,6 +949,7 @@ def execute(
         results,
         outcome,
     )
+    artifact["config"].update(target.artifact_config())
     printer(format_redelivery(artifact))
     if out:
         Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
