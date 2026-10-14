@@ -5,7 +5,7 @@ import dataclasses
 import sys
 from pathlib import Path
 
-from ..core.config import ConfigError, load_config
+from ..core.config import ConfigError, UnknownKeyError, load_config
 from ..core.exit_codes import EXIT_REFUSED, MEANINGS as _EXIT_MEANINGS
 from ..core.targets import ResolvedTarget, resolve_target
 from ..pipeline import adapters as pipeline_adapters
@@ -68,6 +68,10 @@ def _resolve_readback(args):
 
     try:
         config = load_config(config_path)
+    except UnknownKeyError:
+        # A typo in the file is refused here too, rather than read as "no
+        # config" and reported as a missing readback.
+        raise
     except ConfigError:
         config = None
     raw = config.readback_table() if config is not None else None

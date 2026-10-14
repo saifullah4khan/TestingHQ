@@ -10,14 +10,21 @@ URL stays out of source control.
 Loading fails loud: a missing file, unparsable TOML, a malformed `targets`
 table, a target missing its `url`, an unknown `format` or a non-boolean
 `public` all raise ConfigError. Nothing falls back to a default for a bad value.
+
+A key or table the schema in `config_schema.py` does not declare is refused
+too, with the closest known name when one is close. Ignoring it would be the
+worst failure a config file can have: `formt = "mailgun"` would load, look
+fine, and send every message as SendGrid.
 """
 from __future__ import annotations
 
+import difflib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
+from . import config_schema
 from .formats import format_names
 from .transport import DEFAULT_FORMAT
 
@@ -34,6 +41,15 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only on Python < 3.1
 class ConfigError(RuntimeError):
     """Raised when configuration is missing or malformed. Config loading
     fails loud; it never silently produces an empty or partial Config."""
+
+
+class UnknownKeyError(ConfigError):
+    """A config file holds a key or table the schema does not declare.
+
+    Its own class because a caller that tolerates a config it cannot load
+    (a dry run with `--readback` given as a flag, say) must still refuse
+    this one: the file is there and says something, just not what was meant.
+    """
 
 
 @dataclass(frozen=True)
@@ -125,6 +141,106 @@ def _env_key(name: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in name).upper()
 
 
+def _is_custom_adapter(values: Mapping[str, Any]) -> bool:
+    """True when a readback-style table names a `module:attribute` adapter,
+    either as its `kind` or as `spec`."""
+    kind = values.get("kind")
+    if isinstance(kind, str) and ":" in kind:
+        return True
+    return values.get("spec") is not None
+
+
+def _unknown(where: str, key: str, known: Sequence[str]) -> str:
+    """One refusal line: where, which key, and the closest known name."""
+    close = difflib.get_close_matches(key, list(known), n=1)
+    if close:
+        return f"{where} has unknown key {key!r} (did you mean {close[0]!r}?)"
+    return f"{where} has unknown key {key!r} (known keys: {', '.join(known)})"
+
+
+def _check_table(
+    dotted: str, table: "config_schema.Table", values: Mapping[str, Any],
+    problems: List[str],
+) -> None:
+    """Check one table's key names. `dotted` is its name as the file spells
+    it (`targets.local`, `loop.outbound`), for the message."""
+    if table.free_form:
+        # `[readback.fields]` names readback fields and `[readback.headers]`
+        # names request headers: data, not a fixed set. The adapter loader
+        # checks field names itself, and header names are the operator's.
+        return
+    known = config_schema.known_keys(table)
+    open_for_adapter = (
+        config_schema.accepts_custom_adapter_keys(table) and _is_custom_adapter(values)
+    )
+    for key, value in values.items():
+        child = config_schema.child_table(table, key)
+        if child is not None:
+            if isinstance(value, dict):
+                _check_table(f"{dotted}.{key}", child, value, problems)
+            continue
+        if key in known or open_for_adapter:
+            continue
+        problems.append(_unknown(f"[{dotted}]", key, known))
+
+
+def unknown_key_problems(raw: Mapping[str, Any]) -> List[str]:
+    """Every key or table in a parsed config file that the schema does not
+    declare, one line each, in file order. Empty for a clean file.
+
+    Only names are checked here. Values, and the shape of a table (a
+    `targets` that is not a table, say), are left to the loaders that read
+    them, so a malformed value is reported by the code that would run it.
+    """
+    problems: List[str] = []
+    top = config_schema.top_level_names()
+    for key, value in raw.items():
+        if key not in top:
+            close = difflib.get_close_matches(key, top, n=1)
+            what = f"unknown table [{key}]" if isinstance(value, dict) else (
+                f"unknown top-level key {key!r}"
+            )
+            hint = (
+                f"did you mean [{close[0]}]?" if close
+                else f"known tables: {', '.join(f'[{t}]' for t in top)}"
+            )
+            problems.append(f"{what} ({hint})")
+            continue
+        if not isinstance(value, dict):
+            continue
+        if key == config_schema.TARGETS.name:
+            for name, entry in value.items():
+                if isinstance(entry, dict):
+                    _check_table(
+                        f"targets.{name}", config_schema.TARGETS, entry, problems
+                    )
+            continue
+        table = config_schema.table_named(key)
+        if table is not None:
+            _check_table(key, table, value, problems)
+    return problems
+
+
+def check_known_keys(raw: Mapping[str, Any], source: Union[str, Path]) -> None:
+    """Refuse a parsed config file holding a key or table the schema does not
+    declare. `source` is the file, named in the message.
+
+    Refused rather than warned about: a warning scrolls past, and the run it
+    precedes has already sent with the default the typo fell back to. A custom
+    readback adapter (`kind = "module:attribute"`) may carry keys of its own,
+    which the schema cannot know, so those tables accept extra keys and only
+    those.
+    """
+    problems = unknown_key_problems(raw)
+    if not problems:
+        return
+    raise UnknownKeyError(
+        f"config file {source}: " + "; ".join(problems) + ". An unknown key is "
+        "refused rather than ignored, because an ignored typo runs with the "
+        "default; docs/CONFIG.md lists every key"
+    )
+
+
 def load_config(
     path: Union[str, Path], env: Optional[Mapping[str, str]] = None
 ) -> Config:
@@ -149,7 +265,8 @@ def load_config(
     that it is a table and leaves its contents to
     `testinghq/pipeline/adapters.py`.
 
-    Raises ConfigError for: a missing file, unparsable TOML, a `targets` key
+    Raises ConfigError for: a missing file, unparsable TOML, a key or table
+    the schema does not declare (see `check_known_keys`), a `targets` key
     that is not a table, a target entry that is not a table, a target
     entry missing `url`, or a `readback` key that is not a table.
     `Target.__post_init__` further validates each url's shape.
@@ -169,6 +286,10 @@ def load_config(
         raw = tomllib.loads(config_path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise ConfigError(f"config file {config_path} is not valid TOML: {exc}") from exc
+
+    # First, so `[target.local]` (a typo for `targets`) is reported as the
+    # typo it is, not as "no targets declared".
+    check_known_keys(raw, config_path)
 
     targets_raw = raw.get("targets", {})
     if not isinstance(targets_raw, dict):

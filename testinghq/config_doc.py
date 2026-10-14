@@ -248,7 +248,19 @@ a loader without a line here fails the suite.
 **Scope.** `[targets.<name>]`, `[readback]`, `[readback.fields]` and
 `[readback.headers]` are read by the `core.config` loader. `[loop]`,
 `[loop.outbound]`, `[steady]` and `[sigcheck]` are read from the same file by
-the tool they name, and `config validate` does not check them.
+the tool they name, and `config validate` checks their key names but not their
+values.
+
+**Unknown keys are refused.** A key a table below does not list, or a
+top-level table other than those below, stops every tool before it sends
+anything (exit 1), and `config validate` reports the same error, naming the
+file, the table, the key and the closest known key. A typo is never ignored,
+because an ignored `formt = "mailgun"` would send in the default format.
+Three exceptions, all by design: the names inside `[readback.fields]` and
+`[readback.headers]` are data (field names are checked against the readback
+fields when the adapter loads), and a `[readback]` or `[loop.outbound]` table
+whose `kind` (or `spec`) names a custom `module:attribute` adapter may carry
+keys of its own.
 
 Validate a file and see what the loaders make of it:
 

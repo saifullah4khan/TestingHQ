@@ -1,12 +1,17 @@
 """Per-tool config tables and `env:` secrets for loop, steady and sigcheck.
 
 `core/config.py` reads `[targets]` and `[readback]`; the `[loop]`, `[steady]`
-and `[sigcheck]` tables are read here, by the tools that own them.
+and `[sigcheck]` tables are read here, by the tools that own them. Reading
+any one of them checks the key names of the whole file against the schema,
+as `load_config` does, so a typo is refused on a dry run too and the two
+readers never disagree about what a file may hold.
 """
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, Mapping, Optional
+
+from ..core.config import ConfigError, check_known_keys
 
 try:
     import tomllib  # Python 3.11+
@@ -26,7 +31,8 @@ class ToolConfigError(ValueError):
 def read_tool_table(path: str, section: str) -> Dict[str, Any]:
     """The `[section]` table of the TOML file at `path`, or {} when absent.
 
-    A missing or malformed file is refused. Nested tables (`[loop.outbound]`)
+    A missing or malformed file is refused, and so is a file holding a key
+    or table the schema does not declare. Nested tables (`[loop.outbound]`)
     come back inside their parent.
     """
     if tomllib is None:  # pragma: no cover - only on a build with no TOML
@@ -38,6 +44,10 @@ def read_tool_table(path: str, section: str) -> Dict[str, Any]:
         raise ToolConfigError(f"no such config file: {path!r}") from exc
     except tomllib.TOMLDecodeError as exc:
         raise ToolConfigError(f"{path} is not valid TOML: {exc}") from exc
+    try:
+        check_known_keys(raw, path)
+    except ConfigError as exc:
+        raise ToolConfigError(str(exc)) from exc
     table = raw.get(section)
     if table is None:
         return {}
