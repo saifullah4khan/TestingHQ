@@ -337,3 +337,35 @@ def test_a_private_target_records_allow_public_target_false(tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["config"]["allow_public_target"] is False
     assert data["schema_version"] == 1 and data["tool"] == "barrage"
+
+
+# ---------------------------------------------------------------------------
+# Closed loop against a 200ms target with too few workers
+# ---------------------------------------------------------------------------
+
+
+class _SlowClient:
+    """Answers 200 after 200ms, like a slow endpoint that never falls over."""
+
+    def send(self, request):
+        time.sleep(0.2)
+        return ClientResponse(status=200, body=b"{}")
+
+
+def test_closed_loop_limited_by_workers_reports_no_endpoint_knee(tmp_path):
+    """2 workers at 200ms can offer at most 10/s, asked for 20/s. The endpoint
+    held, so there is no knee, and the run says --concurrency limited it."""
+    out = tmp_path / "closed.json"
+    lines = []
+    code = barrage_fire.execute(
+        barrage_fire.build_plan("closed", 20.0, 1.2, 2, 0.2), 0, 5, "local",
+        _config(tmp_path), str(out), client=_SlowClient(), printer=lines.append,
+    )
+    text = "\n".join(lines)
+    summary = json.loads(out.read_text(encoding="utf-8"))["summary"]
+    assert code == EXIT_OK
+    assert summary["knee"] is None, text
+    assert summary["concurrency_limited"]["concurrency"] == 2
+    assert summary["concurrency_limited"]["ceiling_rps"] < 20.0
+    assert "endpoint began" not in text
+    assert "limited by --concurrency" in text

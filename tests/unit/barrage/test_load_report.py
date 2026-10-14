@@ -256,6 +256,7 @@ def test_build_artifact_shape_and_determinism():
     assert first["aborted"] is False
     assert set(first["summary"]) == {
         "requests", "throughput", "latency_ms", "status_classes", "shed", "error_rate", "knee",
+        "concurrency_limited",
     }
     assert json.loads(json.dumps(first)) == first
 
@@ -335,3 +336,63 @@ def test_report_refuses_a_barrage_artifact_from_a_newer_schema():
     newer["schema_version"] = 2
     with pytest.raises(ArtifactError, match="schema_version 2"):
         summarize(newer)
+
+
+# ---------------------------------------------------------------------------
+# Closed loop: a shortfall the workers caused is not the endpoint's knee
+# ---------------------------------------------------------------------------
+
+
+def _paced(rate, seconds, latency_ms, target_rate=20.0):
+    """Requests dispatched evenly at `rate` per second for `seconds`."""
+    n = int(rate * seconds)
+    return [_s(i / rate, latency_ms=latency_ms, target_rate=target_rate, index=i)
+            for i in range(n)]
+
+
+CLOSED_2 = {"mode": "closed", "concurrency": 2}
+
+
+def test_closed_loop_shortfall_at_the_worker_ceiling_is_not_a_knee():
+    """2 workers at 200ms can offer at most 10/s. Sending 10/s of the 20/s
+    asked is the client's limit, not the endpoint falling behind."""
+    artifact = build_artifact(1, CLOSED_2, _paced(10, 4, 200.0),
+                              stages=[(20.0, 4.0)], origin=0.0)
+    summary = artifact["summary"]
+    assert summary["knee"] is None
+    limited = summary["concurrency_limited"]
+    assert limited["concurrency"] == 2 and limited["buckets"] == 4
+    assert limited["ceiling_rps"] == pytest.approx(10.0)
+    assert limited["targeted_rps"] == pytest.approx(20.0)
+    text = format_summary(artifact)
+    assert "falling behind" not in text
+    assert "limited by --concurrency" in text
+
+
+def test_the_same_shortfall_in_open_loop_is_still_a_knee():
+    """Open loop has no worker ceiling on its schedule, so the rule there is
+    unchanged."""
+    artifact = build_artifact(1, {"mode": "open", "concurrency": 2}, _paced(10, 4, 200.0),
+                              stages=[(20.0, 4.0)], origin=0.0)
+    assert artifact["summary"]["knee"]["reason"] == "falling behind"
+    assert artifact["summary"]["concurrency_limited"] is None
+
+
+def test_closed_loop_still_reports_an_endpoint_that_falls_below_the_ceiling():
+    """At 200ms two workers could send 10/s. Sending 4/s is below that, so the
+    shortfall is not explained by the workers and is still a knee."""
+    artifact = build_artifact(1, CLOSED_2, _paced(4, 4, 200.0),
+                              stages=[(20.0, 4.0)], origin=0.0)
+    assert artifact["summary"]["knee"]["reason"] == "falling behind"
+    assert artifact["summary"]["concurrency_limited"] is None
+
+
+def test_a_short_last_bucket_is_held_to_what_the_workers_fit_in_it():
+    """A 3.3s plan ends with a 0.3s bucket. Two workers at 200ms fit 3 requests
+    in it, so sending 3 of the 6 planned is the client's limit too."""
+    artifact = build_artifact(1, CLOSED_2, _paced(10, 3.3, 200.0),
+                              stages=[(20.0, 3.3)], origin=0.0)
+    summary = artifact["summary"]
+    assert summary["knee"] is None
+    assert summary["concurrency_limited"]["buckets"] == 4
+    assert summary["concurrency_limited"]["targeted_rps"] == pytest.approx(20.0)

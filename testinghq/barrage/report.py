@@ -212,6 +212,9 @@ class Bucket:
     status_classes: Dict[str, int] = field(default_factory=dict)
     service_ms: Dict[str, Optional[float]] = field(default_factory=dict)
     offered_ms: Dict[str, Optional[float]] = field(default_factory=dict)
+    #: Seconds of the plan this bucket covers: the bucket width, or less for a
+    #: last bucket that runs past the planned duration. None when unknown.
+    span: Optional[float] = None
 
     @property
     def p50_latency_ms(self) -> Optional[float]:
@@ -289,9 +292,11 @@ def bucketize(
     for k in range(n):
         start = origin + k * bucket_seconds
         members = by_key.get(k, [])
+        span = bucket_seconds
         if stages:
             expected = _planned_rate_integral(stages, start, start + bucket_seconds)
             targeted = expected / bucket_seconds
+            span = max(0.0, min(start + bucket_seconds, planned) - max(start, 0.0))
         elif members:
             targeted = max(s.target_rate for s in members)
             expected = targeted * bucket_seconds
@@ -313,6 +318,7 @@ def bucketize(
             status_classes=status_classes(members),
             service_ms=latency_percentiles(members, "service"),
             offered_ms=latency_percentiles(members, "offered"),
+            span=span,
         ))
     return buckets
 
@@ -331,7 +337,41 @@ def _baseline(buckets: Sequence[Bucket]) -> tuple:
     return sum(b.p50_latency_ms for b in chosen) / len(chosen), chosen
 
 
-def _judge(bucket, baseline, baseline_buckets, error_threshold, latency_factor, divergence):
+def client_ceiling_rps(bucket: Bucket, concurrency: Optional[int]) -> Optional[float]:
+    """Closed loop: the most `concurrency` workers could send per second at the
+    bucket's median service latency, since each waits for its last response
+    before sending again. None when unknown (open loop, or nothing completed)."""
+    p50 = bucket.p50_latency_ms
+    if not concurrency or p50 is None or p50 <= 0:
+        return None
+    return concurrency * 1000.0 / p50
+
+
+def _client_limited(bucket: Bucket, concurrency: Optional[int], divergence: float) -> bool:
+    """True when a closed-loop bucket's shortfall is the client's: the plan
+    asked for more than the workers could offer at the latency observed, and
+    the bucket did send about what they could. Such a shortfall says nothing
+    about the endpoint. Judged in requests over the planned part of the
+    bucket, so a short last bucket is held to what fits in it."""
+    ceiling = client_ceiling_rps(bucket, concurrency)
+    span = bucket.span
+    if ceiling is None or not span:
+        return False
+    capacity = ceiling * span
+    if capacity >= bucket.expected:
+        return False
+    return bucket.count >= capacity * (1 - divergence)
+
+
+def _falls_short(bucket: Bucket, divergence: float) -> bool:
+    return (
+        bucket.expected >= KNEE_MIN_EXPECTED
+        and bucket.count < bucket.expected * (1 - divergence)
+    )
+
+
+def _judge(bucket, baseline, baseline_buckets, error_threshold, latency_factor, divergence,
+           concurrency=None):
     if bucket.count and bucket.error_rate >= error_threshold:
         five = bucket.status_classes.get("5xx", 0)
         none = bucket.status_classes.get("no_response", 0)
@@ -339,7 +379,7 @@ def _judge(bucket, baseline, baseline_buckets, error_threshold, latency_factor, 
             f"error rate {bucket.error_rate:.1%} crossed the {error_threshold:.1%} "
             f"threshold (5xx {five}, shed 429 {bucket.shed}, no response {none})"
         )
-    if bucket.expected >= KNEE_MIN_EXPECTED and bucket.count < bucket.expected * (1 - divergence):
+    if _falls_short(bucket, divergence) and not _client_limited(bucket, concurrency, divergence):
         return "falling behind", (
             f"sent {bucket.count} of the {bucket.expected:.0f} the plan targeted in "
             f"this window ({bucket.achieved_rate:.2f}/s of {bucket.targeted_rate:.2f}/s)"
@@ -363,6 +403,8 @@ def find_knee(
     latency_factor: float = KNEE_LATENCY_FACTOR,
     divergence: float = KNEE_DIVERGENCE,
     persistence: int = KNEE_PERSISTENCE,
+    *,
+    concurrency: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """The first bucket that starts a run of `persistence` consecutive bad
     buckets, or None when the endpoint held.
@@ -372,10 +414,16 @@ def find_knee(
     (median service latency above `latency_factor` times the baseline from the
     hold stage's first two buckets). Requiring persistence means one jittery
     second is not reported as a breaking point.
+
+    `concurrency` is the closed loop's worker count (None for open loop).
+    There, offered load is min(rate, workers / latency), so a bucket that sent
+    about what its workers could at the latency it saw is not falling behind:
+    the shortfall is the client's (see `concurrency_limit`).
     """
     baseline, baseline_buckets = _baseline(buckets)
     verdicts = [
-        _judge(b, baseline, baseline_buckets, error_threshold, latency_factor, divergence)
+        _judge(b, baseline, baseline_buckets, error_threshold, latency_factor, divergence,
+               concurrency)
         for b in buckets
     ]
     for i in range(len(buckets) - persistence + 1):
@@ -391,6 +439,41 @@ def find_knee(
                 "achieved_rps": bucket.achieved_rate,
             }
     return None
+
+
+def concurrency_limit(
+    buckets: Sequence[Bucket],
+    concurrency: Optional[int],
+    divergence: float = KNEE_DIVERGENCE,
+) -> Optional[Dict[str, Any]]:
+    """Closed loop: the buckets that sent short of the plan because the
+    workers could not offer more at the latency observed, or None.
+
+    `ceiling_rps` is the lowest per-bucket ceiling among them (workers / median
+    service latency), the number to compare with the targeted rate."""
+    limited = [
+        b for b in buckets
+        if _falls_short(b, divergence) and _client_limited(b, concurrency, divergence)
+    ]
+    if not limited:
+        return None
+    ceilings = [client_ceiling_rps(b, concurrency) for b in limited]
+    return {
+        "concurrency": concurrency,
+        "buckets": len(limited),
+        "ceiling_rps": round(min(c for c in ceilings if c is not None), 3),
+        "targeted_rps": max(b.expected / b.span for b in limited),
+    }
+
+
+def _closed_loop_concurrency(config: Dict[str, Any]) -> Optional[int]:
+    """The worker count when the run was closed loop, else None."""
+    if config.get("mode") != "closed":
+        return None
+    workers = config.get("concurrency")
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
+        return None
+    return workers
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +519,7 @@ def build_artifact(
     buckets = bucketize(
         samples, bucket_seconds, origin=origin, stages=stages, hold_start=hold_start
     )
+    concurrency = _closed_loop_concurrency(config)
     return {
         "schema_version": SCHEMA_VERSION,
         "tool": "barrage",
@@ -449,7 +533,8 @@ def build_artifact(
             "status_classes": status_classes(samples),
             "shed": sum(1 for s in samples if s.is_shed),
             "error_rate": error_rate(samples),
-            "knee": find_knee(buckets),
+            "knee": find_knee(buckets, concurrency=concurrency),
+            "concurrency_limited": concurrency_limit(buckets, concurrency),
         },
         "buckets": [
             {
@@ -538,6 +623,18 @@ def format_summary(artifact: Dict[str, Any]) -> str:
         )
     else:
         lines.append("Knee: none found, the endpoint held for the whole run.")
+    limited = summary.get("concurrency_limited")
+    if isinstance(limited, dict):
+        lines.append(
+            f"Closed loop: {limited.get('buckets')} bucket(s) sent short of the plan "
+            f"because {limited.get('concurrency')} worker(s) at the latency observed can "
+            f"offer at most {_rps(limited.get('ceiling_rps'))} of the "
+            f"{_rps(limited.get('targeted_rps'))} targeted."
+        )
+        lines.append(
+            "  The run was limited by --concurrency, so that shortfall is this "
+            "tool's, not the endpoint's. Raise --concurrency."
+        )
     lines.append("")
     lines.append("Per bucket:")
     for b in artifact.get("buckets") or []:
