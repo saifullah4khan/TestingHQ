@@ -223,13 +223,12 @@ def test_the_answer_is_keyed_by_tag_so_a_gap_cannot_shift_everything():
 
 
 def test_absent_counts_as_settled_when_the_caller_says_so():
-    """`loop` needs this and nothing else does. It asks whether a pipeline filed
-    a ticket for machine-generated mail, and under the default ticket policy a
-    CORRECT pipeline files none, so "every tag found" is a condition the run can
-    never satisfy. With the default left on, every `loop` run polls until
-    `max_wait` in both directions and opens its report with a readback that gave
-    up, which says nothing about the thing being measured. The demo's two `loop`
-    runs took 121 and 62 seconds that way."""
+    """`loop` asks whether a pipeline filed a ticket for machine-generated
+    mail, and under the default ticket policy a CORRECT pipeline files none, so
+    "every tag found" is a condition its run can never satisfy. It passes
+    `require_all_found=False` for that reason. The flag is now a no-op, since
+    absence never holds the window open for any caller, and loop still gets the
+    behaviour it asked for."""
     adapter = _Scripted({1: {}, 2: {}})
     outcome, clock = _read(adapter, require_all_found=False, quiet_window=0.5)
     assert outcome.stable is True
@@ -241,18 +240,25 @@ def test_absent_counts_as_settled_when_the_caller_says_so():
     assert clock.now == pytest.approx(1.0)
 
 
-def test_the_default_still_requires_every_probe_to_be_found():
-    """The relaxation is opt-in, and this is what it costs to leave it on: an
-    adapter that finds nothing never settles, it just runs out of patience."""
+def test_a_store_that_stays_empty_settles_with_every_tag_missing():
+    """Absence does not hold the window open. An adapter that finds nothing,
+    and keeps finding nothing for the whole quiet window, has answered: every
+    tag is MISSING and the run is settled, so the tool reports a loss. It used
+    to poll until max_wait and call that UNSETTLED, which is how a pipeline
+    that dropped everything never got reported as having lost anything."""
     adapter = _Scripted({1: {}})
-    outcome, _clock = _read(adapter, quiet_window=0.0, max_wait=2.0)
-    assert outcome.stable is False
+    outcome, clock = _read(adapter, quiet_window=1.0, max_wait=60.0)
+    assert outcome.stable is True
+    assert outcome.unsettled is False
     assert outcome.missing == TAGS
+    assert outcome.headline() is None
+    assert clock.now == pytest.approx(1.5), "settled on the window, not max_wait"
 
 
 def test_a_late_duplicate_is_still_caught_with_the_relaxation():
-    """The relaxation must not cost the thing the poll exists for. Counts still
-    gate stability, so a second ticket arriving resets the window."""
+    """Absence not holding the window open must not cost the thing the poll
+    exists for. Counts still gate stability, so a second ticket arriving resets
+    the window."""
     adapter = _Scripted({
         1: {tag: 1 for tag in TAGS},
         2: {tag: 1 for tag in TAGS},
@@ -260,6 +266,91 @@ def test_a_late_duplicate_is_still_caught_with_the_relaxation():
     })
     outcome, _clock = _read(adapter, require_all_found=False, quiet_window=0.0)
     assert len(outcome.readbacks["hq-1-0000"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Loss: a tag the store goes quiet without is MISSING, not UNSETTLED
+# ---------------------------------------------------------------------------
+
+
+def test_a_dropped_tag_is_missing_once_the_store_goes_quiet():
+    """A pipeline that dropped one of three messages. The two it kept are
+    there from the first poll and nothing changes after, so the store has
+    answered: the run settles on the window and the third tag is MISSING. It
+    used to keep polling until max_wait and call the loss UNSETTLED."""
+    adapter = _Scripted({1: {"hq-1-0000": 1, "hq-1-0001": 1, "hq-1-0002": 0}})
+    outcome, clock = _read(adapter)
+
+    assert outcome.stable is True
+    assert outcome.unsettled is False
+    assert outcome.missing == ("hq-1-0002",)
+    assert outcome.headline() is None
+    assert common.readback_verdict("UNACCOUNTED", outcome) == ("UNACCOUNTED", "tool")
+    assert clock.now == pytest.approx(5.5), "settled on the window, not on max_wait"
+
+
+def test_a_store_still_writing_at_max_wait_is_unsettled():
+    """Records still arriving when the budget runs out: one new tag every
+    second, never a quiet five seconds. The tags not seen yet are not lost,
+    because the store had not finished answering."""
+
+    class _Arriving:
+        def __init__(self, clock):
+            self.clock = clock
+
+        def fetch(self, probe):
+            # Tag i becomes visible at t = 4 * i seconds, so tag 2 lands at 8s,
+            # after a 6s budget, and tag 1 at 4s keeps the window from closing.
+            index = TAGS.index(probe.tag)
+            if self.clock.now >= 4.0 * index:
+                return [Readback(exists=True, ticket_id=f"{probe.tag}#0")]
+            return []
+
+    clock = _Clock()
+    outcome, _clock = _read(_Arriving(clock), clock=clock, max_wait=6.0)
+    assert outcome.stable is False
+    assert outcome.unsettled is True
+    assert outcome.missing == ("hq-1-0002",)
+    assert outcome.headline().startswith(common.UNSETTLED)
+    assert common.readback_verdict("UNACCOUNTED", outcome) == (
+        common.UNSETTLED, common.VERDICT_SOURCE_READBACK,
+    )
+
+
+def test_a_late_field_inside_the_window_is_seen_while_a_tag_stays_missing():
+    """The quiet window still watches values, now that absence no longer holds
+    it open. Tag 0 is created with no route and routed 3s later, inside the 5s
+    window; tag 2 was dropped. The run settles on the routed value and reports
+    the dropped tag, where it used to give up at max_wait on the missing tag."""
+
+    class _RoutedLateOneDropped:
+        def __init__(self, clock):
+            self.clock = clock
+
+        def fetch(self, probe):
+            if probe.tag == "hq-1-0002":
+                return []
+            route = "billing" if self.clock.now >= 3.0 else None
+            return [Readback(exists=True, ticket_id=f"{probe.tag}#0", route=route)]
+
+    clock = _Clock()
+    outcome, _clock = _read(_RoutedLateOneDropped(clock), clock=clock)
+    assert outcome.stable is True
+    assert outcome.readbacks["hq-1-0000"][0].route == "billing"
+    assert outcome.missing == ("hq-1-0002",)
+    # The value changed at t=3.0, then one interval to confirm and 5s quiet.
+    assert outcome.elapsed == pytest.approx(8.5)
+
+
+def test_a_quiet_store_shorter_than_max_wait_but_longer_than_the_window_settles():
+    """The rule's other half: max_wait is only an upper bound. A store that
+    goes quiet settles as soon as the window has passed, missing tags or not,
+    and never waits out the budget."""
+    adapter = _Scripted({1: {"hq-1-0000": 1}})
+    outcome, clock = _read(adapter, quiet_window=2.0, max_wait=600.0)
+    assert outcome.stable is True
+    assert outcome.missing == ("hq-1-0001", "hq-1-0002")
+    assert clock.now == pytest.approx(2.5)
 
 
 def test_the_outcome_serializes_the_numbers_a_report_needs():

@@ -7,15 +7,18 @@
 # Copy to target.toml, fill in your domain, and pass --config.
 #
 #   export FRESHDESK_AUTH="Basic $(printf '%s:X' "$FRESHDESK_API_KEY" | base64 | tr -d '\n')"
-#   testinghq verify fire --target freshdesk --send --config target.toml --max-wait 300
+#   testinghq verify fire --target freshdesk --send --config target.toml --quiet-window 120 --max-wait 600
 #
 # AUTH. Freshdesk uses Basic auth with the API key as the username and any
 # password ("X" by convention), base64 encoded behind a "Basic " prefix. The
 # shell line above builds exactly that. Never put the key in this file: a
 # [readback.headers] value that is not an `env:` reference is refused.
 #
-# WAITING. Freshdesk search is index-backed and lags ticket creation, so start
-# with --max-wait 300. A slow index reads as UNSETTLED, not as loss.
+# WAITING. Freshdesk search is index-backed and lags ticket creation. A ticket
+# still not found once nothing has changed for --quiet-window is reported as
+# lost, so raise --quiet-window above the index lag (120 is a start) and keep
+# --max-wait well above it (600). With the default 5s window a slow index
+# reads as loss.
 #
 # RATE. Freshdesk plans allow 50 to 700 API calls a minute. The default
 # --readback-rate of 4 a second is 240 a minute; lower it on a small plan.

@@ -308,9 +308,10 @@ reply_address = "{reply}"
 #: Loopback answers in milliseconds, so the readback need not wait as long as
 #: it would for a real deployment, nor pace itself for a vendor API.
 FAST = ("--quiet-window", "1", "--poll-interval", "0.2", "--readback-rate", "200")
-#: For runs where records go missing: the readback waits for them until it
-#: gives up, so give up quickly.
-SHORT = ("--max-wait", "3")
+#: For runs where records go missing: once the store has held still for the
+#: quiet window, a tag still not found is reported as lost. --max-wait stays well
+#: above the window so the run settles rather than ending UNSETTLED.
+SHORT = ("--max-wait", "10")
 STEADY = ("steady", "fire", "--count", "3", "--label-field", "category")
 MACHINE_DEFECTS = {"answer_machine_mail": True, "ticket_machine_mail": True}
 

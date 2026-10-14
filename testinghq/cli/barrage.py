@@ -8,6 +8,7 @@ from typing import Optional
 from ..barrage import fire as barrage_fire
 from ..barrage.payloads import DEFAULT_POOL_SIZE
 from ..barrage.runner import RateCeilingError
+from ..compare import load as compare_load
 from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
@@ -141,6 +142,11 @@ def _add_barrage_parser(sub) -> None:
     compare = sub.add_parser(
         "compare",
         help="compare a baseline and a candidate run artifact and report what changed",
+        description=(
+            "Compare two blast runs payload by payload, or two barrage runs by "
+            "load metrics. A barrage candidate regressed when "
+            + compare_load.describe_thresholds() + "."
+        ),
     )
     compare.add_argument(
         "--baseline", required=True, help="path to the baseline run artifact JSON"
@@ -271,14 +277,12 @@ def _cmd_compare(args) -> int:
     input file, not about a request.
     """
     try:
-        baseline = compare_runs.load_artifact(args.baseline)
-        candidate = compare_runs.load_artifact(args.candidate)
-        diff = compare_runs.compare(baseline, candidate)
+        diff = compare_runs.compare_paths(args.baseline, args.candidate)
     except compare_runs.CompareError as exc:
         print(f"compare: {exc}", file=sys.stderr)
         return compare_runs.EXIT_USAGE
 
-    print(compare_runs.format_diff(diff))
+    print(compare_runs.format_any(diff))
 
     if args.out:
         Path(args.out).write_text(

@@ -16,7 +16,7 @@ The readback is a separate phase, and it polls rather than looking once. A
 pipeline that acknowledges a POST and creates the ticket on a queue consumer is
 the normal case, not the exotic one, so a single lookup after the last send
 would report a healthy pipeline as having lost everything it had not finished
-processing yet.
+processing yet. `SETTLING_RULE` below is the rule the poll ends by.
 """
 from __future__ import annotations
 
@@ -48,14 +48,29 @@ from ..core.exit_codes import (  # noqa: F401
     EXIT_REFUSED,
 )
 
-#: How long the record counts must hold steady before a read is believed.
+#: How long the observed state must hold steady before a read is believed.
 #: Long enough that a queue consumer has had a chance to write a second copy of
 #: something, because the late duplicate is the case a single lookup misses and
 #: the reason this polls rather than looks once.
 DEFAULT_QUIET_WINDOW = 5.0
 
-#: How long to keep polling before giving up and reporting whatever was seen.
+#: How long to keep polling before giving up on a store that is still changing.
 DEFAULT_MAX_WAIT = 60.0
+
+#: When the readback ends and what its end means. The `--quiet-window` and
+#: `--max-wait` help prints it, and the [readback] notes in
+#: `core/config_schema.py` (and so docs/CONFIG.md) carry the same paragraph.
+SETTLING_RULE = (
+    "The readback is SETTLED once what it sees (which tags are found, how many "
+    "records each, and the field values the checks read) has not changed for "
+    "--quiet-window seconds; a tag still not found then is MISSING and is "
+    "reported as lost. It is UNSETTLED only when --max-wait runs out while that "
+    "state is still changing, which exits 3 with an UNSETTLED headline and "
+    "keeps every finding already proven. For a slow or async pipeline, raise "
+    "--quiet-window above the pipeline's worst processing latency (a "
+    "search-indexed store such as Zendesk or Freshdesk can take minutes to "
+    "index a new ticket), and keep --max-wait well above --quiet-window."
+)
 
 #: How often to look while waiting.
 DEFAULT_POLL_INTERVAL = 0.5
@@ -173,14 +188,16 @@ ALL_404_HEADLINE = "every lookup was 404: check the readback url"
 class ReadbackOutcome:
     """What the readback phase found, and how long it took to settle.
 
-    `stable` is False when the phase ran out of `max_wait` before the
-    readbacks held steady, which makes the run UNSETTLED: a run that gave up
-    early cannot claim its answer was quiet, and cannot claim a message it had
-    not seen yet was lost. `budget_exhausted` says the budget ran out in the
-    middle of a poll or a retry wait. `partial` names the tags whose lookup hit
-    `max_pages`. `all_404` is True when every lookup of every poll got a 404,
-    which is almost always a wrong url rather than a pipeline that lost
-    everything.
+    `stable` is True when the observed state held still for the quiet window.
+    A tag in `missing` is then MISSING: the store went quiet without it, and
+    the tool reports it as lost. `stable` is False when `max_wait` ran out
+    while the state was still changing, which makes the run UNSETTLED: a run
+    that never saw the store go quiet cannot claim a message it had not seen
+    yet was lost, and `missing` then means "not seen yet". `budget_exhausted`
+    says the budget ran out in the middle of a poll or a retry wait. `partial`
+    names the tags whose lookup hit `max_pages`. `all_404` is True when every
+    lookup of every poll got a 404, which is almost always a wrong url rather
+    than a pipeline that lost everything.
     """
 
     readbacks: Dict[str, List[Readback]]
@@ -208,8 +225,9 @@ class ReadbackOutcome:
             )
             return (
                 f"{UNSETTLED}: the readback did not settle within --max-wait "
-                f"({self.elapsed:.1f}s, {self.polls} poll(s){missing}). Unseen "
-                "is not lost: raise --max-wait for a slow or async pipeline"
+                f"({self.elapsed:.1f}s, {self.polls} poll(s){missing}): the "
+                "store was still changing. Unseen is not lost: raise --max-wait "
+                "above --quiet-window for a slow or async pipeline"
             )
         return None
 
@@ -232,9 +250,12 @@ class ReadbackOutcome:
 def readback_verdict(verdict: str, outcome: Optional[ReadbackOutcome]) -> Tuple[str, str]:
     """(verdict, verdict_source) after the readback has had its say.
 
-    An unsettled readback replaces the tool's own verdict with UNSETTLED,
-    because every absence that verdict rests on is unproven. The findings the
-    tool did make still stand and are still listed; the exit code stays 3.
+    An unsettled readback (the store was still changing at --max-wait)
+    replaces the tool's own verdict with UNSETTLED, because every absence that
+    verdict rests on is unproven. The findings the tool did make still stand
+    and are still listed and counted; the exit code stays 3. A settled
+    readback leaves the tool's verdict alone, so a message the store went
+    quiet without is reported by the tool as the loss it is.
     """
     if outcome is not None and outcome.unsettled:
         return UNSETTLED, VERDICT_SOURCE_READBACK
@@ -261,26 +282,44 @@ def read_back_all(
 ) -> ReadbackOutcome:
     """Ask the system what it holds for every probe, until it stops changing.
 
-    Believed stable when every tag has been found and nothing about the
-    readbacks has changed for `quiet_window`: not the counts, and not the
-    field values the checks read. Watching the values is what catches an
-    async pipeline that creates a ticket first and fills its route or body a
-    moment later; watching the counts is what catches the late duplicate.
+    THE RULE (`SETTLING_RULE`). The observed state is which tags are found,
+    how many records each, and every field value the checks read. The read is
+    SETTLED, and `stable` is True, once that state has not changed for
+    `quiet_window` (measured from the first poll that confirms it). A tag
+    still not found at that point is MISSING, and the tool reports it as
+    lost. The run is UNSETTLED, `stable` False, only when `max_wait` runs out
+    while the state is still changing: records still arriving, or a field
+    value changed within the last quiet window. A store that never goes
+    quiet for a whole window before `max_wait` (including a `max_wait`
+    shorter than `quiet_window`) is UNSETTLED for the same reason.
+
+    Absence does not hold the window open. It used to: "every tag found" was
+    part of the condition, so a pipeline that genuinely dropped one message
+    could never settle, and every loss surfaced as UNSETTLED after
+    `max_wait`. A loss is the main thing `ledger` exists to report.
+
+    Watching the values is what catches an async pipeline that creates a
+    ticket first and fills its route or body a moment later; watching the
+    counts is what catches the late duplicate.
 
     GUIDANCE FOR ASYNC PIPELINES. If the pipeline acknowledges the POST and
     does its work on a queue consumer, the quiet window has to be longer than
-    the consumer's worst gap between writing a record and finishing it, and
-    `max_wait` longer than the backlog it can build. A search-indexed store
-    (Zendesk, Freshdesk) can take minutes to index a new ticket; start with
-    `--max-wait 300` there.
+    the pipeline's worst processing latency (the gap between a send and its
+    record appearing, and between a record appearing and its last field being
+    filled), or a message still in the queue is reported as lost. `max_wait`
+    has to be longer than the quiet window plus the backlog the pipeline can
+    build. A search-indexed store (Zendesk, Freshdesk) can take minutes to
+    index a new ticket: raise `--quiet-window` above that, and `--max-wait`
+    well above it.
 
     `max_wait` is a hard budget: it is checked before every lookup, and an
     adapter that supports `bind_clock` is told the deadline, so its request
     timeouts, retry waits and rate-limit waits spend the same budget. A run
     that runs out is UNSETTLED, not lost.
 
-    `require_all_found=False` relaxes the "every tag found" half of the
-    condition, for `loop`, where absence is the correct answer.
+    `require_all_found` is accepted for compatibility and has no effect: since
+    absence no longer holds the window open, every caller now gets what
+    `loop` asked for with `require_all_found=False`.
 
     An adapter that raises is not swallowed, with one exception: running out
     of budget inside the adapter ends the poll like running out of budget
@@ -340,19 +379,22 @@ def read_back_all(
                 break
 
             now = clock()
+            # The whole observed state: an empty tuple for a tag not found yet,
+            # so a tag appearing is a change like any other.
             signature = tuple(_signature(found[tag]) for tag in asked)
-            settled_enough = all(found[tag] for tag in asked) or not require_all_found
 
-            if settled_enough and signature == previous:
+            if signature == previous:
                 if unchanged_since is None:
                     unchanged_since = now
                 if now - unchanged_since >= quiet_window:
                     stable = True
                     break
             else:
-                # Something is missing or something changed. Both reset the
-                # window: believing the earlier sighting is the bug this exists
-                # to prevent.
+                # Something changed: a tag appeared, a count moved, or a field
+                # value did. That resets the window, because believing the
+                # earlier sighting is the bug this exists to prevent. A tag
+                # that is merely still missing does not: a store that has gone
+                # quiet without it has answered.
                 unchanged_since = None
             previous = signature
 
@@ -455,6 +497,7 @@ __all__ = [
     "EXIT_REFUSED",
     "ReadbackError",
     "ReadbackOutcome",
+    "SETTLING_RULE",
     "SentMessage",
     "UNSETTLED",
     "VERDICT_SOURCE_READBACK",

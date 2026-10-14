@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "tool": "sigcheck",
+  "aborted": false,
+  "seed": null,
+  "config": {
+    "tool": "sigcheck",
+    "scheme": "mailgun",
+    "target": "local",
+    "dry_run": false
+  },
+  "summary": {
+    "verdict": "GAPS",
+    "findings": 1,
+    "sent": 2,
+    "notes": []
+  },
+  "variants": [
+    {
+      "variant": "valid",
+      "verdict": "OK",
+      "detail": "accepted (200)"
+    },
+    {
+      "variant": "unsigned",
+      "verdict": "FINDING",
+      "detail": "accepted (200)"
+    }
+  ]
+}

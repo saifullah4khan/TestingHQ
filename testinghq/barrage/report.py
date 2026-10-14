@@ -406,7 +406,7 @@ def _r(value: Optional[float], places: int) -> Optional[float]:
 
 def record_rows(samples: Sequence[Sample]) -> List[Dict[str, Any]]:
     """The per-request `records` key: one row per scheduled request, in index
-    order, the shape `compare` aligns two load runs on."""
+    order, the rows `compare` diffs two load runs from."""
     return [
         {
             "index": s.index,

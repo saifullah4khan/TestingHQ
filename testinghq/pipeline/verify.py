@@ -491,14 +491,20 @@ def format_verification(artifact: Dict[str, Any]) -> str:
 
     readback = summary.get("readback")
     if readback:
-        settled = "settled" if readback.get("stable") else "GAVE UP before settling"
+        settled = (
+            "settled" if readback.get("stable")
+            else "UNSETTLED, still changing at --max-wait"
+        )
         lines.append(
             f"  readback:          {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
         if readback.get("missing_tags"):
+            missing = len(readback["missing_tags"])
             lines.append(
-                f"                    still missing {len(readback['missing_tags'])}"
+                f"                    missing {missing}: the store went quiet without them"
+                if readback.get("stable")
+                else f"                    not seen yet {missing}"
             )
     note = readback_note(summary)
     if note:

@@ -157,9 +157,11 @@ def _header(normalised: Mapping[str, Any]) -> str:
         meta.append(f"<span>target {_esc(normalised['target'])}</span>")
     if normalised.get("seed") is not None:
         meta.append(f"<span>seed {_esc(normalised['seed'])}</span>")
+    # `report --json` reads a missing schema_version as 0, so 0 and absent
+    # both mean the artifact predates the key.
     schema = normalised.get("schema_version")
     meta.append(
-        f"<span>schema {_esc(schema) if schema is not None else '0 (not recorded)'}</span>"
+        f"<span>schema {_esc(schema) if schema else '0 (not recorded)'}</span>"
     )
     return (
         '<header class="top"><h1>TestingHQ report</h1>'
