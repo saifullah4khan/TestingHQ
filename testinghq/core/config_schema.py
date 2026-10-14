@@ -359,7 +359,9 @@ READBACK = Table(
         "changed for --quiet-window seconds; a tag still not found then is "
         "MISSING and is reported as lost. It is UNSETTLED only when --max-wait "
         "runs out while that state is still changing, which exits 3 with an "
-        "UNSETTLED headline and keeps every finding already proven. For a slow "
+        "UNSETTLED headline and keeps every finding already proven. A run whose "
+        "every lookup was a 404 is READBACK FAILED (exit 3): the readback url is "
+        "almost certainly wrong, so no message is reported as lost. For a slow "
         "or async pipeline, raise --quiet-window above the pipeline's worst "
         "processing latency (a search-indexed store such as Zendesk or "
         "Freshdesk can take minutes to index a new ticket), and keep --max-wait "
@@ -399,7 +401,7 @@ READBACK_FIELDS = Table(
                  "`address` key is read through that key."
              )),
         Key("subject", "string", free_form=True,
-             meaning="Compared case- and whitespace-insensitively."),
+             meaning="Compared by `--subject-match`: `contains` (the default), `suffix` or `exact`."),
         Key("body", "string", free_form=True,
              meaning=(
                  "The payload's substantive text has to APPEAR inside it. A "

@@ -10,15 +10,21 @@
 # config at all; a target is only required once you pass --send.
 #
 # Shape: this mirrors testinghq.core.config.Config, a table of named
-# targets, each with a `name` and a `url`. Pass the file with
+# targets. The table name is the target's name. Pass the file with
 # `--config <path>`; it defaults to ./target.toml.
+#
+# A target has these keys:
+#   url     required. The endpoint the payloads are POSTed to.
+#   format  optional. The wire format: "sendgrid" (the default),
+#           "sendgrid-raw", "mailgun", "postmark" or "mime". See
+#           docs/FORMATS.md.
+#   public  optional, default false. Barrage at a public host needs
+#           `public = true` as well as --allow-public-target.
 
 [targets.local]
-name = "local"
 url = "http://127.0.0.1:8000/intake"
 
 [targets.staging]
-name = "staging"
 url = "https://staging.example.com/intake/testinghq"
 
 # ---------------------------------------------------------------------------
@@ -78,10 +84,10 @@ url = "http://127.0.0.1:8000/tickets"
 #
 #   from_addr  is normalized, so "Alice <a@example.com>" and "a@example.com"
 #              are both fine.
-#   subject    compared case- and whitespace-insensitively, by --subject-match:
-#              `contains` (the default) passes a helpdesk prefix such as
-#              "[Ticket #123]", `suffix` requires the stored subject to end
-#              with the sent one, `exact` requires equality.
+#   subject    compared by --subject-match: `contains` (the default) passes a
+#              helpdesk prefix such as "[Ticket #123]", `suffix` requires the
+#              stored subject to end with the sent one, `exact` requires
+#              equality.
 #   body       the payload's substantive text has to appear inside it. Use
 #              `--body-exact` on the command line only if your system stores
 #              the whole text part verbatim.
@@ -106,9 +112,10 @@ tag = "tag"
 #   kind = "mailbox"
 #   path = "./mail-sink.jsonl"
 #
-# The file is re-read on every lookup, because the pipeline is still writing to
-# it while the run is in flight, and it is absent-means-empty rather than an
-# error, which is what lets the readback poll a sink that does not exist yet.
+# The file is read once per poll, taking only the bytes added since the last
+# one, because the pipeline is still writing to it while the run is in flight.
+# It is absent-means-empty rather than an error, which is what lets the
+# readback poll a sink that does not exist yet.
 # Records are matched on the tag, which TestingHQ stamped into the message
 # before sending it.
 #
