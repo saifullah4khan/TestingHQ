@@ -21,15 +21,23 @@ cannot say the pipeline stayed quiet.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import time
+from email import message_from_bytes
+from email import policy as email_policy
+from email.message import Message
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import Attachment, Envelope, GroundTruth, InboundEmail
+from ..core.formats import EncodedBody, MimeFormat, SendgridRawFormat, WireFormat
 from ..core.targets import resolve_target
+from ..core.transport import DEFAULT_BOUNDARY, encode_multipart
 from .adapters import ReadbackConfig, parse_readback_config
 from .common import (
     DEFAULT_MAX_WAIT,
@@ -309,6 +317,81 @@ def build_loop_bait(
         record_id=f"loop-{seed}-bait",
         is_loop_bait=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# The DSN on the wire
+# ---------------------------------------------------------------------------
+
+#: Headers the DSN message sets itself rather than copying from the payload.
+_DSN_OWN_HEADERS = frozenset({"content-type", "mime-version", "content-transfer-encoding"})
+
+
+def is_dsn(email: InboundEmail) -> bool:
+    content_type = next(
+        (v for k, v in email.headers.items() if k.lower() == "content-type"), ""
+    )
+    return content_type.lower().startswith("multipart/report")
+
+
+def dsn_bytes(email: InboundEmail, boundary: str) -> bytes:
+    """The DSN shape as RFC 3464 has it: multipart/report with report-type
+    delivery-status, a human-readable part, a message/delivery-status part and
+    the returned headers, from the payload's own attachments."""
+    report = MIMEMultipart("report", boundary=boundary, report_type="delivery-status")
+    report["To"] = email.to
+    report["From"] = email.from_addr
+    report["Subject"] = email.subject
+    for name, value in email.headers.items():
+        if name.lower() not in _DSN_OWN_HEADERS:
+            report[name] = value
+    report.attach(MIMEText(email.text, "plain", "us-ascii"))
+    for attachment in email.attachments:
+        part = Message()
+        part["Content-Type"] = attachment.content_type
+        if attachment.content_type == "message/delivery-status":
+            part.set_payload([
+                message_from_bytes(block)
+                for block in attachment.content.split(b"\r\n\r\n") if block.strip()
+            ])
+        else:
+            part.set_payload(attachment.content.decode("ascii"))
+        report.attach(part)
+    return report.as_bytes(policy=email_policy.SMTP)
+
+
+class LoopWireFormat(WireFormat):
+    """The target's wire format, except that a DSN sent in a raw-MIME format
+    (`mime`, `sendgrid-raw`) is a real multipart/report rather than the
+    multipart/mixed the generic encoder builds. Parsed formats carry the DSN
+    as a provider would present it: the Content-Type header plus a
+    message/delivery-status attachment."""
+
+    def __init__(self, base: WireFormat, boundary: str = DEFAULT_BOUNDARY) -> None:
+        self.base = base
+        self.name = base.name
+        self._boundary = boundary
+
+    def encode(self, payload: InboundEmail) -> EncodedBody:
+        if not is_dsn(payload):
+            return self.base.encode(payload)
+        if isinstance(self.base, MimeFormat):
+            return EncodedBody(dsn_bytes(payload, self._boundary), "message/rfc822")
+        if isinstance(self.base, SendgridRawFormat):
+            inner = "mime-" + hashlib.sha256(self._boundary.encode("utf-8")).hexdigest()[:24]
+            raw = dsn_bytes(payload, inner).decode("ascii")
+            parts = [
+                dataclasses.replace(part, value=raw) if getattr(part, "name", None) == "email"
+                else part
+                # The generic encoder cannot build the delivery-status part,
+                # and every field but `email` ignores attachments.
+                for part in self.base.parts(dataclasses.replace(payload, attachments=()))
+            ]
+            return EncodedBody(
+                encode_multipart(parts, self._boundary),
+                f"multipart/form-data; boundary={self._boundary}",
+            )
+        return self.base.encode(payload)
 
 
 def build_items(messages_: Sequence[MachineMail]) -> List[Tuple[InboundEmail, str, str, Probe]]:
@@ -897,6 +980,7 @@ def execute(
         {"quiet_window": quiet_window, "max_wait": max_wait, "poll_interval": poll_interval},
     )
     config.update(target.artifact_config())
+    wire = LoopWireFormat(target.wire_format)
 
     adapter = outbound_adapter = None
     sent: List[Any] = []
@@ -924,7 +1008,7 @@ def execute(
             return EXIT_REFUSED
 
         sent += send_all(build_items([precursor]), target.url, rate, client=client,
-                         sleep=sleep, clock=clock, wire_format=target.wire_format)
+                         sleep=sleep, clock=clock, wire_format=wire)
         if outbound_adapter is not None:
             reply = _find_reply(
                 outbound_adapter, precursor, baseline, can_list, sleep=sleep, clock=clock,
@@ -941,7 +1025,7 @@ def execute(
 
         judged = [*corpus, bait]
         sent += send_all(build_items(judged), target.url, rate, client=client,
-                         sleep=sleep, clock=clock, wire_format=target.wire_format)
+                         sleep=sleep, clock=clock, wire_format=wire)
         outcome = read_back_all(adapter, [m.probe() for m in [precursor, *judged]], **poll)
         outbound_by_tag = None
         unattributed: List[Any] = []

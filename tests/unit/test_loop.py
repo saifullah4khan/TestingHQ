@@ -510,3 +510,96 @@ def test_the_report_says_no_sink_configured_not_a_field_problem():
     assert "no sink configured" in text
     assert "adapter cannot see field" not in text
     assert "by why" not in text
+
+
+def _dsn():
+    return next(m for m in tool.build_machine_corpus(1, tool.DEFAULT_COUNT, "hq")
+                if m.kind == "bounce-dsn")
+
+
+def _assert_real_report(raw: bytes):
+    from email import message_from_bytes, policy
+
+    message = message_from_bytes(raw, policy=policy.default)
+    assert message.get_content_type() == "multipart/report"
+    assert message.get_param("report-type") == "delivery-status"
+    parts = list(message.iter_parts())
+    assert [p.get_content_type() for p in parts] == [
+        "text/plain", "message/delivery-status", "text/rfc822-headers"]
+    assert b"Status: 5.1.1" in raw and b"Action: failed" in raw
+    return message
+
+
+def test_the_dsn_is_a_real_multipart_report_in_the_mime_format():
+    from testinghq.core.formats import MimeFormat
+    from testinghq.core.transport import DEFAULT_BOUNDARY
+
+    wire = tool.LoopWireFormat(MimeFormat(DEFAULT_BOUNDARY))
+    encoded = wire.encode(_dsn().email)
+    assert encoded.content_type == "message/rfc822"
+    message = _assert_real_report(encoded.body)
+    assert message["X-TestingHQ-Tag"] == _dsn().tag
+
+
+def test_the_dsn_is_a_real_multipart_report_in_sendgrid_raw_mode():
+    from email import policy
+    from email.parser import BytesParser
+
+    from testinghq.core.formats import SendgridRawFormat
+    from testinghq.core.transport import DEFAULT_BOUNDARY
+
+    encoded = tool.LoopWireFormat(SendgridRawFormat(DEFAULT_BOUNDARY)).encode(_dsn().email)
+    form = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {encoded.content_type}\r\n\r\n".encode() + encoded.body
+    )
+    fields = {p.get_param("name", header="content-disposition"): p.get_content()
+              for p in form.iter_parts()}
+    _assert_real_report(fields["email"].encode())
+    assert fields["subject"] == _dsn().email.subject
+
+
+def test_other_messages_and_parsed_formats_are_encoded_unchanged():
+    from testinghq.core.formats import MimeFormat, SendgridFormat
+    from testinghq.core.transport import DEFAULT_BOUNDARY
+
+    ordinary = tool.build_machine_corpus(1, 1, "hq")[0].email
+    mime = MimeFormat(DEFAULT_BOUNDARY)
+    assert tool.LoopWireFormat(mime).encode(ordinary) == mime.encode(ordinary)
+    parsed = SendgridFormat(DEFAULT_BOUNDARY)
+    assert tool.LoopWireFormat(parsed).encode(_dsn().email) == parsed.encode(_dsn().email)
+
+
+def test_a_run_at_a_mime_target_sends_the_dsn_as_a_multipart_report(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from testinghq.core.transport import ClientResponse
+    from testinghq.pipeline.adapters import ReadbackConfig
+
+    class Recorder:
+        def __init__(self):
+            self.bodies = []
+
+        def send(self, request):
+            self.bodies.append(request.body)
+            return ClientResponse(status=202, body=b"")
+
+    module = types.ModuleType("loop_mime_spec")
+    module.Empty = type("Empty", (), {"fetch": lambda self, probe: []})
+    monkeypatch.setitem(sys.modules, "loop_mime_spec", module)
+    config = tmp_path / "target.toml"
+    config.write_text('[targets.local]\nurl = "http://localhost:9/raw"\nformat = "mime"\n',
+                      encoding="utf-8")
+    recorder = Recorder()
+    now = [0.0]
+    code = tool.execute(
+        1, tool.DEFAULT_COUNT, "local", str(config), None,
+        readback=ReadbackConfig(kind="python", spec="loop_mime_spec:Empty"),
+        outbound=None, tag_prefix="hq", rate=1000.0, client=recorder,
+        quiet_window=0.0, poll_interval=0.05, clock=lambda: now[0],
+        sleep=lambda s: now.__setitem__(0, now[0] + s), printer=lambda line: None,
+    )
+    assert code == 0
+    reports = [b for b in recorder.bodies if b"multipart/report" in b]
+    assert len(reports) == 1
+    _assert_real_report(reports[0])
