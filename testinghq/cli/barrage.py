@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..barrage import fire as barrage_fire
+from ..barrage.payloads import DEFAULT_POOL_SIZE
 from ..barrage.runner import RateCeilingError
 from ..compare import runs as compare_runs
 from ..core import guardrails
@@ -95,7 +96,7 @@ def _add_barrage_parser(sub) -> None:
         help="seconds of ramp before steady state, taken out of --duration (default %(default)s)",
     )
     b_fire.add_argument(
-        "--pool-size", type=int, default=barrage_fire.DEFAULT_POOL_SIZE,
+        "--pool-size", type=int, default=DEFAULT_POOL_SIZE,
         help="how many distinct seeded payloads to cycle through (default %(default)s)",
     )
     _add_send_shape_args(b_fire)

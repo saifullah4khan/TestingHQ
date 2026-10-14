@@ -436,8 +436,7 @@ def _run_open_loop(run: _Run, stages: List[RampStage], executor, clock, sleep) -
     return futures
 
 
-def _run_closed_loop(run: _Run, stages: List[RampStage], executor, clock, sleep,
-                     pacer: _ClosedLoopPacer) -> List:
+def _run_closed_loop(run: _Run, executor, pacer: _ClosedLoopPacer) -> List:
     def worker() -> None:
         while True:
             slot = pacer.take()
@@ -554,7 +553,7 @@ def run(
             futures = _run_open_loop(live, stages, executor, clock, sleep)
         else:
             pacer = _ClosedLoopPacer(stages, live, clock, sleep)
-            futures = _run_closed_loop(live, stages, executor, clock, sleep, pacer)
+            futures = _run_closed_loop(live, executor, pacer)
         remaining = live.deadline - clock()
         if futures and remaining > 0:
             wait(futures, timeout=remaining, return_when=FIRST_EXCEPTION)

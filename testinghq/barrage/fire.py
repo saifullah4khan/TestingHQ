@@ -24,17 +24,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED  # noqa: F401
+from ..core.exit_codes import EXIT_FINDING, EXIT_OK
 from ..core.targets import BARRAGE, resolve_target
 from ..core.transport import PersistentHttpClient, TransportResult, UrllibHttpClient, post
 from . import report as barrage_report
 from .executor import PoolExecutor
-from .payloads import DEFAULT_POOL_SIZE, build_payload_pool, payload_for_index  # noqa: F401
-from .runner import (  # noqa: F401
+from .payloads import build_payload_pool, payload_for_index
+from .runner import (
     DEFAULT_GRACE_SECONDS,
-    DEFAULT_MAX_DURATION_SEC,
     DEFAULT_MAX_QUEUE_SECONDS,
-    DEFAULT_MAX_RATE_PER_SEC,
     RunPlan,
     RunResult,
     arrival_schedule,

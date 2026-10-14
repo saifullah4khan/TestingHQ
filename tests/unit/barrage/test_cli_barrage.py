@@ -17,7 +17,9 @@ import pytest
 
 from testinghq import cli
 from testinghq.barrage import fire as barrage_fire
+from testinghq.barrage.payloads import build_payload_pool
 from testinghq.barrage.runner import DEFAULT_MAX_DURATION_SEC, DEFAULT_MAX_RATE_PER_SEC
+from testinghq.core.exit_codes import EXIT_DRY_RUN, EXIT_OK, EXIT_REFUSED
 from testinghq.core.transport import ClientResponse
 
 
@@ -140,7 +142,7 @@ def test_barrage_fire_dry_run_makes_zero_network_calls(forbid_network, capsys):
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--rate", "10", "--duration", "10"]
     )
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     out = capsys.readouterr().out
     assert "dry-run default" in out
     assert "dry-run preview" in out
@@ -152,7 +154,7 @@ def test_barrage_fire_dry_run_needs_no_target_config_at_all(tmp_path, monkeypatc
     # by accident: there is no URL for it to reach.
     monkeypatch.chdir(tmp_path)  # no target.toml here
     rc = cli.main(["barrage", "fire", "--target", "local", "--duration", "10"])
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
 
 
 def test_barrage_fire_dry_run_previews_the_plan(forbid_network, capsys):
@@ -181,7 +183,7 @@ def test_barrage_replay_dry_run_makes_zero_network_calls(tmp_path, forbid_networ
     run_path.write_text(json.dumps(artifact), encoding="utf-8")
 
     rc = cli.main(["barrage", "replay", str(run_path)])
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     assert "no network calls were made" in capsys.readouterr().out
 
 
@@ -197,7 +199,7 @@ def test_barrage_fire_refuses_over_ceiling_rate_without_the_flag(forbid_network,
             "--rate", str(DEFAULT_MAX_RATE_PER_SEC + 1), "--duration", "10",
         ]
     )
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "refused" in capsys.readouterr().err
 
 
@@ -208,7 +210,7 @@ def test_barrage_fire_refuses_over_ceiling_duration_without_the_flag(forbid_netw
             "--duration", str(DEFAULT_MAX_DURATION_SEC + 1),
         ]
     )
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "refused" in capsys.readouterr().err
 
 
@@ -220,14 +222,14 @@ def test_barrage_fire_allows_over_ceiling_rate_with_the_explicit_flag(forbid_net
             "--allow-high-rate",
         ]
     )
-    assert rc == barrage_fire.EXIT_DRY_RUN  # still a dry run, but not refused
+    assert rc == EXIT_DRY_RUN  # still a dry run, but not refused
 
 
 def test_barrage_fire_refuses_duration_shorter_than_warmup(forbid_network, capsys):
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--duration", "3", "--warmup", "5"]
     )
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "warmup" in capsys.readouterr().err
 
 
@@ -241,14 +243,14 @@ def test_barrage_fire_send_without_configured_target_is_refused(tmp_path, monkey
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--send", "--duration", "10"]
     )
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "refused" in capsys.readouterr().err
 
 
 def test_barrage_fire_send_without_target_flag_is_refused(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rc = cli.main(["barrage", "fire", "--send", "--duration", "10"])
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
 
 
 def test_execute_refuses_public_host_even_when_configured(tmp_path, forbid_network):
@@ -279,7 +281,7 @@ def test_execute_accepts_a_reserved_test_domain_target(tmp_path, forbid_network)
         client=client, clock=clock.now, sleep=FakeSleeper(clock),
         printer=lambda text: None,
     )
-    assert rc == barrage_fire.EXIT_OK
+    assert rc == EXIT_OK
     assert client.received
 
 
@@ -300,7 +302,7 @@ def test_execute_fires_the_expected_number_of_requests(tmp_path, forbid_network)
         client=client, clock=clock.now, sleep=FakeSleeper(clock),
         printer=lambda text: None,
     )
-    assert rc == barrage_fire.EXIT_OK
+    assert rc == EXIT_OK
     assert len(client.received) == 20  # 10/s for 2s
 
 
@@ -377,7 +379,7 @@ def test_execute_refuses_over_ceiling_before_sending_anything(tmp_path, forbid_n
 
 def test_barrage_replay_missing_file_is_reported_not_crashed(tmp_path, capsys):
     rc = cli.main(["barrage", "replay", str(tmp_path / "nope.json")])
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "barrage replay" in capsys.readouterr().err
 
 
@@ -385,7 +387,7 @@ def test_barrage_replay_invalid_json_is_reported_not_crashed(tmp_path, capsys):
     run_path = tmp_path / "run.json"
     run_path.write_text("{not json", encoding="utf-8")
     rc = cli.main(["barrage", "replay", str(run_path)])
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "not valid JSON" in capsys.readouterr().err
 
 
@@ -393,7 +395,7 @@ def test_barrage_replay_incomplete_config_is_refused(tmp_path, capsys):
     run_path = tmp_path / "run.json"
     run_path.write_text(json.dumps({"seed": 1, "config": {"rate": 10.0}}), encoding="utf-8")
     rc = cli.main(["barrage", "replay", str(run_path)])
-    assert rc == barrage_fire.EXIT_REFUSED
+    assert rc == EXIT_REFUSED
     assert "cannot reproduce" in capsys.readouterr().err
 
 
@@ -409,7 +411,7 @@ def test_barrage_replay_reuses_the_saved_plan(tmp_path, forbid_network, capsys):
     )
 
     rc = cli.main(["barrage", "replay", str(out_path)])
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     out = capsys.readouterr().out
     assert "seed=12" in out
     assert "closed-loop" in out
@@ -422,14 +424,14 @@ def test_barrage_replay_reuses_the_saved_plan(tmp_path, forbid_network, capsys):
 
 
 def test_require_synthetic_pool_passes_for_the_generated_pool():
-    pool = barrage_fire.build_payload_pool(seed=4, pool_size=10)
+    pool = build_payload_pool(seed=4, pool_size=10)
     barrage_fire.require_synthetic_pool(pool)  # must not raise
 
 
 def test_require_synthetic_pool_refuses_a_non_reserved_address():
     from testinghq.core.guardrails import GuardrailError
 
-    pool = barrage_fire.build_payload_pool(seed=4, pool_size=2)
+    pool = build_payload_pool(seed=4, pool_size=2)
     tainted = pool[0].__class__(
         **{**pool[0].__dict__, "to": "real.person@mycompany.com"}
     )
@@ -449,7 +451,7 @@ def test_concurrency_is_accepted_in_both_modes(mode, capsys):
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--mode", mode, "--concurrency", "8"]
     )
-    assert rc == barrage_fire.EXIT_DRY_RUN, capsys.readouterr().err
+    assert rc == EXIT_DRY_RUN, capsys.readouterr().err
 
 
 def test_the_dry_run_preview_reports_the_requested_concurrency(capsys):
@@ -468,7 +470,7 @@ def test_concurrency_of_one_is_accepted_in_both_modes(capsys):
             ["barrage", "fire", "--target", "local", "--mode", mode,
              "--concurrency", "1"]
         )
-        assert rc == barrage_fire.EXIT_DRY_RUN
+        assert rc == EXIT_DRY_RUN
         assert "concurrency: 1" in capsys.readouterr().out
 
 
@@ -497,7 +499,7 @@ def test_replay_of_an_artifact_without_the_newer_keys_uses_the_defaults(tmp_path
     run_path = tmp_path / "run.json"
     run_path.write_text(json.dumps(artifact), encoding="utf-8")
 
-    assert cli.main(["barrage", "replay", str(run_path)]) == barrage_fire.EXIT_DRY_RUN
+    assert cli.main(["barrage", "replay", str(run_path)]) == EXIT_DRY_RUN
     out = capsys.readouterr().out
     assert f"(duration + {barrage_fire.DEFAULT_GRACE_SECONDS:g}s grace)" in out
     assert f"per-request timeout: {barrage_fire.DEFAULT_TIMEOUT:g}s" in out
@@ -516,7 +518,7 @@ def test_dry_run_preview_states_how_many_requests_can_be_in_flight(capsys):
     )
     out = capsys.readouterr().out
 
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     assert "pool of 16 workers" in out
     assert "16 request(s) in flight" in out
 
@@ -528,7 +530,7 @@ def test_dry_run_preview_warns_that_one_worker_caps_the_rate(capsys):
     )
     out = capsys.readouterr().out
 
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     assert "one worker" in out
     assert "slower than the arrival interval" in out
     assert "raise --concurrency" in out
@@ -538,7 +540,7 @@ def test_dry_run_preview_states_the_pool_in_closed_mode_too(capsys):
     rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "closed"])
     out = capsys.readouterr().out
 
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     assert f"concurrency: {barrage_fire.DEFAULT_CONCURRENCY}" in out
     assert f"pool of {barrage_fire.DEFAULT_CONCURRENCY} workers" in out
 
@@ -550,5 +552,5 @@ def test_dry_run_preview_reports_the_memory_cost_of_the_pool(capsys):
     )
     out = capsys.readouterr().out
 
-    assert rc == barrage_fire.EXIT_DRY_RUN
+    assert rc == EXIT_DRY_RUN
     assert "costs memory" in out
