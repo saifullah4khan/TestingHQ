@@ -12,8 +12,10 @@ ground truth the tools built on it will check against.
   common        the send and read phases, and the shared exit codes
   corpus        the payloads all five tools send, and their tags
 
-A tool is not in this package. `verify`, `ledger`, `redeliver`, `loop` and
-`steady` live beside it, one per concern, and none of them imports another.
+The tools live beside the seam: `verify`, `ledger`, `redeliver`, `loop` and
+`steady`, one per concern. `ledger` and `redeliver` import `verify` by design,
+for its corpus and run helpers, and `redeliver` imports `ledger`'s stray
+classification; `loop` and `steady` import neither.
 
 Two rules run through all of it, and they are the difference between this
 finding bugs and manufacturing green.
