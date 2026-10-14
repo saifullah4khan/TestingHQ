@@ -49,7 +49,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .core.exit_codes import EXIT_FINDING, EXIT_OK
+from .core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK
 
 
 class ArtifactError(RuntimeError):
@@ -239,7 +239,35 @@ def _base(
     }
 
 
+#: The verdict for an artifact a dry run wrote: nothing was sent, so there is
+#: nothing to grade, and the exit code is the dry run's own.
+DRY_RUN = "DRY RUN"
+
+
+def _read_dry_run(artifact: Dict[str, Any], tool: str) -> Optional[ArtifactSummary]:
+    """The summary of an artifact whose `config.dry_run` is true, or None.
+
+    A dry run sent nothing, so its records are the plan, not results: grading
+    them would report a run that sent and passed everything. It reads as the
+    command did, verdict DRY RUN and exit 2, with nothing counted as sent,
+    passed or failed. `records` still says how many payloads were planned."""
+    if _config(artifact).get("dry_run") is not True:
+        return None
+    records = artifact.get("records")
+    return ArtifactSummary(
+        verdict=DRY_RUN,
+        verdict_source="derived",
+        exit_code=EXIT_DRY_RUN,
+        exit_code_source="derived",
+        counts=Counts(records=len(records) if isinstance(records, list) else 0),
+        **_base(artifact, tool),
+    )
+
+
 def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
+    dry_run = _read_dry_run(artifact, "blast")
+    if dry_run is not None:
+        return dry_run
     summary = _summary(artifact)
     records = artifact.get("records") or []
     flags = summary.get("flags") or []

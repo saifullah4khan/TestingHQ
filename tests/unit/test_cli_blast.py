@@ -510,3 +510,31 @@ def test_blast_fire_send_catalog_sends_every_case(tmp_path, forbid_network, monk
     assert len(fake.received) == expected
     assert len(json.loads(out.read_text(encoding="utf-8"))["records"]) == expected
 
+
+# ---------------------------------------------------------------------------
+# A dry-run artifact through `report`
+# ---------------------------------------------------------------------------
+
+
+def test_report_reads_a_blast_dry_run_as_a_dry_run(tmp_path, forbid_network, capsys):
+    """A dry run sent nothing, so `report` must not grade its planned records
+    as a clean run that sent and passed every one."""
+    out = tmp_path / "blastdry.json"
+    assert cli.main(["blast", "fire", "--count", "10", "--out", str(out)]) == EXIT_DRY_RUN
+    capsys.readouterr()
+
+    assert cli.main(["report", str(out), "--json"]) == EXIT_OK
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["verdict"] == "DRY RUN"
+    assert summary["exit_code"] == EXIT_DRY_RUN
+    assert summary["dry_run"] is True
+    assert summary["counts"]["sent"] == 0
+    assert summary["counts"]["passed"] == 0
+    assert summary["counts"]["failed"] == 0
+    assert summary["counts"]["records"] == 10
+
+    assert cli.main(["report", str(out)]) == EXIT_OK
+    text = capsys.readouterr().out
+    assert "verdict: DRY RUN" in text
+    assert "exit code: 2" in text
+    assert "CLEAN" not in text

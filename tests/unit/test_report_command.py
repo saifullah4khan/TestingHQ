@@ -47,7 +47,7 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 # ---------------------------------------------------------------------------
 
 
-def blast_artifact(flags=(), dry_run=True):
+def blast_artifact(flags=(), dry_run=False):
     return {
         "seed": 1,
         "config": {"mix": ["clean"], "count": 2, "seed": 1,
@@ -596,7 +596,7 @@ def test_a_derived_exit_code_is_never_a_dry_run():
         assert code in (exit_codes.EXIT_OK, exit_codes.EXIT_FINDING), (
             f"{tool} produced exit code {code}, which is not a code this project "
             "uses for a reconstructed answer. A report that was read "
-            "successfully is neither a refusal nor a dry run."
+            "successfully is not a refusal, and none of these fixtures is a dry run."
         )
 
 
