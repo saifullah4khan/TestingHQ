@@ -19,10 +19,13 @@ later. `loop` does the same. This module reimplements those two derivations,
 and `tests/unit/test_report_command.py` pins them against the tools' own
 formatters, so the two copies cannot drift without a test noticing.
 
-The exit code. No artifact records one, because the exit code is the process's
-answer and the artifact is the run's. This module derives the code the same way
-each tool does, from the same fields, so `report --json` gives a CI system the
-number it would have got from the shell. The field is called `exit_code`,
+The exit code. Most artifacts record none, because the exit code is the
+process's answer and the artifact is the run's. `compare` is the exception: its
+code depends on `--fail-on-regression`, which nothing else in its artifact
+shows, so it writes the code down. For the others this module derives the
+code the same way each tool does, from the same fields, so `report --json`
+gives a CI system the number it would have got from the shell. The field is
+called `exit_code`,
 because that is the name the contract calls for and a consumer has one shape to
 parse. Where it came from is a separate field, `exit_code_source`, exactly as
 `verdict_source` is for the verdict: derived where the tool computed it only at
@@ -49,7 +52,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .core.exit_codes import EXIT_FINDING, EXIT_OK
+from .core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK
 
 
 class ArtifactError(RuntimeError):
@@ -243,7 +246,35 @@ def _base(
     }
 
 
+#: The verdict for an artifact a dry run wrote: nothing was sent, so there is
+#: nothing to grade, and the exit code is the dry run's own.
+DRY_RUN = "DRY RUN"
+
+
+def _read_dry_run(artifact: Dict[str, Any], tool: str) -> Optional[ArtifactSummary]:
+    """The summary of an artifact whose `config.dry_run` is true, or None.
+
+    A dry run sent nothing, so its records are the plan, not results: grading
+    them would report a run that sent and passed everything. It reads as the
+    command did, verdict DRY RUN and exit 2, with nothing counted as sent,
+    passed or failed. `records` still says how many payloads were planned."""
+    if _config(artifact).get("dry_run") is not True:
+        return None
+    records = artifact.get("records")
+    return ArtifactSummary(
+        verdict=DRY_RUN,
+        verdict_source="derived",
+        exit_code=EXIT_DRY_RUN,
+        exit_code_source="derived",
+        counts=Counts(records=len(records) if isinstance(records, list) else 0),
+        **_base(artifact, tool),
+    )
+
+
 def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
+    dry_run = _read_dry_run(artifact, "blast")
+    if dry_run is not None:
+        return dry_run
     summary = _summary(artifact)
     records = artifact.get("records") or []
     flags = summary.get("flags") or []
@@ -868,11 +899,22 @@ def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
             )
         )
 
+    # The exit code is the one the compare command returned, which depends on
+    # --fail-on-regression as well as on `regressed`. An artifact that records
+    # it is reported as recorded. One written before the field existed does
+    # not say whether the flag was set, so it gets the command's default:
+    # without the flag, compare exits 0 whatever it found.
+    recorded = artifact.get("exit_code")
+    if isinstance(recorded, int) and not isinstance(recorded, bool):
+        exit_code, exit_code_source = recorded, "recorded"
+    else:
+        exit_code, exit_code_source = EXIT_OK, "derived"
+
     return ArtifactSummary(
         verdict="REGRESSED" if regressed else "NO REGRESSION",
         verdict_source="recorded",
-        exit_code=EXIT_FINDING if regressed else EXIT_OK,
-        exit_code_source="derived",
+        exit_code=exit_code,
+        exit_code_source=exit_code_source,
         counts=Counts(
             records=artifact.get("records_compared", 0),
             failed=regressions.get("count", 0),
@@ -1036,8 +1078,11 @@ def render(summary: ArtifactSummary) -> str:
         lines.append(f"  [{finding.kind}] {finding.detail}")
 
     lines.append("")
-    lines.append(
-        f"exit code: {summary.exit_code} ({summary.exit_code_source}, not "
-        "recorded in the artifact)"
-    )
+    if summary.exit_code_source == "recorded":
+        lines.append(f"exit code: {summary.exit_code} (recorded in the artifact)")
+    else:
+        lines.append(
+            f"exit code: {summary.exit_code} ({summary.exit_code_source}, not "
+            "recorded in the artifact)"
+        )
     return "\n".join(lines)

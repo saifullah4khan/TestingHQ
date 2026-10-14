@@ -450,3 +450,91 @@ def test_replay_refuses_a_newer_schema_version(tmp_path, forbid_network, capsys)
     run_path.write_text(json.dumps(data), encoding="utf-8")
     assert cli.main(["blast", "replay", str(run_path)]) == EXIT_REFUSED
     assert "schema_version" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# --catalog through the send guard
+# ---------------------------------------------------------------------------
+
+
+def test_the_full_catalog_passes_the_send_guard(tmp_path, forbid_network):
+    """Every catalog case, including the zero-length envelope with its empty
+    To, is synthetic enough to send."""
+    from testinghq.blast.corpus import CorpusPlan, parse_catalog
+
+    config = _write_target_config(tmp_path)
+    plan = CorpusPlan(seed=0, catalog=parse_catalog("all"))
+    pairs = plan.build()
+    assert any(email.to == "" for email, _label in pairs), "the empty-To case is in the catalog"
+    args = cli.build_parser().parse_args(
+        ["blast", "fire", "--target", "local", "--config", str(config), "--send", "--catalog"]
+    )
+    assert blast_cli._validate_send_plan(pairs, args, "local") is None
+
+
+def test_the_catalog_with_a_real_address_spliced_in_is_still_refused(tmp_path, forbid_network):
+    from testinghq.blast.corpus import CorpusPlan, parse_catalog
+
+    config = _write_target_config(tmp_path)
+    pairs = CorpusPlan(seed=0, catalog=parse_catalog("all")).build()
+    email, label = pairs[0]
+    pairs[0] = (email.with_changes(to="Someone <someone@gmail.com>"), label)
+    args = cli.build_parser().parse_args(
+        ["blast", "fire", "--target", "local", "--config", str(config), "--send", "--catalog"]
+    )
+    refusal = blast_cli._validate_send_plan(pairs, args, "local")
+    assert refusal is not None and "someone@gmail.com" in refusal
+
+
+def test_blast_fire_send_catalog_sends_every_case(tmp_path, forbid_network, monkeypatch, capsys):
+    """The README command, end to end in process: nothing refused, one request
+    per catalog case."""
+    from testinghq.blast.corpus import CorpusPlan, parse_catalog
+
+    fake = FakeClient(status=200)
+    real_post = blast_cli.post
+    monkeypatch.setattr(
+        blast_cli, "post",
+        lambda email, url, client=None, wire_format=None: real_post(
+            email, url, client=fake, wire_format=wire_format
+        ),
+    )
+    config = _write_target_config(tmp_path)
+    out = tmp_path / "blast.json"
+    rc = cli.main(["blast", "fire", "--target", "local", "--config", str(config),
+                   "--send", "--catalog", "--rate", "1000", "--out", str(out)])
+    captured = capsys.readouterr()
+    assert rc in (EXIT_OK, EXIT_FINDING), captured.err
+    assert "refused" not in captured.err
+    expected = len(CorpusPlan(seed=0, catalog=parse_catalog("all")).build())
+    assert len(fake.received) == expected
+    assert len(json.loads(out.read_text(encoding="utf-8"))["records"]) == expected
+
+
+# ---------------------------------------------------------------------------
+# A dry-run artifact through `report`
+# ---------------------------------------------------------------------------
+
+
+def test_report_reads_a_blast_dry_run_as_a_dry_run(tmp_path, forbid_network, capsys):
+    """A dry run sent nothing, so `report` must not grade its planned records
+    as a clean run that sent and passed every one."""
+    out = tmp_path / "blastdry.json"
+    assert cli.main(["blast", "fire", "--count", "10", "--out", str(out)]) == EXIT_DRY_RUN
+    capsys.readouterr()
+
+    assert cli.main(["report", str(out), "--json"]) == EXIT_OK
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["verdict"] == "DRY RUN"
+    assert summary["exit_code"] == EXIT_DRY_RUN
+    assert summary["dry_run"] is True
+    assert summary["counts"]["sent"] == 0
+    assert summary["counts"]["passed"] == 0
+    assert summary["counts"]["failed"] == 0
+    assert summary["counts"]["records"] == 10
+
+    assert cli.main(["report", str(out)]) == EXIT_OK
+    text = capsys.readouterr().out
+    assert "verdict: DRY RUN" in text
+    assert "exit code: 2" in text
+    assert "CLEAN" not in text

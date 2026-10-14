@@ -272,15 +272,25 @@ def require_synthetic_content(emails: Iterable[str]) -> None:
     EVERY address extracted from EVERY value must be synthetic. Raises
     GuardrailError if any one of them is not.
 
+    A field that is an empty (or whitespace-only) string is skipped: it holds
+    no address, so it cannot reach a mailbox, and an edge case such as an
+    empty To is a deliberate payload. Only that shape is skipped. A value
+    with any other content that parses to an empty address ("<>",
+    "Name <>") still refuses.
+
     Fails closed. Refuses when no addresses could be extracted at all
-    (empty input, an unparseable header, an empty group like
-    "undisclosed-recipients:;") and when any extracted address is empty.
-    Nothing verified means nothing is trusted: an unparseable header must
-    refuse, not pass vacuously.
+    (empty input, only empty fields, an unparseable header, an empty group
+    like "undisclosed-recipients:;") and when any extracted address is
+    empty. Nothing verified means nothing is trusted: an unparseable header
+    must refuse, not pass vacuously.
     """
     if isinstance(emails, (str, bytes)):
         emails = [emails]
 
+    emails = [
+        value for value in emails
+        if not (isinstance(value, str) and not value.strip())
+    ]
     addresses = _extract_addresses(emails)
 
     if not addresses:

@@ -13,7 +13,7 @@ from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
 from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_REFUSED
-from .common import DEFAULT_TARGET_CONFIG, add_send_args
+from .common import DEFAULT_TARGET_CONFIG, add_send_args, positive_number
 
 
 def _add_send_shape_args(parser) -> None:
@@ -66,7 +66,7 @@ def _add_barrage_parser(sub) -> None:
         help="payload pool seed (default %(default)s)",
     )
     b_fire.add_argument(
-        "--rate", type=float, default=barrage_fire.DEFAULT_RATE,
+        "--rate", type=positive_number, default=barrage_fire.DEFAULT_RATE,
         help="target requests per second (default %(default)s)",
     )
     b_fire.add_argument(
@@ -284,12 +284,10 @@ def _cmd_compare(args) -> int:
 
     print(compare_runs.format_any(diff))
 
+    code = compare_runs.record_exit_code(diff, args.fail_on_regression)
     if args.out:
         Path(args.out).write_text(
             json.dumps(diff, indent=2, sort_keys=False), encoding="utf-8"
         )
         print(f"\nwrote {args.out}")
-
-    if args.fail_on_regression and diff["regressed"]:
-        return compare_runs.EXIT_REGRESSION
-    return compare_runs.EXIT_NO_REGRESSION
+    return code

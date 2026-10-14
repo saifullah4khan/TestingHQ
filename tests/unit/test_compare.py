@@ -753,3 +753,63 @@ def test_different_attachment_modes_are_a_warning():
     diff = bw.compare(baseline, candidate)
 
     assert any("attachment modes differ" in w for w in diff["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# `report` on a compare artifact gives the exit code compare gave
+# ---------------------------------------------------------------------------
+
+
+def _regressed_pair(tmp_path):
+    baseline = _write(
+        tmp_path, "base.json", _artifact([_record("clean-1-0000", report.CLEAN, 200)])
+    )
+    candidate = _write(
+        tmp_path, "cand.json", _artifact([_record("clean-1-0000", report.CLEAN, 500)])
+    )
+    return baseline, candidate
+
+
+@pytest.mark.parametrize(
+    "flags, expected",
+    [([], bw.EXIT_NO_REGRESSION), (["--fail-on-regression"], bw.EXIT_REGRESSION)],
+    ids=["default", "fail-on-regression"],
+)
+def test_report_on_the_artifact_agrees_with_the_compare_exit_code(tmp_path, flags, expected):
+    baseline, candidate = _regressed_pair(tmp_path)
+    out = tmp_path / "cmp.json"
+    result = _run_cli(
+        "compare", "--baseline", baseline, "--candidate", candidate,
+        "--out", str(out), *flags,
+    )
+    assert result.returncode == expected
+
+    diff = json.loads(out.read_text(encoding="utf-8"))
+    assert diff["fail_on_regression"] is bool(flags)
+    assert diff["exit_code"] == expected
+
+    read = _run_cli("report", str(out), "--json")
+    assert read.returncode == 0, read.stderr
+    summary = json.loads(read.stdout)
+    assert summary["verdict"] == "REGRESSED"
+    assert summary["exit_code"] == result.returncode
+    assert summary["exit_code_source"] == "recorded"
+
+    text = _run_cli("report", str(out)).stdout
+    assert f"exit code: {expected} (recorded in the artifact)" in text
+
+
+def test_report_on_an_artifact_without_a_recorded_code_uses_the_default(tmp_path):
+    """An artifact written before the code was recorded does not say whether
+    --fail-on-regression was set, so it reads as the command's default: 0."""
+    baseline, candidate = _regressed_pair(tmp_path)
+    out = tmp_path / "cmp.json"
+    _run_cli("compare", "--baseline", baseline, "--candidate", candidate, "--out", str(out))
+    diff = json.loads(out.read_text(encoding="utf-8"))
+    del diff["exit_code"], diff["fail_on_regression"]
+    old = _write(tmp_path, "old.json", diff)
+
+    summary = json.loads(_run_cli("report", old, "--json").stdout)
+    assert summary["verdict"] == "REGRESSED"
+    assert summary["exit_code"] == bw.EXIT_NO_REGRESSION
+    assert summary["exit_code_source"] == "derived"

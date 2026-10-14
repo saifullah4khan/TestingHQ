@@ -47,7 +47,7 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 # ---------------------------------------------------------------------------
 
 
-def blast_artifact(flags=(), dry_run=True):
+def blast_artifact(flags=(), dry_run=False):
     return {
         "seed": 1,
         "config": {"mix": ["clean"], "count": 2, "seed": 1,
@@ -368,8 +368,9 @@ def test_the_derived_exit_code_matches_each_tool_s_own_decision():
     assert summarize(loop_artifact(findings=0)).exit_code == EXIT_OK
     assert summarize(loop_artifact(findings=2)).exit_code == EXIT_FINDING
 
-    # compare: regressed
-    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_FINDING
+    # compare: an artifact from before the exit code was recorded gets the
+    # command's default, which exits 0 without --fail-on-regression
+    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_OK
     assert summarize(compare_artifact(regressed=False)).exit_code == EXIT_OK
 
 
@@ -596,7 +597,7 @@ def test_a_derived_exit_code_is_never_a_dry_run():
         assert code in (exit_codes.EXIT_OK, exit_codes.EXIT_FINDING), (
             f"{tool} produced exit code {code}, which is not a code this project "
             "uses for a reconstructed answer. A report that was read "
-            "successfully is neither a refusal nor a dry run."
+            "successfully is not a refusal, and none of these fixtures is a dry run."
         )
 
 

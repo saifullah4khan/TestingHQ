@@ -10,7 +10,7 @@
     ],
     "count": 6,
     "seed": 1,
-    "dry_run": true,
+    "dry_run": false,
     "target": null
   },
   "summary": {
