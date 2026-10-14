@@ -66,9 +66,9 @@ testinghq ledger fire --target handlehq --config examples/readback/handlehq.loca
 Then, in this order, each with the two consent flags:
 
 ```bash
-testinghq ledger fire --target handlehq --config examples/readback/handlehq.local.toml --count 5 --send --allow-public-target --allow-public-readback --max-wait 180 --out ledger.json
-testinghq verify fire --target handlehq --config examples/readback/handlehq.local.toml --count 5 --send --allow-public-target --allow-public-readback --max-wait 180 --out verify.json
-testinghq redeliver fire --target handlehq --config examples/readback/handlehq.local.toml --send --allow-public-target --allow-public-readback --retry-after 30 --max-wait 180 --out redeliver.json
+testinghq ledger fire --target handlehq --config examples/readback/handlehq.local.toml --count 5 --send --allow-public-target --allow-public-readback --quiet-window 30 --max-wait 180 --out ledger.json
+testinghq verify fire --target handlehq --config examples/readback/handlehq.local.toml --count 5 --send --allow-public-target --allow-public-readback --quiet-window 30 --max-wait 180 --out verify.json
+testinghq redeliver fire --target handlehq --config examples/readback/handlehq.local.toml --send --allow-public-target --allow-public-readback --retry-after 30 --quiet-window 30 --max-wait 180 --out redeliver.json
 testinghq report ledger.json --html ledger.html
 ```
 
@@ -98,13 +98,17 @@ testinghq sigcheck fire --target handlehq --config examples/readback/handlehq.lo
 
 ## Waiting long enough
 
-`--quiet-window` (default 5s) and `--max-wait` (default 60s) suit a local
-process. A deployment that creates the record on a queue consumer needs a quiet
-window longer than the gap between the record appearing and being filled in,
-and a search-indexed store needs `--max-wait` of a few minutes. A run that does
-not settle reports UNSETTLED, which is not a loss: raise `--max-wait` before
-concluding anything. The readback paces itself to `--readback-rate` (default 4
-per second) and backs off on 429.
+The readback settles once what it sees (which messages are found, how many
+records each, the field values the checks read) has held still for
+`--quiet-window` seconds (default 5); a message still not found then is
+reported as lost. That default suits a local process. For a deployment that
+creates or fills in the record on a queue consumer, raise `--quiet-window`
+above its worst processing latency, and keep `--max-wait` well above it: a run
+whose store is still changing when `--max-wait` runs out is UNSETTLED, which is
+not a loss. A search-indexed store can take minutes to index a new record; the
+Zendesk and Freshdesk recipes suggest `--quiet-window 120 --max-wait 600`. The
+readback paces itself to `--readback-rate` (default 4 per second) and backs off
+on 429.
 
 ## Before trusting a result
 

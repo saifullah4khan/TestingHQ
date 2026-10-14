@@ -71,7 +71,7 @@ POST in the run was answered 200. From `python examples/pipeline_demo.py`:
 
 ```
 ledger fire: explicit --send flag set
-ledger: UNACCOUNTED  (12 message(s) sent, seed=0, tag prefix 'hq-2610142211-6e78')
+ledger: UNACCOUNTED  (12 message(s) sent, seed=0, tag prefix 'hq-2610142218-d0f4')
 
   sent:            12
   produced:        14
@@ -79,14 +79,14 @@ ledger: UNACCOUNTED  (12 message(s) sent, seed=0, tag prefix 'hq-2610142211-6e78
   missing:         0
   duplicated:      2
   misparsed:       0
-  readback:        2.597s over 4 poll(s), settled
+  readback:        2.59s over 4 poll(s), settled
   extra:           0
 
   missing: none
 
   duplicated (2):
-    hq-2610142211-6e78-0-0004: 2 tickets ['T00005', 'T00006']
-    hq-2610142211-6e78-0-0009: 2 tickets ['T00011', 'T00012']
+    hq-2610142218-d0f4-0-0004: 2 tickets ['T00005', 'T00006']
+    hq-2610142218-d0f4-0-0009: 2 tickets ['T00011', 'T00012']
 
   misparsed: none
 ```
@@ -176,7 +176,8 @@ Exit 3: the endpoint accepted what it should refuse, refused a valid request, or
 testinghq sigcheck fire --target local --scheme mailgun --secret env:MAILGUN_SIGNING_KEY --send
 ```
 
-**Compare.** Lines up two runs of the same corpus record by record and reports regressions, fixes and changes apart. A dry run on either side, or two runs with nothing in common, is refused.
+**Compare.** Two Blast runs are lined up payload by payload, with regressions, fixes and changes reported apart. Two Barrage runs are compared on load: error and unsent rate, hold-stage p99, and achieved rate when mode and rate match.
+A dry run on either side, or two runs with nothing in common, is refused.
 
 ```
 testinghq compare --baseline before.json --candidate after.json --fail-on-regression
@@ -186,9 +187,8 @@ testinghq compare --baseline before.json --candidate after.json --fail-on-regres
 
 ## Readback
 
-The pipeline tools ask your system what it made of each message. Every message
-carries a tag in an `X-TestingHQ-Tag` header and as `[testinghq:<tag>]` in the
-body, and the readback finds records by it. Three kinds:
+The pipeline tools ask your system what it made of each message, found by a tag
+in an `X-TestingHQ-Tag` header and `[testinghq:<tag>]` in the body. Three kinds:
 
 ```toml
 [readback]                         # a JSON API: GET url?tag=<tag>
@@ -209,10 +209,14 @@ path = "./mail-sink.jsonl"
 Anything else is an import path, `--readback mypkg.adapters:build`: a class, an
 object with `fetch`, or a function taking one probe and returning records.
 
-The readback polls until record counts and checked fields hold still for
-`--quiet-window` seconds (default 5) and gives up at `--max-wait` (default 60).
-It retries 429, 5xx and timeouts with backoff, honours `Retry-After`, and paces
-itself to `--readback-rate` (default 4 per second). A public readback host
+The readback settles once what it sees (which payloads are found, how many
+records each, the field values the checks read) has held still for
+`--quiet-window` seconds (default 5); a payload still not found then is lost.
+A store still changing when `--max-wait` (default 60) runs out is UNSETTLED
+(exit 3), not a loss, and anything already proven, such as a duplicate, is
+still listed. For a slow or async pipeline, raise `--quiet-window` above its
+worst processing latency. Lookups retry 429, 5xx and timeouts with backoff,
+honour `Retry-After`, and are paced to `--readback-rate` (default 4 per second). A public readback host
 needs `--allow-public-readback`. Recipes for Zendesk, Freshdesk, Mailpit,
 Chatwoot, a generic REST API and a mail sink are in
 [examples/readback/](examples/readback/).
