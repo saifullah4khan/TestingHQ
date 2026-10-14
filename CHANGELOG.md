@@ -150,8 +150,13 @@ is folded in below.
   changing, or before every tag could be polled twice. The headline names which
   and gives the numbers, with the `--max-wait` or `--readback-rate` that would
   fit. Findings already proven stay listed and counted.
-- Every readback tool's dry run warns when the plan cannot settle within
-  `--max-wait`: about 2 x tags / `--readback-rate` plus `--quiet-window`.
+- Every readback tool's dry run warns when the plan cannot settle within a
+  given `--max-wait`: about 2 x tags / `--readback-rate` plus `--quiet-window`.
+- `--max-wait` not given grows with the plan: the larger of 60s and that settle
+  time plus 25%, so a plan above about 110 tags at the default
+  `--readback-rate` still settles. A value given is used as is. The dry run
+  prints the max-wait a real run would use, and the artifact records it with
+  whether it was the default or given.
 - `--max-wait`, `--poll-interval` and `--quiet-window` are checked by the
   parser, before anything is sent: the first two must be above zero, the last
   zero or more.
