@@ -10,8 +10,14 @@ all of it is what a user meets first.
 So this is not the only place a real socket appears.
 `tests/integration/test_pipeline_verification.py` binds loopback itself, and
 both run in the e2e job. What is unique here is driving
-the installed binary as a subprocess rather than importing the engine, which is
+the CLI as a subprocess rather than importing the engine, which is
 the one thing an in-process fake cannot substitute for.
+
+The subprocess is `python -m testinghq.cli` run from the repository root, so it
+is always the code under test. A `testinghq` console script on PATH can belong
+to an older install (a dev venv pointing at another checkout), and running it
+here once hid a real failure; one test below only checks that such a script,
+when present, starts.
 
 This file is the one place it is reached. The sink is a real `http.server` on a
 loopback port. The tool runs as a real subprocess. The transport is
@@ -54,28 +60,10 @@ from testinghq.core.exit_codes import EXIT_FINDING
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _find_executable() -> str:
-    """The installed `testinghq` console script, wherever it landed.
+#: The CLI under test: this checkout's package, run as a real subprocess
+#: from the repository root so the checkout shadows any installed copy.
+CLI = [sys.executable, "-m", "testinghq.cli"]
 
-    Resolved rather than hardcoded. These tests spawn the real binary, and a
-    path like `.venv/Scripts/testinghq.exe` is Windows-only, so a hardcoded one
-    would have passed locally and failed on every Linux runner, which is the
-    exact class of bug this job exists to catch.
-    """
-    found = shutil.which("testinghq")
-    if found:
-        return found
-    for candidate in (
-        REPO_ROOT / ".venv" / "Scripts" / "testinghq.exe",
-        REPO_ROOT / ".venv" / "bin" / "testinghq",
-    ):
-        if candidate.exists():
-            return str(candidate)
-    # Last resort: the module, which is the same entry point.
-    return f"{sys.executable} -m testinghq.cli"
-
-
-EXE = _find_executable()
 
 #: Every test in this file needs a real socket, deliberately and visibly.
 pytestmark = pytest.mark.allow_network
@@ -163,10 +151,9 @@ class _Sink:
 
 
 def _run(*args: str, timeout: int = 180) -> subprocess.CompletedProcess:
-    """Run the real binary, as a user would."""
-    argv = EXE.split() if " -m " in EXE else [EXE]
+    """Run the CLI under test as a subprocess, as a user would."""
     return subprocess.run(
-        [*argv, *args],
+        [*CLI, *args],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
@@ -369,6 +356,35 @@ def test_this_file_is_the_only_end_to_end_module():
     assert modules == ["test_real_sockets.py"], (
         f"tests/e2e contains {modules}; keep the end-to-end surface in one file"
     )
+
+
+def test_the_subprocess_runs_the_code_under_test():
+    """The CLI these tests spawn is this checkout, not an installed copy: the
+    package it imports lives here and reports this checkout's version."""
+    import testinghq
+
+    assert Path(testinghq.__file__).resolve().parent.parent == REPO_ROOT
+    result = _run("--version", timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"testinghq {testinghq.__version__}"
+    located = subprocess.run(
+        [sys.executable, "-c", "import testinghq; print(testinghq.__file__)"],
+        capture_output=True, text=True, cwd=REPO_ROOT, timeout=60,
+    )
+    assert Path(located.stdout.strip()).resolve() == Path(testinghq.__file__).resolve()
+
+
+def test_an_installed_console_script_starts():
+    """The `testinghq` entry point, when one is installed, resolves and runs.
+    It may be an older install than this checkout, so only that is checked."""
+    script = shutil.which("testinghq")
+    if script is None:
+        pytest.skip("no testinghq console script on PATH")
+    result = subprocess.run(
+        [script, "--version"], capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("testinghq "), result.stdout
 
 
 def test_the_sink_actually_binds_loopback_and_nothing_else():
