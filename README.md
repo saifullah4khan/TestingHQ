@@ -63,9 +63,8 @@ testinghq report ledger.json --html report.html
 ```
 
 Every command is a dry run until you pass `--send`. Records are read with the
-field names in [docs/CONFIG.md](docs/CONFIG.md) unless `[readback.fields]` maps
-them. A target's `format` picks the wire format: `sendgrid` (default),
-`sendgrid-raw`, `mailgun`, `postmark` or `mime`; see [docs/FORMATS.md](docs/FORMATS.md).
+field names in [docs/CONFIG.md](docs/CONFIG.md) unless `[readback.fields]` maps them; an unknown config key is refused (exit 1) with the closest known one.
+A target's `format` picks the wire format: `sendgrid` (default), `sendgrid-raw`, `mailgun`, `postmark` or `mime`; see [docs/FORMATS.md](docs/FORMATS.md).
 
 ## What a finding looks like
 
@@ -167,7 +166,7 @@ It reads back the label (`--label-field category|route|priority`) and reports th
 `--repeats N` measures answers to identical input separately. It measures stability, not correctness.
 
 ```
-testinghq steady fire --target local --send --label-field category --repeats 3
+testinghq steady fire --target local --send --label-field category --repeats 3 --max-wait 90
 ```
 
 **Sigcheck.** Sends one request per variant (valid, wrong-secret, unsigned, stale-timestamp, tampered-body, replayed-token) and reports which the endpoint accepted.
@@ -214,7 +213,7 @@ object with `fetch`, or a function taking one probe and returning records.
 
 The readback settles once what it sees (which payloads are found, how many records each, the field
 values the checks read) has held still for `--quiet-window` seconds (default 5); a payload still not
-found then is lost. A store still changing when `--max-wait` (default 60) runs out is UNSETTLED
+found then is lost. A store still changing when `--max-wait` (default 60) runs out, or not polled twice by then, is UNSETTLED
 (exit 3), not a loss, and anything already proven, such as a duplicate, is still listed. A run whose
 every lookup was a 404 is READBACK FAILED (exit 3): the url is almost certainly wrong, so nothing is
 reported as lost. For a slow or async pipeline, raise `--quiet-window` above its worst processing
