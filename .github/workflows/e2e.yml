@@ -12,9 +12,9 @@ name: End to end
 # a real HTTP server, and then checks the bytes that arrived against what the run
 # artifact says was sent. Most tests in this repository inject a fake HTTP
 # client, which is correct for most things and blind to everything that only
-# appears when a socket is real. Three files make that exception: the binary
-# driven as a subprocess (tests/e2e/), the real pipeline
-# (tests/integration/), and the real HTTP server (tests/web/).
+# appears when a socket is real. Two directories make that exception: the
+# binary driven as a subprocess (tests/e2e/) and the real pipeline
+# (tests/integration/). tests/conftest.py refuses the marker anywhere else.
 #
 # The tests assert from inside themselves that every connection they made went to
 # loopback, so the exemption is self-policing rather than a blank cheque.
@@ -65,12 +65,9 @@ jobs:
         # be an install and not just an importable source tree.
         run: pip install -e ".[dev]"
       - name: Run every network-exempt test against a real loopback socket
-        # Selected by MARKER, not by directory. tests/web/test_server.py is also
-        # marked allow_network and starts a real stdlib server, so running only
-        # tests/e2e left 23 of the 31 exempt tests running nowhere in CI while
-        # the hermetic job correctly refused to run them. Between the two jobs
-        # the suite is now covered exactly once, which
-        # tests/unit/test_hermetic_suite.py asserts by counting.
+        # Selected by MARKER, not by directory, so every exempt test runs here
+        # and the hermetic job in ci.yml runs everything else: between the two
+        # the suite is covered exactly once.
         run: |
           set -euo pipefail
           pytest -q -m allow_network
@@ -98,9 +95,8 @@ jobs:
   # The gate. This job is named exactly "end-to-end" and that name is a
   # contract with the "protect main" ruleset, which requires it alongside
   # "tests". Without it the only required check was the hermetic suite, so
-  # every test that opens a socket was advisory: the web UI fire-path refusal
-  # tests and the pipeline socket tests could go red on a pull request and
-  # still merge. A network assertion nobody blocks on is a comment.
+  # every test that opens a socket was advisory and could go red on a pull
+  # request and still merge. A network assertion nobody blocks on is a comment.
   #
   # GitHub matches the context string exactly, which is why the matrix job
   # above is "end-to-end (py3.10)" and this is "end-to-end". A required
@@ -108,9 +104,6 @@ jobs:
   # visibly wrong, so the ordering matters in both directions: this job must
   # exist for the rule to be satisfiable, and the rule must be added for this
   # job to mean anything.
-  #
-  # tests/unit/test_ci_gate_names.py asserts both halves: a job reports this
-  # name, and it needs the matrix.
   end-to-end:
     name: end-to-end
     needs: [e2e-version]

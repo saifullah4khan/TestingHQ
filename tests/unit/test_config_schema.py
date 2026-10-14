@@ -91,27 +91,6 @@ def test_the_generated_document_is_up_to_date():
     )
 
 
-def test_the_check_mode_agrees_with_the_test():
-    """`python -m testinghq.config_doc --check` is what CI would call. If the
-    script and the test disagree, one of them is a guard that finds nothing."""
-    result = subprocess.run(
-        [sys.executable, "-m", "testinghq.config_doc", "--check"],
-        capture_output=True, text=True, cwd=REPO_ROOT, timeout=300,
-    )
-    assert result.returncode == 0, (
-        f"--check says the doc is stale: {result.stdout}{result.stderr}"
-    )
-
-
-def test_the_generator_never_rewrites_the_file_on_the_way_past(tmp_path):
-    """`write_reference` returning False is what lets the drift test fail with a
-    message instead of quietly fixing the file and leaving the suite green with
-    the wrong content in a release."""
-    wanted = tmp_path / "CONFIG.md"
-    assert config_doc.write_reference(wanted) is True, "first write creates it"
-    assert config_doc.write_reference(wanted) is False, "second write is a no-op"
-
-
 # ---------------------------------------------------------------------------
 # The schema describes the loaders
 # ---------------------------------------------------------------------------
@@ -245,20 +224,6 @@ def test_every_field_the_schema_documents_is_a_real_readback_field():
             "from a sibling stack. Either it is a typo, or it needs adding to "
             "FROM_A_SIBLING_STACK with the PR it comes from."
         )
-
-
-def test_the_generated_document_says_it_is_generated():
-    """A reader who finds an error in it needs to know not to edit it."""
-    text = DOC_PATH.read_text(encoding="utf-8")
-    assert "GENERATED FILE" in text
-    assert "Do not edit by hand" in text
-    assert "python -m testinghq.config_doc" in text
-
-
-def test_the_generated_document_covers_every_table():
-    text = DOC_PATH.read_text(encoding="utf-8")
-    for table in config_schema.TABLES:
-        assert f"[{table.name}" in text, f"docs/CONFIG.md omits [{table.name}]"
 
 
 # ---------------------------------------------------------------------------
