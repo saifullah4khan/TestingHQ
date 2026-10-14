@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ..blast.payload import InboundEmail
 from ..core import guardrails
 from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED  # noqa: F401
-from ..core.targets import resolve_target
+from ..core.targets import BARRAGE, resolve_target
 from ..core.transport import PersistentHttpClient, TransportResult, UrllibHttpClient, post
 from . import report as barrage_report
 from .executor import PoolExecutor
@@ -434,7 +434,7 @@ def execute(
     require_synthetic_pool(pool)
     resolved = resolve_target(
         target_name, config_path,
-        allow_public_target=allow_public_target, load_tool="barrage",
+        allow_public_target=allow_public_target, load_tool=BARRAGE,
     )
     sender = make_send_fn(
         pool, resolved.url, client=client, clock=clock, timeout=timeout,
@@ -462,11 +462,13 @@ def execute(
 
     artifact = barrage_report.build_artifact(
         seed,
-        run_config(
-            plan, seed, pool_size, target_name, dry_run=False, timeout=timeout,
-            keepalive=keepalive, format_name=resolved.format_name,
-            allow_public_target=resolved.public,
-        ),
+        {
+            **run_config(
+                plan, seed, pool_size, target_name, dry_run=False, timeout=timeout,
+                keepalive=keepalive,
+            ),
+            **resolved.artifact_config(),
+        },
         samples_from_records(result, plan.warmup_seconds),
         stages=[(s.rate, s.duration) for s in plan.stages],
         hold_start=plan.warmup_seconds,

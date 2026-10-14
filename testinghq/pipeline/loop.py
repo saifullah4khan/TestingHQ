@@ -33,6 +33,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only on Python < 3.1
         tomllib = None  # type: ignore[assignment]
 
 from ..blast.payload import Envelope, GroundTruth, InboundEmail
+from ..core.targets import resolve_target
 from .adapters import ReadbackConfig, build_adapter, parse_readback_config
 from .common import (
     DEFAULT_MAX_WAIT,
@@ -44,7 +45,6 @@ from .common import (
     close_adapter,
     read_back_all,
     require_synthetic,
-    resolve_target_url,
     send_all,
 )
 from .messages import Probe, build_chain_message_id, make_tag, stamp
@@ -784,6 +784,7 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     printer: Callable[[str], None] = print,
+    allow_public_target: bool = False,
 ) -> int:
     """Send the machine-mail corpus, read both directions back, report.
 
@@ -800,7 +801,9 @@ def execute(
 
     try:
         require_synthetic([m.email for m in corpus])
-        url = resolve_target_url(target_name, config_path)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED
@@ -810,7 +813,10 @@ def execute(
         adapter = build_adapter(readback, client=readback_client)
         if outbound is not None:
             outbound_adapter = build_adapter(outbound, client=readback_client)
-        sent = send_all(items, url, rate, client=client, sleep=sleep, clock=clock)
+        sent = send_all(
+            items, target.url, rate, client=client, sleep=sleep, clock=clock,
+            wire_format=target.wire_format,
+        )
         # `require_all_found=False`, and this is the whole reason. Under the
         # default ticket policy a CORRECT pipeline files no ticket for machine
         # mail and sends no auto-reply, so "every tag found" is a condition this
@@ -860,6 +866,7 @@ def execute(
     )
     summary["readback"] = outcome.to_json()
 
+    config.update(target.artifact_config())
     artifact = build_artifact(seed, config, corpus, results, summary)
     printer(format_results(results, summary))
     if out:

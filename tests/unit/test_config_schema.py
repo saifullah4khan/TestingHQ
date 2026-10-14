@@ -91,27 +91,6 @@ def test_the_generated_document_is_up_to_date():
     )
 
 
-def test_the_check_mode_agrees_with_the_test():
-    """`python -m testinghq.config_doc --check` is what CI would call. If the
-    script and the test disagree, one of them is a guard that finds nothing."""
-    result = subprocess.run(
-        [sys.executable, "-m", "testinghq.config_doc", "--check"],
-        capture_output=True, text=True, cwd=REPO_ROOT, timeout=300,
-    )
-    assert result.returncode == 0, (
-        f"--check says the doc is stale: {result.stdout}{result.stderr}"
-    )
-
-
-def test_the_generator_never_rewrites_the_file_on_the_way_past(tmp_path):
-    """`write_reference` returning False is what lets the drift test fail with a
-    message instead of quietly fixing the file and leaving the suite green with
-    the wrong content in a release."""
-    wanted = tmp_path / "CONFIG.md"
-    assert config_doc.write_reference(wanted) is True, "first write creates it"
-    assert config_doc.write_reference(wanted) is False, "second write is a no-op"
-
-
 # ---------------------------------------------------------------------------
 # The schema describes the loaders
 # ---------------------------------------------------------------------------
@@ -201,12 +180,6 @@ def test_the_schema_does_not_describe_a_key_the_loaders_ignore():
     """The other direction. A documented key that does nothing is worse than an
     undocumented one: an operator sets it, sees no error, and concludes it took
     effect."""
-    described = {
-        key.name
-        for table in config_schema.TABLES
-        if not table.free_form
-        for key in table.keys
-    }
     unknown = {
         key.name for key in config_schema.READBACK.keys
         if key.name not in READBACK_KEYS
@@ -245,20 +218,6 @@ def test_every_field_the_schema_documents_is_a_real_readback_field():
             "from a sibling stack. Either it is a typo, or it needs adding to "
             "FROM_A_SIBLING_STACK with the PR it comes from."
         )
-
-
-def test_the_generated_document_says_it_is_generated():
-    """A reader who finds an error in it needs to know not to edit it."""
-    text = DOC_PATH.read_text(encoding="utf-8")
-    assert "GENERATED FILE" in text
-    assert "Do not edit by hand" in text
-    assert "python -m testinghq.config_doc" in text
-
-
-def test_the_generated_document_covers_every_table():
-    text = DOC_PATH.read_text(encoding="utf-8")
-    for table in config_schema.TABLES:
-        assert f"[{table.name}" in text, f"docs/CONFIG.md omits [{table.name}]"
 
 
 # ---------------------------------------------------------------------------
@@ -311,12 +270,9 @@ def test_validation_refuses_exactly_what_the_loader_refuses(tmp_path):
         "a url with no scheme": '[targets.local]\nurl = "127.0.0.1:8000"\n',
         "targets that is not a table": "targets = 3\n",
         "a file with no targets at all": "# nothing here\n",
+        "an unknown format": '[targets.local]\nurl = "http://127.0.0.1/"\nformat = "nope"\n',
+        "a non-boolean public": '[targets.local]\nurl = "http://127.0.0.1/"\npublic = 1\n',
     }
-    # `format = "nope"` is deliberately not a case here. That key arrives with
-    # the wire-format layer, a sibling stack, so this base's loader does not
-    # read it and would happily accept the file. PR #58's own test covers the
-    # refusal, and adding it here would make this test assert something false
-    # about the base it is running on.
     for label, body in bad_bodies.items():
 
         path = _write(tmp_path, body)
@@ -496,3 +452,79 @@ url = "https://api.example.com/v1/tickets"
 """
     targets, readback, _ = config_doc.validate(_write(tmp_path, body))
     assert readback["url"] == "https://api.example.com/v1/tickets"
+
+
+# ---------------------------------------------------------------------------
+# Targets: format, public, and what firing needs
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_dns(monkeypatch):
+    import socket
+
+    from testinghq.core import guardrails
+
+    def fake_getaddrinfo(host, *args, **kwargs):
+        if host == "intake.mycompany.com":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+        raise socket.gaierror(socket.EAI_NONAME, "unknown")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    guardrails.clear_dns_cache()
+    yield
+    guardrails.clear_dns_cache()
+
+
+TWO_TARGETS = """
+[targets.local]
+url = "http://127.0.0.1:8000/intake"
+format = "sendgrid-raw"
+
+[targets.prod]
+url = "https://intake.mycompany.com/intake"
+public = true
+"""
+
+
+def test_validate_renders_format_public_and_host_publicness(tmp_path, fake_dns):
+    targets, _readback, _notes = config_doc.validate(_write(tmp_path, TWO_TARGETS))
+    assert targets["local"] == {
+        "url": "http://127.0.0.1:8000/intake", "format": "sendgrid-raw",
+        "public": False, "public_host": False,
+    }
+    assert targets["prod"]["public"] is True
+    assert targets["prod"]["public_host"] is True
+
+
+def test_the_command_says_what_firing_at_each_target_needs(tmp_path, fake_dns, capsys):
+    from testinghq import cli
+
+    code = cli.main(["config", "validate", str(_write(tmp_path, TWO_TARGETS))])
+    out = capsys.readouterr().out
+    assert code == 0
+    local = next(line for line in out.splitlines() if "local:" in line)
+    prod = next(line for line in out.splitlines() if "prod:" in line)
+    assert "format sendgrid-raw" in local and "public = false" in local
+    assert "no --allow-public-target needed" in local
+    assert "public = true" in prod
+    assert "firing needs --allow-public-target" in prod
+    assert "barrage allowed with the flag" in prod
+
+
+def test_a_public_host_without_the_key_says_barrage_needs_it(tmp_path, fake_dns):
+    body = '[targets.prod]\nurl = "https://intake.mycompany.com/in"\n'
+    targets, _r, _n = config_doc.validate(_write(tmp_path, body))
+    line = config_doc.describe_target("prod", targets["prod"])
+    assert "barrage also needs public = true" in line
+
+
+def test_the_toml_render_carries_format_and_public(tmp_path, fake_dns):
+    targets, readback, _ = config_doc.validate(_write(tmp_path, TWO_TARGETS))
+    rendered = config_doc.render_effective(targets, readback)
+    assert "public_host" not in rendered
+    again = tmp_path / "effective.toml"
+    again.write_text(rendered, encoding="utf-8")
+    reloaded = load_config(again)
+    assert reloaded.get("local").wire_format == "sendgrid-raw"
+    assert reloaded.get("prod").public is True

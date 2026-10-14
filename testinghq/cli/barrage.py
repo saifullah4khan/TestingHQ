@@ -11,7 +11,7 @@ from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
 from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_REFUSED
-from .common import DEFAULT_TARGET_CONFIG
+from .common import DEFAULT_TARGET_CONFIG, add_send_args
 
 
 def _add_send_shape_args(parser) -> None:
@@ -113,6 +113,7 @@ def _add_barrage_parser(sub) -> None:
     b_fire.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(b_fire)
 
     b_replay = barrage_sub.add_parser(
         "replay",
@@ -130,6 +131,7 @@ def _add_barrage_parser(sub) -> None:
     b_replay.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(b_replay)
 
     # compare. Note the absence of --target, --send and --config, which is the
     # point: it reads two files and compares them. There is no network path to
@@ -172,7 +174,7 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
             allow_high_rate=args.allow_high_rate,
             timeout=timeout,
             keepalive=keepalive,
-            allow_public_target=getattr(args, "allow_public_target", False),
+            allow_public_target=args.allow_public_target,
         )
     except (
         guardrails.GuardrailError,
