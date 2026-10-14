@@ -1010,11 +1010,15 @@ def gate(report: StabilityReport, max_dissent_rate: float,
 
 def format_run(
     report: StabilityReport, failed: bool, reason: str, max_dissent_rate: float,
-    verdict: Optional[str] = None,
+    verdict: Optional[str] = None, judged: bool = True,
 ) -> str:
+    """The stability report and the gate. `judged` False is a run whose
+    readback did not settle or failed: the gate was not applied, so the line
+    says so rather than FAILED next to a dissent rate within it."""
+    state = "not judged" if not judged else "FAILED" if failed else "passed"
     return "\n".join([
         format_stability(report, verdict), "",
-        f"  gate ({max_dissent_rate:.1%}): {'FAILED' if failed else 'passed'}",
+        f"  gate ({max_dissent_rate:.1%}): {state}",
         f"  {reason}",
     ])
 
@@ -1180,24 +1184,31 @@ def execute(
     )
     failed, reason = gate(report, max_dissent_rate, max_flip_rate)
     unsettled = outcome.unsettled
+    # A readback that failed or did not settle leaves the gate unjudged: the
+    # labels it read may not be final, so neither a pass nor a dissent rate
+    # over the gate is a finding. The run still exits 3.
+    judged = not (outcome.failed or unsettled)
     if outcome.failed:
         failed, reason = True, (
             f"{READBACK_FAILED}: every lookup was 404: check the readback url; "
             "nothing was measured"
         )
     elif unsettled:
-        failed, reason = True, f"{outcome.state_phrase()}; " + reason
+        failed, reason = True, (
+            f"not judged, because the readback did not settle "
+            f"({outcome.state_phrase()}), so the labels read may not be final"
+        )
     artifact = build_artifact(seed, config, labelled, report)
     summary = artifact["stability"]
     summary["verdict"], summary["verdict_source"] = readback_verdict(verdict_for(report), outcome)
     summary["readback_headline"] = outcome.headline()
-    summary["gate"] = {"failed": failed, "reason": reason,
+    summary["gate"] = {"failed": failed, "judged": judged, "reason": reason,
                        "max_dissent_rate": max_dissent_rate, "max_flip_rate": max_flip_rate}
     summary["sent"] = len(sent)
     summary["unsettled"] = unsettled
     summary["readback"] = outcome.to_json()
 
-    printer(format_run(report, failed, reason, max_dissent_rate, summary["verdict"]))
+    printer(format_run(report, failed, reason, max_dissent_rate, summary["verdict"], judged))
     if outcome.headline():
         printer(f"  readback: {outcome.headline()}")
     if out:

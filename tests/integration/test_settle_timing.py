@@ -226,14 +226,20 @@ def test_steady_at_its_defaults_settles(target_config, tmp_path):
 def test_steady_headline_says_unsettled_on_an_unsettled_run(target_config, tmp_path):
     """--repeats 3 adds 18 tags, which no longer fit two polls in 60s. The
     first line used to say STABLE while the gate below it said FAILED; the
-    headline is the readback's verdict, as the artifact's is."""
+    headline is the readback's verdict, as the artifact's is. And the gate is
+    not judged: "gate (10.0%): FAILED" above "majority dissent 0.0% is within
+    the gate" contradicted itself."""
     code, artifact, text, tags = _steady(_VirtualClock(), target_config, tmp_path, 3)
     assert 2 * tags / 4.0 > common.DEFAULT_MAX_WAIT
     assert code == EXIT_MISMATCH, text
     assert artifact["stability"]["verdict"] == common.UNSETTLED
+    assert artifact["stability"]["gate"]["judged"] is False
     first = text.splitlines()[0]
     assert first.startswith("steady: UNSETTLED"), first
     assert "STABLE" not in first
-    assert "gate (10.0%): FAILED" in text
+    assert "gate (10.0%): not judged" in text
+    assert "gate (10.0%): FAILED" not in text
+    assert "is within the" not in text
+    assert "not judged, because the readback did not settle" in text
     assert "UNSETTLED, not enough time within --max-wait" in text
     assert "not enough time to poll every tag twice" in text
