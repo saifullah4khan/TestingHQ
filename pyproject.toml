@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "testinghq"
-version = "0.1.0"
+version = "1.0.0"
 description = "Fuzz, load-test and verify your inbound email webhook. Catches lost, duplicated, mis-threaded and looped mail that a 200 OK hides."
 readme = "README.md"
 requires-python = ">=3.10"
