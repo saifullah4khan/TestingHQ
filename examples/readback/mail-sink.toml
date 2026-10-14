@@ -26,10 +26,10 @@ url = "http://127.0.0.1:8000/intake"
 # ---------------------------------------------------------------------------
 #
 # An outbound mail sink is an append-only JSON Lines file, one delivered
-# message per line. The file is re-read on every lookup rather than cached,
-# because the pipeline is still writing to it while the run is in flight, and a
-# cached snapshot would report the pipeline as having produced nothing it had
-# actually produced.
+# message per line. The file is read once per poll, taking only the bytes added
+# since the last one, because the pipeline is still writing to it while the run
+# is in flight. A trailing line that is not yet complete is left for the next
+# poll.
 #
 # A file that does not exist yet reads as empty rather than as an error, which
 # is what lets the readback poll a sink that has not been created when the run

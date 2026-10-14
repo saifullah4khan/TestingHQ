@@ -78,7 +78,8 @@ timeout = 10.0
 #
 #   from_addr   normalized before comparison, so "Alice <a@example.com>" and
 #               "a@example.com" both work.
-#   subject     compared case- and whitespace-insensitively.
+#   subject     compared by --subject-match: `contains` (the default),
+#               `suffix` or `exact`.
 #   body        the payload's substantive text has to APPEAR inside it. A system
 #               that reformats or truncates the body will fail this, which is
 #               usually the finding you wanted. Use --body-exact only for a

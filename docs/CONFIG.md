@@ -80,7 +80,7 @@ Keys are data rather than a fixed set. The fields or headers this table may name
 | --- | --- | --- | --- | --- |
 | `ticket_id` | string | none | no | REQUIRED. A record without it is refused, because one message producing two records has to be distinguishable from one producing one, and that is what ledger and redelivery are for. |
 | `from_addr` | string | none | no | Normalized before comparison, so a display-name form and a bare address both work. An object with an `email` or `address` key is read through that key. |
-| `subject` | string | none | no | Compared case- and whitespace-insensitively. |
+| `subject` | string | none | no | Compared by `--subject-match`: `contains` (the default), `suffix` or `exact`. |
 | `body` | string | none | no | The payload's substantive text has to APPEAR inside it. A system that reformats the body fails this, which is usually the finding you wanted. Use --body-exact only for a system that stores the field verbatim. |
 | `attachment_names` | string | none | no | A list of names. The only field besides references that accepts a list. A list of objects is reported NOT CHECKED with its shape and a hint: map `attachments.*.file_name` to read one key from each. A count is not a name, and is reported NOT CHECKED rather than read as one. |
 | `route` | string | none | no | Compared case-insensitively against --expect-route (verify, ledger, redeliver). Without that flag the routing check is SKIPPED with reason 'no expected route'. |

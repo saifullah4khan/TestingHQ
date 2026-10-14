@@ -399,7 +399,7 @@ READBACK_FIELDS = Table(
                  "`address` key is read through that key."
              )),
         Key("subject", "string", free_form=True,
-             meaning="Compared case- and whitespace-insensitively."),
+             meaning="Compared by `--subject-match`: `contains` (the default), `suffix` or `exact`."),
         Key("body", "string", free_form=True,
              meaning=(
                  "The payload's substantive text has to APPEAR inside it. A "
