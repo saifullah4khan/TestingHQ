@@ -323,3 +323,26 @@ def test_a_fire_run_at_an_unconfigured_target_is_refused(tmp_path, capsys):
     assert "refused" in capsys.readouterr().err
     assert client.requests == []
     assert guardrails.GuardrailError is not None
+
+
+def test_verify_check_refuses_a_real_blast_artifact_in_one_line(config_file, tmp_path):
+    """A blast record carries no tag, so there is nothing to look up. The
+    refusal is one line, before any adapter is built."""
+    from testinghq.core.exit_codes import EXIT_REFUSED
+    from testinghq.pipeline import verify
+    from testinghq.pipeline.adapters import ReadbackConfig
+
+    out = tmp_path / "blast.json"
+    pairs = blast_cli._build_corpus(SEED, 6)
+    blast_cli._run_fire(
+        pairs, SEED, 6, TARGET_NAME, RATE, str(out), config_file, client=RecordingClient()
+    )
+    assert out.is_file()
+    lines: list = []
+    code = verify.check_saved_run(
+        str(out), config_file, None,
+        readback=ReadbackConfig(kind="python", spec="no.such.module:build"),
+        printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert lines == ["verify check: blast artifacts carry no tags; run verify fire"]
