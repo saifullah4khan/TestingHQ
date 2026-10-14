@@ -1,49 +1,42 @@
 """Barrage's fire and replay orchestration.
 
-Barrage is a load generator that fires provider-shaped payloads at an
-endpoint the operator controls, at a high but controlled rate, and reports
-throughput, latency distribution, and error behaviour under sustained
-load. It is a load tester against your own infrastructure. It is NOT an
-email sender, NOT a flooding tool, and NOT for endpoints you do not own.
+Barrage fires clean, provider-shaped payloads at an endpoint the operator
+controls, at a controlled rate, and reports how the pipeline held. It is a load
+tester for your own infrastructure: not an email sender, not a flooding tool,
+not for endpoints you do not own.
 
-Three safety controls make it a load tester rather than a weapon, and this
-module is where all three are enforced on the way to the wire:
+Three controls are enforced here on the way to the wire, and none may be
+weakened:
 
-1. Dry-run is the DEFAULT. Sending requires an explicit --send, decided by
-   guardrails.evaluate_send. A dry run makes ZERO network calls: it never
-   resolves a client, never builds a request, never touches transport.
-2. Configured targets ONLY. guardrails.require_configured_target gates
-   both the target name (the allow-list check) and the resolved URL (the
-   public-host check).
-3. A hard rate, duration and concurrency ceiling, enforced by runner.check_rate_ceiling
-   before any dispatch.
-
-None of these may be weakened. If a test disagrees with a guardrail, the
-code is wrong, not the guardrail.
-
-This module imports the canonical guardrails and never reimplements them.
-A second copy of a safety rule has already cost this project a real
-incident: two copies disagreed within hours and a target the CLI refused
-the UI would have fired at. See tests/test_repo_invariants.py.
+1. Dry run is the default. Sending needs --send (guardrails.evaluate_send), and
+   a dry run makes zero network calls.
+2. Configured targets only, resolved through core.targets.resolve_target. A
+   public host needs --allow-public-target AND `public = true` on the target.
+3. The hard rate, duration and concurrency ceiling (runner.check_rate_ceiling).
 """
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.config import load_config
-from ..core.transport import post
+from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED  # noqa: F401
+from ..core.targets import resolve_target
+from ..core.transport import PersistentHttpClient, UrllibHttpClient, post
 from . import report as barrage_report
-from .payloads import DEFAULT_POOL_SIZE, build_payload_pool, payload_for_index
-from .runner import (
+from .payloads import DEFAULT_POOL_SIZE, build_payload_pool, payload_for_index  # noqa: F401
+from .runner import (  # noqa: F401
+    DEFAULT_GRACE_SECONDS,
     DEFAULT_MAX_DURATION_SEC,
+    DEFAULT_MAX_QUEUE_SECONDS,
     DEFAULT_MAX_RATE_PER_SEC,
-    DispatchRecord,
     RunPlan,
+    RunResult,
+    arrival_schedule,
     check_rate_ceiling,
     run,
 )
@@ -54,21 +47,12 @@ DEFAULT_CONCURRENCY = 4
 DEFAULT_WARMUP = 5.0
 DEFAULT_MODE = "open"
 DEFAULT_SEED = 0
-
-# Exit codes, re-exported from `testinghq.core.exit_codes` so every tool in the
-# package answers a script the same way. barrage has no EXIT_FINDING of its own:
-# a barrage run's result is in its report, and `execute` returns EXIT_OK for a
-# completed run whatever the statuses were.
-from ..core.exit_codes import (  # noqa: F401
-    EXIT_DRY_RUN,
-    EXIT_OK,
-    EXIT_REFUSED,
-)
+DEFAULT_TIMEOUT = 10.0
 
 
 class BarrageError(RuntimeError):
-    """Raised for a malformed run request that no guardrail owns (a bad
-    warmup/duration combination, an unusable saved artifact)."""
+    """A malformed run request that no guardrail owns (a bad warmup/duration
+    combination, a non-positive timeout, an unusable saved artifact)."""
 
 
 # ---------------------------------------------------------------------------
@@ -76,40 +60,13 @@ class BarrageError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, enforcing
-    the canonical guardrail TWICE: once on the configured name (the
-    allow-list check) and once on the resolved URL (the public-host check).
-
-    Both calls are positional, matching the blast fire path in
-    testinghq/cli/blast.py and web/adapter.py.
-
-    Checking only the name is the trap: a bare single-label target name
-    like "local" has no dot, so guardrails' public-host hardening
-    classifies it as an internal name and passes it unconditionally. The
-    hardening then looks correct while being completely inert, and a real
-    public URL hiding behind a friendly name would fire. Resolving the URL
-    and running it through the same guardrail is what makes that hardening
-    actually bite.
-    """
-    if not target_name:
-        raise guardrails.GuardrailError("refusing to fire: --send requires --target")
-    config = load_config(config_path)
-    guardrails.require_configured_target(target_name, config.allowed_target_names())
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
-
-
 def _address_fields(email: InboundEmail) -> List[str]:
     return [email.to, email.from_addr, email.envelope.from_addr, *email.envelope.to]
 
 
 def require_synthetic_pool(pool: List[InboundEmail]) -> None:
-    """Guardrail check before any network call: every address in every
-    payload that could be fired must look synthetic. Checked over the whole
-    pool up front, so a bad payload aborts the run before anything is sent
-    rather than after some prefix of the run already fired."""
+    """Every address in every payload that could be fired must look synthetic.
+    Checked over the whole pool before anything is sent."""
     fields: List[str] = []
     for email in pool:
         fields.extend(_address_fields(email))
@@ -127,27 +84,12 @@ def build_plan(
     duration: float,
     concurrency: Optional[int],
     warmup: float,
+    *,
+    grace: float = DEFAULT_GRACE_SECONDS,
+    max_queue_seconds: float = DEFAULT_MAX_QUEUE_SECONDS,
 ) -> RunPlan:
-    """Turn CLI-shaped arguments into a RunPlan. `duration` is the TOTAL
-    run length; `warmup` is the ramp portion of it, so the steady-state
-    hold is `duration - warmup`.
-
-    `concurrency` may be None, meaning "not specified", and then
-    DEFAULT_CONCURRENCY applies in both modes.
-
-    Open mode's concurrency is the maximum number of requests in flight, not a
-    worker count: arrivals happen on an absolute schedule and the pool bounds
-    how many of them are outstanding at once. It used to be coerced to 1 here,
-    because the dispatcher was serial and any other number would have been
-    written into the artifact and printed by the preview while doing nothing.
-    That is fixed; the number now means what it says in both modes.
-
-    Old artifacts are still replayable. One written before the executor records
-    a concurrency of 1, and replaying it re-runs it exactly, which is the right
-    answer: the run it describes did have one request in flight at a time. A
-    run recorded with a higher number replays with that number, and this time
-    it will mean something.
-    """
+    """CLI-shaped arguments to a RunPlan. `duration` is the total run length
+    and `warmup` is part of it. A `concurrency` of None means the default."""
     if duration <= warmup:
         raise BarrageError(
             f"duration ({duration}s) must be greater than warmup ({warmup}s): "
@@ -161,7 +103,14 @@ def build_plan(
         concurrency=concurrency,
         warmup_seconds=warmup,
         hold_seconds=duration - warmup,
+        grace_seconds=grace,
+        max_queue_seconds=max_queue_seconds,
     )
+
+
+def check_timeout(timeout: float) -> None:
+    if not timeout or timeout <= 0:
+        raise BarrageError(f"timeout must be > 0 seconds, got {timeout!r}")
 
 
 def run_config(
@@ -170,22 +119,67 @@ def run_config(
     pool_size: int,
     target_name: Optional[str],
     dry_run: bool,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    keepalive: bool = True,
+    format_name: Optional[str] = None,
+    allow_public_target: bool = False,
 ) -> Dict[str, Any]:
-    """The artifact's config block. Everything needed to reproduce the run
-    via `replay`, and nothing that varies between runs of the same command
-    (no latency, no wall clock), so the same seed and config always
-    regenerate the same corpus."""
+    """The artifact's config block: everything `replay` needs to rebuild the
+    same schedule and send it the same way, and nothing that varies by run."""
     return {
         "mode": plan.mode,
         "rate": plan.rate,
         "duration": plan.duration_seconds,
         "warmup": plan.warmup_seconds,
+        "ramp_steps": plan.ramp_step_count,
         "concurrency": plan.concurrency,
+        "grace": plan.grace_seconds,
+        "max_queue_seconds": plan.max_queue_seconds,
+        "timeout": timeout,
+        "keepalive": keepalive,
         "seed": seed,
         "pool_size": pool_size,
         "target": target_name,
+        "format": format_name,
+        "allow_public_target": allow_public_target,
         "dry_run": dry_run,
     }
+
+
+#: Config keys a saved artifact must carry for replay to rebuild the plan.
+REPLAY_REQUIRED = ("mode", "rate", "duration", "warmup", "concurrency", "pool_size")
+
+
+def plan_from_artifact(data: Dict[str, Any]) -> Tuple[RunPlan, int, int, Optional[str], Dict[str, Any]]:
+    """Rebuild (plan, seed, pool_size, target, send options) from an artifact.
+
+    Keys an older artifact lacks take today's defaults. Raises BarrageError
+    for an artifact that cannot be reproduced."""
+    seed = data.get("seed") if isinstance(data, dict) else None
+    config = (data.get("config") or {}) if isinstance(data, dict) else {}
+    if seed is None or any(config.get(key) is None for key in REPLAY_REQUIRED):
+        raise BarrageError(
+            f"missing seed or config {REPLAY_REQUIRED}, cannot reproduce the run"
+        )
+    try:
+        plan = RunPlan(
+            mode=config["mode"],
+            rate=config["rate"],
+            concurrency=config["concurrency"],
+            warmup_seconds=config["warmup"],
+            hold_seconds=config["duration"] - config["warmup"],
+            ramp_step_count=config.get("ramp_steps", 10),
+            grace_seconds=config.get("grace", DEFAULT_GRACE_SECONDS),
+            max_queue_seconds=config.get("max_queue_seconds", DEFAULT_MAX_QUEUE_SECONDS),
+        )
+    except (TypeError, ValueError) as exc:
+        raise BarrageError(f"the saved plan is not valid: {exc}") from None
+    options = {
+        "timeout": config.get("timeout", DEFAULT_TIMEOUT),
+        "keepalive": config.get("keepalive", True),
+    }
+    return plan, seed, config["pool_size"], config.get("target"), options
 
 
 # ---------------------------------------------------------------------------
@@ -193,40 +187,128 @@ def run_config(
 # ---------------------------------------------------------------------------
 
 
+class _Sender:
+    """The runner's send hook: post payload `index` and return the
+    TransportResult.
+
+    With keep-alive, each worker thread gets its own PersistentHttpClient,
+    connected once before its first request so the handshake is measured on
+    its own and kept out of every service latency."""
+
+    def __init__(self, pool, url, *, client, clock, timeout, wire_format, keepalive):
+        self._pool = pool
+        self._url = url
+        self._fixed = client
+        self._clock = clock
+        self._timeout = timeout
+        self._wire_format = wire_format
+        self._keepalive = keepalive
+        self._local = threading.local()
+        self._lock = threading.Lock()
+        self._clients: List[PersistentHttpClient] = []
+        self._connect_failures = 0
+
+    def _client(self):
+        if self._fixed is not None:
+            return self._fixed
+        if not self._keepalive:
+            return UrllibHttpClient()
+        client = getattr(self._local, "client", None)
+        if client is None:
+            client = PersistentHttpClient()
+            self._local.client = client
+            with self._lock:
+                self._clients.append(client)
+            try:
+                client.connect(self._url, self._timeout)
+            except Exception:  # noqa: BLE001 - the send below reports the failure
+                with self._lock:
+                    self._connect_failures += 1
+        return client
+
+    def __call__(self, index: int):
+        return post(
+            payload_for_index(self._pool, index),
+            self._url,
+            client=self._client(),
+            timeout=self._timeout,
+            clock=self._clock,
+            wire_format=self._wire_format,
+        )
+
+    def connection_summary(self) -> Dict[str, Any]:
+        if self._fixed is not None:
+            return {"keepalive": self._keepalive, "client": "injected"}
+        if not self._keepalive:
+            return {
+                "keepalive": False,
+                "note": "one connection per request; setup time is inside every latency",
+            }
+        with self._lock:
+            clients = list(self._clients)
+            failures = self._connect_failures
+        firsts = [c.connect_seconds[0] * 1000.0 for c in clients if c.connect_seconds]
+        return {
+            "keepalive": True,
+            "workers_connected": len(firsts),
+            "connections_opened": sum(len(c.connect_seconds) for c in clients),
+            "reconnects": sum(c.reconnects for c in clients),
+            "connect_failures": failures,
+            "setup_ms": {
+                "min": round(min(firsts), 3) if firsts else None,
+                "p50": round(barrage_report.percentile(firsts, 0.5), 3) if firsts else None,
+                "max": round(max(firsts), 3) if firsts else None,
+            },
+        }
+
+    def close(self) -> None:
+        with self._lock:
+            clients = list(self._clients)
+        for client in clients:
+            client.close()
+
+
 def make_send_fn(
     pool: List[InboundEmail],
     url: str,
     client=None,
     clock: Callable[[], float] = time.monotonic,
-):
-    """Build the runner's send hook: post the pool's payload for `index` at
-    `url` and report how long it took, so closed-loop dispatch knows when
-    the worker frees up. `client` is None in real use (transport.post then
-    opens a real socket via UrllibHttpClient); tests inject a fake."""
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    wire_format=None,
+    keepalive: bool = True,
+) -> _Sender:
+    """Build the runner's send hook. `client` is None in real use; tests
+    inject a fake, which is then shared by every worker."""
+    return _Sender(
+        pool, url, client=client, clock=clock, timeout=timeout,
+        wire_format=wire_format, keepalive=keepalive,
+    )
 
-    def send_fn(index: int):
-        payload = payload_for_index(pool, index)
-        result = post(payload, url, client=client, clock=clock)
-        return (result, result.latency_ms / 1000.0)
 
-    return send_fn
-
-
-def samples_from_records(records: List[DispatchRecord]) -> List[barrage_report.Sample]:
-    """Convert the runner's dispatch records into reporting samples,
-    normalizing dispatch times so the run's series starts at t=0."""
-    if not records:
-        return []
-    origin = min(r.dispatch_time for r in records)
-    return [
-        barrage_report.Sample(
-            dispatch_time=r.dispatch_time - origin,
-            latency_ms=r.result.latency_ms,
-            status=r.result.status,
+def samples_from_records(result: RunResult, warmup: float) -> List[barrage_report.Sample]:
+    """The runner's records as report samples, with times relative to the
+    start of the run."""
+    origin = result.started_at
+    samples = []
+    for r in result.records:
+        completed = r.outcome == "completed"
+        res = r.result if completed else None
+        service = getattr(res, "latency_ms", None) if completed else None
+        if completed and service is None and r.dispatched_at is not None:
+            service = (r.completed_at - r.dispatched_at) * 1000.0
+        samples.append(barrage_report.Sample(
+            index=r.index,
+            scheduled_at=r.scheduled_at - origin,
+            dispatched_at=None if r.dispatched_at is None else r.dispatched_at - origin,
+            status=getattr(res, "status", None) if completed else None,
+            service_ms=service,
+            offered_ms=(r.completed_at - r.scheduled_at) * 1000.0 if completed else None,
             target_rate=r.target_rate,
-        )
-        for r in records
-    ]
+            outcome=r.outcome,
+            in_hold=(r.scheduled_at - origin) >= warmup - 1e-9,
+        ))
+    return samples
 
 
 def write_artifact(path: Optional[str], artifact: Dict[str, Any]) -> None:
@@ -235,19 +317,31 @@ def write_artifact(path: Optional[str], artifact: Dict[str, Any]) -> None:
     Path(path).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
 
 
-def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
-    """What a dry run prints instead of firing. Describes exactly what
-    WOULD be sent, so an operator can check the plan before committing to
-    it, and states plainly that nothing was sent.
-
-    The dispatch note is not decoration, in either direction. It used to say
-    "SERIAL, one request in flight at a time (no executor yet)" because that
-    was true and the preview existed to stop an operator believing otherwise. It
-    now says what will actually happen: a pool of `plan.concurrency` workers.
-    A preview that describes the previous build is worse than no preview, so the
-    line is derived from the plan rather than written as a standing apology.
-    """
-    total = round(plan.rate * plan.hold_seconds)
+def format_dry_run_preview(
+    plan: RunPlan,
+    seed: int,
+    pool_size: int,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    keepalive: bool = True,
+) -> str:
+    """What a dry run prints instead of firing: exactly what would be sent and
+    how, and that nothing was."""
+    scheduled = len(arrival_schedule(plan.stages))
+    if plan.mode == "open":
+        model = [
+            "    arrivals follow a fixed schedule whatever the target does; a request",
+            f"    that waits more than {plan.max_queue_seconds:g}s for a free worker is "
+            "dropped, not sent",
+        ]
+        count = f"  scheduled requests: {scheduled}"
+    else:
+        model = [
+            f"    each of the {plan.concurrency} worker(s) sends its next request only after",
+            "    the previous one completes, so offered load is at most",
+            f"    min({plan.rate:g}/s, {plan.concurrency} / latency)",
+        ]
+        count = f"  requests: at most about {scheduled}"
     if plan.concurrency == 1:
         dispatch = [
             "  dispatch: one worker, one request in flight at a time",
@@ -265,10 +359,16 @@ def format_dry_run_preview(plan: RunPlan, seed: int, pool_size: int) -> str:
     lines = [
         f"dry-run preview: seed={seed}, {pool_size} distinct payload(s) in the pool",
         f"  mode: {plan.mode}-loop",
+        *model,
         f"  target rate: {plan.rate:g}/s",
         f"  warmup ramp: {plan.warmup_seconds:g}s, steady-state hold: {plan.hold_seconds:g}s",
         f"  concurrency: {plan.concurrency}",
-        f"  approx requests at steady state: {total}",
+        count,
+        f"  approx requests at steady state: {round(plan.rate * plan.hold_seconds)}",
+        f"  run deadline: {plan.duration_seconds + plan.grace_seconds:g}s "
+        f"(duration + {plan.grace_seconds:g}s grace); anything still in flight then is abandoned",
+        f"  per-request timeout: {timeout:g}s; connections: "
+        + ("kept alive, one per worker" if keepalive else "a new one per request"),
         *dispatch,
         "no network calls were made (pass --send to fire for real)",
     ]
@@ -292,75 +392,121 @@ def execute(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     printer: Callable[[str], None] = print,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    keepalive: bool = True,
+    allow_public_target: bool = False,
+    executor=None,
 ) -> int:
-    """The shared send path for `fire` and `replay`. Returns a process exit
-    code. Never called unless guardrails.evaluate_send already said yes.
+    """The shared send path for `fire` and `replay`. Returns an exit code:
+    EXIT_OK for a run that completed, EXIT_FINDING for one cut short by Ctrl-C
+    (the artifact is still written, with `aborted: true`).
 
-    Order matters and is a safety property: the payload pool is built and
-    checked for synthetic content, and the target is resolved and checked
-    against the guardrails, BEFORE anything is dispatched. A refusal must
-    happen before the first request, not after some prefix of the run has
-    already hit the endpoint.
+    Everything that can refuse does so before the first request: the payload
+    pool's synthetic check, the timeout, the target resolution, the ceiling.
     """
+    check_timeout(timeout)
     pool = build_payload_pool(seed, pool_size)
     require_synthetic_pool(pool)
-    url = resolve_target_url(target_name, config_path)
-
-    records = run(
-        plan,
-        make_send_fn(pool, url, client=client, clock=clock),
-        clock=clock,
-        sleep=sleep,
-        allow_high_rate=allow_high_rate,
+    resolved = resolve_target(
+        target_name, config_path,
+        allow_public_target=allow_public_target, load_tool="barrage",
     )
+    sender = make_send_fn(
+        pool, resolved.url, client=client, clock=clock, timeout=timeout,
+        wire_format=resolved.wire_format, keepalive=keepalive,
+    )
+    try:
+        result = run(
+            plan, sender, clock=clock, sleep=sleep,
+            allow_high_rate=allow_high_rate, executor=executor,
+        )
+    finally:
+        sender.close()
 
     artifact = barrage_report.build_artifact(
         seed,
-        run_config(plan, seed, pool_size, target_name, dry_run=False),
-        samples_from_records(records),
+        run_config(
+            plan, seed, pool_size, target_name, dry_run=False, timeout=timeout,
+            keepalive=keepalive, format_name=resolved.format_name,
+            allow_public_target=allow_public_target,
+        ),
+        samples_from_records(result, plan.warmup_seconds),
+        stages=[(s.rate, s.duration) for s in plan.stages],
+        hold_start=plan.warmup_seconds,
+        origin=0.0,
+        aborted=result.aborted,
     )
-    artifact["dispatch"] = dispatch_summary(records, plan.concurrency)
+    artifact["dispatch"] = dispatch_summary(result, plan)
+    artifact["connections"] = sender.connection_summary()
     printer(barrage_report.format_summary(artifact))
     note = format_dispatch_note(artifact["dispatch"])
     if note:
         printer(note)
     write_artifact(out, artifact)
+    if result.aborted:
+        printer(
+            "barrage: interrupted; "
+            + (f"wrote the partial run to {out} (aborted: true)" if out else
+               "pass --out to keep a partial run")
+        )
+        return EXIT_FINDING
     return EXIT_OK
 
 
 #: A request held back longer than this for a free worker counts as queued.
-#: Ten milliseconds: half the arrival interval at the 50 req/s ceiling, and well
-#: above thread start-up jitter, which measured at up to 2.4ms on a healthy
-#: 8-worker run and would otherwise print a saturation warning on every run.
+#: Above thread start-up jitter, which measured up to 2.4ms on a healthy run.
 QUEUED_THRESHOLD_SECONDS = 0.010
 
 
-def dispatch_summary(records: List[DispatchRecord], concurrency: int) -> Dict[str, Any]:
-    """How long requests waited for a free worker.
+def dispatch_summary(result: RunResult, plan: RunPlan) -> Dict[str, Any]:
+    """How the run's workers kept up: queue waits for a free worker as a
+    distribution, and what the deadline and the backlog bound cut."""
+    waits = [r.queued for r in result.records if r.dispatched_at is not None]
+    waits_ms = [w * 1000.0 for w in waits]
 
-    Throughput already shows a saturated pool, because each record's
-    `dispatch_time` is when the request actually went out. This names the
-    cause, so a report that falls short of its target says whether the target
-    was slow or the pool was too small to keep the schedule.
-    """
-    waits = [r.queued for r in records]
-    queued = [w for w in waits if w > QUEUED_THRESHOLD_SECONDS]
+    def pct(fraction):
+        value = barrage_report.percentile(waits_ms, fraction)
+        return None if value is None else round(value, 3)
+
     return {
-        "concurrency": concurrency,
-        "queued_requests": len(queued),
-        "max_queue_wait_ms": round(max(waits) * 1000.0, 3) if waits else 0.0,
+        "mode": plan.mode,
+        "concurrency": plan.concurrency,
+        "grace_seconds": plan.grace_seconds,
+        "max_queue_seconds": plan.max_queue_seconds,
+        "queued_requests": sum(1 for w in waits if w > QUEUED_THRESHOLD_SECONDS),
+        "queue_wait_ms": {
+            "p50": pct(0.5), "p90": pct(0.9), "p99": pct(0.99),
+            "max": round(max(waits_ms), 3) if waits_ms else None,
+        },
+        "dropped_backlog": result.count("dropped_backlog"),
+        "not_dispatched": result.count("not_dispatched"),
+        "abandoned": result.count("abandoned"),
     }
 
 
 def format_dispatch_note(dispatch: Dict[str, Any]) -> str:
-    """One warning line when the pool was the bottleneck, and nothing when it
-    was not. Silence is the normal case; a line on every run would teach an
-    operator to skip it."""
-    if not dispatch.get("queued_requests"):
-        return ""
-    return (
-        f"dispatch: {dispatch['queued_requests']} request(s) waited for a free "
-        f"worker, up to {dispatch['max_queue_wait_ms']:g}ms. All "
-        f"{dispatch['concurrency']} workers were busy, so the schedule was not "
-        "held and the shortfall above is partly this tool's. Raise --concurrency."
-    )
+    """Warning lines when the workers or the deadline shaped the run, and
+    nothing when they did not. Silence is the normal case."""
+    lines = []
+    queued = dispatch.get("queued_requests") or 0
+    if queued:
+        worst = (dispatch.get("queue_wait_ms") or {}).get("max")
+        lines.append(
+            f"dispatch: {queued} request(s) waited for a free worker, up to "
+            f"{worst:g}ms. All {dispatch.get('concurrency')} workers were busy, so "
+            "the schedule was not held and part of the shortfall is this tool's. "
+            "Raise --concurrency."
+        )
+    if dispatch.get("dropped_backlog"):
+        lines.append(
+            f"dispatch: {dispatch['dropped_backlog']} request(s) waited longer than "
+            f"{dispatch.get('max_queue_seconds'):g}s for a worker and were dropped, not sent."
+        )
+    if dispatch.get("abandoned") or dispatch.get("not_dispatched"):
+        lines.append(
+            f"dispatch: the run deadline cut {dispatch.get('abandoned', 0)} request(s) "
+            f"still in flight (abandoned) and {dispatch.get('not_dispatched', 0)} never "
+            f"sent (not dispatched). Raise --grace to wait longer."
+        )
+    return "\n".join(lines)
