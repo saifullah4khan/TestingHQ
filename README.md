@@ -48,6 +48,9 @@ Python 3.10 or newer. Standard library only at run time, plus `tomli` on 3.10.
 cat > target.toml <<'EOF'
 [targets.local]
 url = "http://127.0.0.1:8000/inbound"   # your webhook
+[targets.mailgun]                        # sigcheck --scheme mailgun needs format = "mailgun"
+url = "http://127.0.0.1:8000/inbound"
+format = "mailgun"
 
 [readback]
 kind = "http"
@@ -173,7 +176,7 @@ The secret is read only from the environment variable `env:NAME` names, and the 
 Exit 3: the endpoint accepted what it should refuse, refused a valid request, or answered 5xx.
 
 ```
-testinghq sigcheck fire --target local --scheme mailgun --secret env:MAILGUN_SIGNING_KEY --send
+testinghq sigcheck fire --target mailgun --scheme mailgun --secret env:MAILGUN_SIGNING_KEY --send
 ```
 
 **Compare.** Two Blast runs are lined up payload by payload, with regressions, fixes and changes reported apart. Two Barrage runs are compared on load: error and unsent rate, hold-stage p99, and achieved rate when mode and rate match.
@@ -209,16 +212,14 @@ path = "./mail-sink.jsonl"
 Anything else is an import path, `--readback mypkg.adapters:build`: a class, an
 object with `fetch`, or a function taking one probe and returning records.
 
-The readback settles once what it sees (which payloads are found, how many
-records each, the field values the checks read) has held still for
-`--quiet-window` seconds (default 5); a payload still not found then is lost.
-A store still changing when `--max-wait` (default 60) runs out is UNSETTLED
-(exit 3), not a loss, and anything already proven, such as a duplicate, is
-still listed. For a slow or async pipeline, raise `--quiet-window` above its
-worst processing latency. Lookups retry 429, 5xx and timeouts with backoff,
-honour `Retry-After`, and are paced to `--readback-rate` (default 4 per second). A public readback host
-needs `--allow-public-readback`. Recipes for Zendesk, Freshdesk, Mailpit,
-Chatwoot, a generic REST API and a mail sink are in
+The readback settles once what it sees (which payloads are found, how many records each, the field
+values the checks read) has held still for `--quiet-window` seconds (default 5); a payload still not
+found then is lost. A store still changing when `--max-wait` (default 60) runs out is UNSETTLED
+(exit 3), not a loss, and anything already proven, such as a duplicate, is still listed. For a slow
+or async pipeline, raise `--quiet-window` above its worst processing latency. Lookups retry 429, 5xx
+and timeouts with backoff, honour `Retry-After`, and are paced to `--readback-rate` (default 4 per
+second). A public readback host needs `--allow-public-readback`. Recipes for Zendesk, Freshdesk,
+Mailpit, Chatwoot, a generic REST API and a mail sink are in
 [examples/readback/](examples/readback/).
 
 ## Responsible use
@@ -227,8 +228,7 @@ TestingHQ is for endpoints you own or are authorised to test. It never sends
 email: it POSTs webhook payloads, and every address in them is on a reserved
 example domain.
 
-- Dry run is the default; every run that sends needs `--send`.
-- Only a target declared in `[targets.<name>]` can be fired at.
+- Dry run is the default; every run that sends needs `--send`. Only a target declared in `[targets.<name>]` can be fired at.
 - A public host needs `--allow-public-target`; Barrage at a public host also needs `public = true` on the target.
 - Every send is rate limited, and Barrage has hard ceilings.
 
