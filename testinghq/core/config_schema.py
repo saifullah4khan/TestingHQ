@@ -356,9 +356,16 @@ READBACK = Table(
                 "An import path for a custom adapter. Usually given as "
                 "kind = 'module:attribute' instead, which produces the same "
                 "thing. A class is instantiated (with the [readback] table if "
-                "its __init__ takes one argument), an object with fetch is used "
-                "as is, and a callable taking one argument is a fetch function. "
-                "An import or construction failure is refused before sending."
+                "its __init__ takes one argument), a function whose one "
+                "parameter is named config is called with the same table, an "
+                "object with fetch is used as is, and any other callable taking "
+                "one argument is a fetch function. The table holds the "
+                "adapter's own keys exactly as written (an 'env:NAME' value in "
+                "them is passed through, not resolved) plus every built-in key "
+                "as loaded, with [readback.headers] by name only, so a "
+                "credential is read from the environment by the adapter "
+                "itself. An import or construction failure is refused before "
+                "sending."
             ),
         ),
     ),

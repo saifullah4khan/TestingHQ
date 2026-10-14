@@ -25,6 +25,7 @@ adapter is the one deciding where it reads from.
 """
 from __future__ import annotations
 
+import copy
 import email.utils
 import http.client
 import importlib
@@ -188,6 +189,10 @@ class ReadbackConfig:
     #: `path` means the same thing whatever directory the run starts in. Set
     #: by the CLI loader, not from the file, and never serialized.
     config_dir: Optional[str] = None
+    #: The table as the file (or the command line) gave it, before parsing,
+    #: so a custom adapter is handed its own keys as well as the built-in
+    #: ones. Never serialized: `to_json` is the record of a run.
+    table: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     def field_map(self) -> Dict[str, str]:
         """The configured field map over the default one, minus any field
@@ -229,6 +234,26 @@ class ReadbackConfig:
             "retry_base_seconds": self.retry_base_seconds,
             "rate": self.rate,
         }
+
+    def adapter_table(self) -> Dict[str, Any]:
+        """What a custom adapter's class or `config` factory is called with.
+
+        Every key of the table as the operator wrote it, so an adapter's own
+        keys (`project_id = "..."`) reach it, overlaid with the built-in keys
+        as the loader normalised them, so an adapter written against those
+        (`field_map`, `timeout`, `rate`, `headers`) sees what it always saw.
+
+        Two things are deliberately not done. `headers` is the header names,
+        never their values: a custom adapter that needs a credential reads the
+        environment itself, so no secret is handed to code this tool cannot
+        see. And an adapter's own keys are passed through verbatim, so a value
+        such as `"env:NAME"` arrives as that string, for the adapter to resolve
+        if it means it as a reference. A fresh copy each call, so an adapter
+        that edits its table cannot change the config.
+        """
+        table = copy.deepcopy(self.table)
+        table.update(self.to_json())
+        return table
 
 
 #: A `[readback.headers]` value must start with this; the rest is the name of an
@@ -373,7 +398,9 @@ def parse_readback_config(
     defaults to the process environment.
     """
     if isinstance(raw, str):
-        return ReadbackConfig(kind=raw, spec=raw if ":" in raw else None)
+        return ReadbackConfig(
+            kind=raw, spec=raw if ":" in raw else None, table={"kind": raw}
+        )
     if raw is None:
         raise AdapterError(
             "no readback adapter was configured. Verification needs to be able "
@@ -464,6 +491,7 @@ def parse_readback_config(
         retry_base_seconds=_number(
             raw, "retry_base_seconds", DEFAULT_RETRY_BASE_SECONDS, minimum=0.0
         ),
+        table=copy.deepcopy(dict(raw)),
     )
 
 
@@ -1506,15 +1534,18 @@ def _instantiate(spec: str, cls: type, config: ReadbackConfig) -> Any:
             f"{len(required)} arguments; it may take the [readback] table or nothing"
         )
     if required:
-        return _call_factory(spec, cls, config.to_json())
+        return _call_factory(spec, cls, config.adapter_table())
     return _call_factory(spec, cls)
 
 
 def _build_from_spec(config: ReadbackConfig) -> ReadbackAdapter:
     """Import `module:attribute` and adapt whatever it turned out to be.
 
-    A class is instantiated, with the `[readback]` table when its `__init__`
-    takes one argument. An object with `fetch` is used as is. A callable is a
+    A class is instantiated, with the `[readback]` (or `[loop.outbound]`)
+    table when its `__init__` takes one argument, and a factory whose one
+    parameter is `config` is called with the same table: the adapter's own
+    keys as written plus the built-in ones (`ReadbackConfig.adapter_table`).
+    An object with `fetch` is used as is. A callable is a
     factory or a fetch function, as `_classify_spec_target` decides. Anything
     that goes wrong here is an `AdapterError`, raised before anything is sent.
 
@@ -1549,7 +1580,7 @@ def _build_from_spec(config: ReadbackConfig) -> ReadbackAdapter:
     if kind == _FACTORY_NO_ARGS:
         resolved = _call_factory(spec, target)
     else:
-        resolved = _call_factory(spec, target, config.to_json())
+        resolved = _call_factory(spec, target, config.adapter_table())
 
     if inspect.isclass(resolved):
         resolved = _instantiate(spec, resolved, config)
