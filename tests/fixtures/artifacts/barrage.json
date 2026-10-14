@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "tool": "barrage",
+  "aborted": false,
+  "seed": 3,
+  "config": {
+    "mode": "open",
+    "rate": 10.0,
+    "duration": 2.0,
+    "warmup": 0.0,
+    "ramp_steps": 10,
+    "concurrency": 4,
+    "grace": 10.0,
+    "max_queue_seconds": 5.0,
+    "timeout": 10.0,
+    "keepalive": true,
+    "seed": 3,
+    "pool_size": 4,
+    "target": "local",
+    "format": null,
+    "allow_public_target": false,
+    "dry_run": false
+  },
+  "summary": {
+    "requests": {
+      "scheduled": 20,
+      "sent": 20,
+      "completed": 20,
+      "abandoned": 0,
+      "dropped_backlog": 0,
+      "not_dispatched": 0
+    },
+    "throughput": {
+      "targeted_rps": 10.0,
+      "achieved_rps": 10.0,
+      "total_requests": 20,
+      "dispatch_span_seconds": 1.9000000000000001
+    },
+    "latency_ms": {
+      "service": {
+        "overall": {
+          "p50": 19.0,
+          "p90": 27.0,
+          "p99": 29.0
+        },
+        "hold": {
+          "p50": 19.0,
+          "p90": 27.0,
+          "p99": 29.0
+        }
+      },
+      "offered": {
+        "overall": {
+          "p50": 20.0,
+          "p90": 28.0,
+          "p99": 30.0
+        },
+        "hold": {
+          "p50": 20.0,
+          "p90": 28.0,
+          "p99": 30.0
+        }
+      }
+    },
+    "status_classes": {
+      "1xx": 0,
+      "2xx": 16,
+      "3xx": 0,
+      "4xx": 1,
+      "5xx": 3,
+      "no_response": 0
+    },
+    "shed": 1,
+    "error_rate": 0.2,
+    "knee": {
+      "at_seconds": 0.0,
+      "reason": "shedding",
+      "detail": "error rate 20.0% crossed the 5.0% threshold (5xx 2, shed 429 0, no response 0)",
+      "targeted_rps": 10.0,
+      "achieved_rps": 10.0
+    }
+  },
+  "buckets": [
+    {
+      "start": 0.0,
+      "hold": true,
+      "targeted_rps": 10.0,
+      "achieved_rps": 10.0,
+      "count": 10,
+      "errors": 2,
+      "error_rate": 0.2,
+      "shed": 0,
+      "dropped_backlog": 0,
+      "status_classes": {
+        "1xx": 0,
+        "2xx": 8,
+        "3xx": 0,
+        "4xx": 0,
+        "5xx": 2,
+        "no_response": 0
+      },
+      "service_ms": {
+        "p50": 14.0,
+        "p90": 18.0,
+        "p99": 19.0
+      },
+      "offered_ms": {
+        "p50": 15.0,
+        "p90": 19.0,
+        "p99": 20.0
+      }
+    },
+    {
+      "start": 1.0,
+      "hold": true,
+      "targeted_rps": 10.0,
+      "achieved_rps": 10.0,
+      "count": 10,
+      "errors": 2,
+      "error_rate": 0.2,
+      "shed": 1,
+      "dropped_backlog": 0,
+      "status_classes": {
+        "1xx": 0,
+        "2xx": 8,
+        "3xx": 0,
+        "4xx": 1,
+        "5xx": 1,
+        "no_response": 0
+      },
+      "service_ms": {
+        "p50": 24.0,
+        "p90": 28.0,
+        "p99": 29.0
+      },
+      "offered_ms": {
+        "p50": 25.0,
+        "p90": 29.0,
+        "p99": 30.0
+      }
+    }
+  ],
+  "records": [
+    {
+      "index": 0,
+      "scheduled_at": 0.0,
+      "dispatched_at": 0.001,
+      "status": 503,
+      "service_ms": 10.0,
+      "offered_ms": 11.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 1,
+      "scheduled_at": 0.1,
+      "dispatched_at": 0.101,
+      "status": 200,
+      "service_ms": 11.0,
+      "offered_ms": 12.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 2,
+      "scheduled_at": 0.2,
+      "dispatched_at": 0.201,
+      "status": 200,
+      "service_ms": 12.0,
+      "offered_ms": 13.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 3,
+      "scheduled_at": 0.3,
+      "dispatched_at": 0.301,
+      "status": 200,
+      "service_ms": 13.0,
+      "offered_ms": 14.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 4,
+      "scheduled_at": 0.4,
+      "dispatched_at": 0.401,
+      "status": 200,
+      "service_ms": 14.0,
+      "offered_ms": 15.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 5,
+      "scheduled_at": 0.5,
+      "dispatched_at": 0.501,
+      "status": 200,
+      "service_ms": 15.0,
+      "offered_ms": 16.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 6,
+      "scheduled_at": 0.6,
+      "dispatched_at": 0.601,
+      "status": 200,
+      "service_ms": 16.0,
+      "offered_ms": 17.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 7,
+      "scheduled_at": 0.7,
+      "dispatched_at": 0.701,
+      "status": 503,
+      "service_ms": 17.0,
+      "offered_ms": 18.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 8,
+      "scheduled_at": 0.8,
+      "dispatched_at": 0.801,
+      "status": 200,
+      "service_ms": 18.0,
+      "offered_ms": 19.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 9,
+      "scheduled_at": 0.9,
+      "dispatched_at": 0.901,
+      "status": 200,
+      "service_ms": 19.0,
+      "offered_ms": 20.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 10,
+      "scheduled_at": 1.0,
+      "dispatched_at": 1.001,
+      "status": 200,
+      "service_ms": 20.0,
+      "offered_ms": 21.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 11,
+      "scheduled_at": 1.1,
+      "dispatched_at": 1.101,
+      "status": 200,
+      "service_ms": 21.0,
+      "offered_ms": 22.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 12,
+      "scheduled_at": 1.2,
+      "dispatched_at": 1.201,
+      "status": 200,
+      "service_ms": 22.0,
+      "offered_ms": 23.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 13,
+      "scheduled_at": 1.3,
+      "dispatched_at": 1.301,
+      "status": 429,
+      "service_ms": 23.0,
+      "offered_ms": 24.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 14,
+      "scheduled_at": 1.4,
+      "dispatched_at": 1.401,
+      "status": 503,
+      "service_ms": 24.0,
+      "offered_ms": 25.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 15,
+      "scheduled_at": 1.5,
+      "dispatched_at": 1.501,
+      "status": 200,
+      "service_ms": 25.0,
+      "offered_ms": 26.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 16,
+      "scheduled_at": 1.6,
+      "dispatched_at": 1.601,
+      "status": 200,
+      "service_ms": 26.0,
+      "offered_ms": 27.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 17,
+      "scheduled_at": 1.7,
+      "dispatched_at": 1.701,
+      "status": 200,
+      "service_ms": 27.0,
+      "offered_ms": 28.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 18,
+      "scheduled_at": 1.8,
+      "dispatched_at": 1.801,
+      "status": 200,
+      "service_ms": 28.0,
+      "offered_ms": 29.0,
+      "outcome": "completed"
+    },
+    {
+      "index": 19,
+      "scheduled_at": 1.9,
+      "dispatched_at": 1.901,
+      "status": 200,
+      "service_ms": 29.0,
+      "offered_ms": 30.0,
+      "outcome": "completed"
+    }
+  ]
+}

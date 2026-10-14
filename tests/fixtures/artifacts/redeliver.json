@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "tool": "redeliver",
+  "aborted": false,
+  "seed": 11,
+  "config": {
+    "tool": "redeliver",
+    "seed": 11,
+    "count": 1,
+    "tag_prefix": "hq-11",
+    "target": "local",
+    "readback": {},
+    "retry_after": 120.0,
+    "scenarios": [
+      "duplicate",
+      "reply-first"
+    ],
+    "dry_run": false
+  },
+  "summary": {
+    "scenarios": 2,
+    "passed": 2,
+    "failed": 0,
+    "deliveries": 3,
+    "findings": 0,
+    "strays_searched": true,
+    "verdict": "DELIVERY-SAFE"
+  },
+  "scenarios": [
+    {
+      "scenario": "duplicate",
+      "question": "dedupe?",
+      "deliveries": 2,
+      "unique_messages": 1,
+      "strays_searched": true,
+      "passed": true,
+      "findings": [],
+      "messages": []
+    }
+  ]
+}

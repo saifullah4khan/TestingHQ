@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ..core import report
+from . import load
 
 # Compare used to report 0 no-regression, 1 regression, 2 usage error. That
 # collides with every other tool, where 1 is a refusal and 2 is a dry run, so a
@@ -69,8 +70,11 @@ __all__ = [
     "STATUS_CLASS_KEYS",
     "CompareError",
     "compare",
+    "compare_paths",
+    "format_any",
     "format_diff",
     "load_artifact",
+    "read_artifact",
     "validate_artifact",
 ]
 
@@ -88,18 +92,77 @@ class CompareError(ValueError):
     """Raised when an artifact cannot be read or is not shaped like one."""
 
 
-def load_artifact(path: str) -> Dict[str, Any]:
-    """Read and shape-check a run artifact written by `blast fire`."""
+def read_artifact(path: str) -> Any:
+    """Read a JSON file, refusing one that is missing or not JSON."""
     source = Path(path)
     try:
         raw = source.read_text(encoding="utf-8")
     except OSError as exc:
         raise CompareError(f"could not read {path!r}: {exc}") from exc
     try:
-        data = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError as exc:
         raise CompareError(f"{path!r} is not valid JSON: {exc}") from exc
-    return validate_artifact(data, path)
+
+
+def load_artifact(path: str) -> Dict[str, Any]:
+    """Read and shape-check a run artifact written by `blast fire`."""
+    return validate_artifact(read_artifact(path), path)
+
+
+def _kind(data: Any) -> str:
+    """Which tool wrote `data`, as far as compare cares: "barrage", "blast"
+    (also any file naming no tool, which the blast checks then judge), or
+    the other tool's name."""
+    if load.is_barrage(data):
+        return "barrage"
+    if not isinstance(data, dict):
+        return "blast"
+    config = data.get("config") if isinstance(data.get("config"), dict) else {}
+    tool = data.get("tool") or config.get("tool")
+    return tool if isinstance(tool, str) and tool else "blast"
+
+
+def compare_paths(baseline_path: str, candidate_path: str) -> Dict[str, Any]:
+    """Read, check and compare two artifacts of the same tool: blast runs
+    by per-payload outcome, barrage runs by load metrics. Refuses a pair
+    from two different tools and any other tool's artifact."""
+    baseline = read_artifact(baseline_path)
+    candidate = read_artifact(candidate_path)
+    kinds = {baseline_path: _kind(baseline), candidate_path: _kind(candidate)}
+    for path, kind in kinds.items():
+        if kind not in ("blast", "barrage"):
+            raise CompareError(
+                f"{path!r} is a {kind} artifact; compare reads blast and "
+                "barrage run artifacts"
+            )
+    base_kind, cand_kind = kinds[baseline_path], kinds[candidate_path]
+    if base_kind != cand_kind:
+        raise CompareError(
+            f"cannot compare a {base_kind} artifact ({baseline_path!r}) with a "
+            f"{cand_kind} artifact ({candidate_path!r}): blast runs are compared "
+            "payload by payload and barrage runs by load metrics, so both "
+            "sides must come from the same tool"
+        )
+    if base_kind == "blast":
+        return compare(
+            validate_artifact(baseline, baseline_path),
+            validate_artifact(candidate, candidate_path),
+        )
+    try:
+        return load.compare(
+            load.validate(baseline, baseline_path),
+            load.validate(candidate, candidate_path),
+        )
+    except load.LoadCompareError as exc:
+        raise CompareError(str(exc)) from None
+
+
+def format_any(diff: Dict[str, Any]) -> str:
+    """Render either kind of difference report."""
+    if diff.get("kind") == "barrage":
+        return load.format_diff(diff)
+    return format_diff(diff)
 
 
 def validate_artifact(data: Any, source: str) -> Dict[str, Any]:
