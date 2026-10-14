@@ -711,3 +711,39 @@ def test_the_settle_warning_catches_a_window_longer_than_max_wait_unpaced():
     warning = common.settle_time_warning(3, None, 30.0, 10.0)
     assert "--quiet-window 30s, over --max-wait 10s" in warning
     assert "Raise --max-wait to at least 30" in warning
+
+
+# ---------------------------------------------------------------------------
+# The plan-sized --max-wait default
+# ---------------------------------------------------------------------------
+
+
+def test_a_max_wait_not_given_grows_with_the_plan():
+    from testinghq.pipeline.adapters import ReadbackConfig
+
+    http = ReadbackConfig(kind="http", url="http://localhost:9/tickets")
+    # 2 x 123 / 4 + 5 = 66.5s, plus 25% is 83.125: 84s.
+    resolved = common.resolve_max_wait(None, 123, http, 5.0)
+    assert resolved.seconds == 84.0
+    assert resolved.source == common.MAX_WAIT_DEFAULT
+    assert resolved.raised
+    assert resolved.needed == common.settle_time_needed(123, 4.0, 5.0) == 66.5
+    assert common.settle_time_warning(123, 4.0, 5.0, resolved.seconds) is None
+    # A small plan keeps the floor; an unpaced readback only needs the window.
+    assert common.resolve_max_wait(None, 10, http, 5.0).seconds == common.DEFAULT_MAX_WAIT
+    assert common.resolve_max_wait(None, 10_000, None, 5.0).seconds == common.DEFAULT_MAX_WAIT
+    assert common.resolve_max_wait(None, 3, None, 100.0).seconds == 125.0
+
+
+def test_a_max_wait_given_is_honoured_exactly():
+    from testinghq.pipeline.adapters import ReadbackConfig
+
+    http = ReadbackConfig(kind="http", url="http://localhost:9/tickets")
+    resolved = common.resolve_max_wait(30.0, 123, http, 5.0)
+    assert resolved.seconds == 30.0
+    assert resolved.source == common.MAX_WAIT_GIVEN
+    assert not resolved.raised
+    assert common.readback_poll_settings(
+        123, http, quiet_window=5.0, max_wait=30.0, poll_interval=0.5
+    ) == {"quiet_window": 5.0, "max_wait": 30.0, "max_wait_source": "given",
+          "poll_interval": 0.5}

@@ -17,6 +17,7 @@ from ..pipeline.common import (
     EXIT_DRY_RUN,
     EXIT_REFUSED,
     adapter_rate,
+    resolve_max_wait,
     settle_time_warning,
 )
 from .common import (
@@ -284,11 +285,20 @@ def _drop_option(parser, option: str) -> None:
             group._group_actions.remove(action)
 
 
-def _print_settle_warning(args, readback, tags: int) -> None:
-    """A dry run's warning that the real run's readback may not have time to
-    settle within --max-wait. Printed by every pipeline tool's dry run."""
+def _print_settle_warning(args, readback, tags: int, *also) -> None:
+    """The --max-wait a real run would use, and a warning when the readback
+    may not have time to settle within it. Printed by every pipeline tool's
+    dry run. `also` is further (readback, tags) plans the same --max-wait
+    covers (loop's outbound sink); a default one is sized to the largest."""
+    chosen = None
+    for plan_readback, plan_tags in [(readback, tags), *also]:
+        each = resolve_max_wait(args.max_wait, plan_tags, plan_readback, args.quiet_window)
+        if chosen is None or each.needed > chosen[0].needed:
+            chosen = (each, plan_readback, plan_tags)
+    resolved, readback, tags = chosen
+    print(resolved.describe())
     warning = settle_time_warning(
-        tags, adapter_rate(readback), args.quiet_window, args.max_wait
+        tags, adapter_rate(readback), args.quiet_window, resolved.seconds
     )
     if warning:
         print(warning)
@@ -565,8 +575,12 @@ def _cmd_loop_fire(args) -> int:
         print(pipeline_loop.format_dry_run(
             [*corpus, bait], readback, policy, reply_address, outbound
         ))
-        # The precursor message is read back too.
-        _print_settle_warning(args, readback, len(corpus) + 2)
+        # The precursor message is read back too; the sink is asked for the
+        # corpus and the bait.
+        _print_settle_warning(
+            args, readback, len(corpus) + 2,
+            *([(outbound, len(corpus) + 1)] if outbound is not None else []),
+        )
         return EXIT_DRY_RUN
 
     return pipeline_loop.execute(

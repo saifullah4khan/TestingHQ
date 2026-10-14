@@ -58,13 +58,13 @@ from .common import (
     READBACK_FAILED,
     SentMessage,
     close_adapter,
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
     prepare_readback,
     read_back_all,
     readback_failed,
+    readback_poll_settings,
     readback_state_phrase,
     readback_verdict,
     require_synthetic,
@@ -1127,7 +1127,7 @@ def execute(
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     allow_public_target: bool = False,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     client: Any = None,
     readback_client: Any = None,
@@ -1168,6 +1168,11 @@ def execute(
         attachment_match=attachment_match, wire_format=target.format_name,
         allow_public_target=bool(target.public),
     )
+    poll = readback_poll_settings(
+        len({tag for scenario in built for tag in scenario.tags}), readback,
+        quiet_window=quiet_window, max_wait=max_wait, poll_interval=poll_interval,
+    )
+    config["readback_poll"] = poll
     sent: List[SentMessage] = []
     phase = "send"
     try:
@@ -1185,7 +1190,7 @@ def execute(
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks

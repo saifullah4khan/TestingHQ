@@ -11,7 +11,9 @@ said the store "was still changing" when every poll had been identical.
 
 These runs go through the real `HttpJsonAdapter` and its rate limiter with a
 virtual clock, at the default --quiet-window, --max-wait, --poll-interval and
---readback-rate, so the timing asserted is the timing a user gets.
+--readback-rate, so the timing asserted is the timing a user gets. The default
+--max-wait is 60s, raised to fit a plan that needs more; a run that passes
+--max-wait gets exactly that.
 
 Hermetic: the store is an in-process HTTP client, never a socket.
 """
@@ -103,13 +105,13 @@ def _readback() -> ReadbackConfig:
     return config
 
 
-def _ledger(store, clock, target_config, tmp_path, count):
+def _ledger(store, clock, target_config, tmp_path, count, **flags):
     lines: list = []
     code = ledger_tool.execute(
         7, count, TARGET, target_config, str(tmp_path / "ledger.json"),
         readback=_readback(), tag_prefix="settle",
         client=store, readback_client=store, sleep=clock.sleep, clock=clock,
-        printer=lines.append,
+        printer=lines.append, **flags,
     )
     artifact = json.loads((tmp_path / "ledger.json").read_text(encoding="utf-8"))
     return code, artifact, "\n".join(lines)
@@ -148,6 +150,8 @@ def test_a_store_still_changing_at_max_wait_is_unsettled_and_says_still_changing
     clock = _VirtualClock()
     store = HttpStore(route_at=lambda: f"queue-{int(clock.now // 10)}")
     code, artifact, text = _ledger(store, clock, target_config, tmp_path, 100)
+    # 2 x 25 + 5 = 55s, plus 25%: the default sized to the plan.
+    assert artifact["config"]["readback_poll"]["max_wait"] == 69.0
 
     summary = artifact["summary"]
     assert code == EXIT_MISMATCH, text
@@ -160,13 +164,18 @@ def test_a_store_still_changing_at_max_wait_is_unsettled_and_says_still_changing
 
 
 def test_a_run_too_big_to_poll_twice_says_so_with_the_numbers(target_config, tmp_path):
-    """300 tags at 4/s is 75s a poll, so not even one poll fits in 60s. Nothing
+    """300 tags at 4/s is 75s a poll, so not even one poll fits in a --max-wait
+    of 60 given on the command line, which is honoured as given. Nothing
     was seen changing, so the headline must not say it was: it names the
     tags, the rate, --max-wait, and the --max-wait or --readback-rate that
     would fit (2 x 75 + 5 = 155s; 600 lookups in 55s is 10.91/s)."""
     store = HttpStore()
     clock = _VirtualClock()
-    code, artifact, text = _ledger(store, clock, target_config, tmp_path, 300)
+    code, artifact, text = _ledger(
+        store, clock, target_config, tmp_path, 300, max_wait=60.0
+    )
+    assert artifact["config"]["readback_poll"]["max_wait"] == 60.0
+    assert artifact["config"]["readback_poll"]["max_wait_source"] == "given"
 
     summary = artifact["summary"]
     assert code == EXIT_MISMATCH, text
@@ -181,13 +190,35 @@ def test_a_run_too_big_to_poll_twice_says_so_with_the_numbers(target_config, tmp
     assert "UNSETTLED, not enough time within --max-wait" in text
 
 
+def test_the_same_run_at_the_default_max_wait_gets_time_to_settle(
+    target_config, tmp_path
+):
+    """Without --max-wait the default grows with the plan: 300 tags need
+    2 x 75 + 5 = 155s, plus 25% is 193.75, so 194s. A correct store settles
+    BALANCED, and the artifact records the max-wait used and that it was the
+    default."""
+    store = HttpStore()
+    clock = _VirtualClock()
+    code, artifact, text = _ledger(store, clock, target_config, tmp_path, 300)
+
+    summary = artifact["summary"]
+    poll = artifact["config"]["readback_poll"]
+    assert code == EXIT_OK, text
+    assert summary["verdict"] == "BALANCED", text
+    assert summary["readback"]["stable"] is True
+    assert summary["readback"]["polls"] == 2
+    assert poll["max_wait"] == 194.0
+    assert poll["max_wait_source"] == common.MAX_WAIT_DEFAULT
+    assert "UNSETTLED" not in text
+
+
 # ---------------------------------------------------------------------------
 # steady at its defaults
 # ---------------------------------------------------------------------------
 
 
-def _steady(clock, target_config, tmp_path, repeats):
-    seed, count = 5, steady_tool.DEFAULT_COUNT
+def _steady(clock, target_config, tmp_path, repeats, seed=5, **flags):
+    count = steady_tool.DEFAULT_COUNT
     families = steady_tool.load_families(seed, count)
     items = steady_tool.build_items(families, tag_prefix="steady", seed=seed)
     labels = {}
@@ -207,7 +238,7 @@ def _steady(clock, target_config, tmp_path, repeats):
         seed, count, TARGET, target_config, str(tmp_path / "steady.json"),
         readback=_readback(), tag_prefix="steady", label_field="category",
         repeats=repeats, client=store, readback_client=store,
-        sleep=clock.sleep, clock=clock, printer=lines.append,
+        sleep=clock.sleep, clock=clock, printer=lines.append, **flags,
     )
     artifact = json.loads((tmp_path / "steady.json").read_text(encoding="utf-8"))
     return code, artifact, "\n".join(lines), len(labels)
@@ -223,17 +254,47 @@ def test_steady_at_its_defaults_settles(target_config, tmp_path):
     assert text.splitlines()[0].startswith("steady: STABLE")
 
 
+def test_steady_with_repeats_at_the_default_max_wait_is_stable(target_config, tmp_path):
+    """The README's run: the default seed with --repeats 3 is 123 tags, about
+    31s a poll at 4/s, so two polls and the window need about 66.5s, over a
+    flat 60s. Every steady run like it used to end UNSETTLED, exit 3, on a
+    correct pipeline. The default --max-wait now fits the plan: 66.5s plus
+    25% is 84s."""
+    code, artifact, text, tags = _steady(
+        _VirtualClock(), target_config, tmp_path, 3, seed=steady_tool.DEFAULT_SEED
+    )
+    assert tags == 123
+    assert 2 * tags / 4.0 + common.DEFAULT_QUIET_WINDOW > common.DEFAULT_MAX_WAIT
+    assert code == EXIT_OK, text
+    stability = artifact["stability"]
+    assert stability["verdict"] == "STABLE", text
+    assert stability["readback"]["stable"] is True
+    assert artifact["config"]["readback_poll"]["max_wait"] == 84.0
+    assert artifact["config"]["readback_poll"]["max_wait_source"] == "default"
+    assert "gate (10.0%): passed" in text
+    assert "UNSETTLED" not in text
+
+
 def test_steady_headline_says_unsettled_on_an_unsettled_run(target_config, tmp_path):
-    """--repeats 3 adds 18 tags, which no longer fit two polls in 60s. The
-    first line used to say STABLE while the gate below it said FAILED; the
-    headline is the readback's verdict, as the artifact's is."""
-    code, artifact, text, tags = _steady(_VirtualClock(), target_config, tmp_path, 3)
+    """The same 123 tags with --max-wait 60 given: honoured as given, so two
+    polls do not fit. The first line used to say STABLE while the gate below
+    it said FAILED; the headline is the readback's verdict, as the artifact's
+    is. And the gate is not judged: "gate (10.0%): FAILED" above "majority
+    dissent 0.0% is within the gate" contradicted itself."""
+    code, artifact, text, tags = _steady(
+        _VirtualClock(), target_config, tmp_path, 3, seed=steady_tool.DEFAULT_SEED,
+        max_wait=60.0,
+    )
     assert 2 * tags / 4.0 > common.DEFAULT_MAX_WAIT
     assert code == EXIT_MISMATCH, text
     assert artifact["stability"]["verdict"] == common.UNSETTLED
+    assert artifact["stability"]["gate"]["judged"] is False
     first = text.splitlines()[0]
     assert first.startswith("steady: UNSETTLED"), first
     assert "STABLE" not in first
-    assert "gate (10.0%): FAILED" in text
+    assert "gate (10.0%): not judged" in text
+    assert "gate (10.0%): FAILED" not in text
+    assert "is within the" not in text
+    assert "not judged, because the readback did not settle" in text
     assert "UNSETTLED, not enough time within --max-wait" in text
     assert "not enough time to poll every tag twice" in text

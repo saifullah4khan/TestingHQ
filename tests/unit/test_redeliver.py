@@ -818,6 +818,9 @@ def test_the_redelivery_artifact_records_the_target_format(tmp_path, monkeypatch
     config = json.loads(out.read_text(encoding="utf-8"))["config"]
     assert config["format"] == "sendgrid"
     assert config["allow_public_target"] is False
+    # A --max-wait given is recorded as given and used as is.
+    assert config["readback_poll"]["max_wait"] == 0.0
+    assert config["readback_poll"]["max_wait_source"] == "given"
 
 
 def test_every_lookup_a_404_is_readback_failed_and_no_scenario_reports_a_loss():

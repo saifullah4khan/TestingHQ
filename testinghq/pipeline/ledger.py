@@ -62,13 +62,13 @@ from .common import (
     READBACK_FAILED,
     SentMessage,
     close_adapter,
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
     prepare_readback,
     read_back_all,
     readback_failed,
+    readback_poll_settings,
     readback_state_phrase,
     readback_verdict,
     require_synthetic,
@@ -377,7 +377,7 @@ def run_config(
     target_name: Optional[str],
     readback: ReadbackConfig,
     route: Optional[str],
-    readback_poll: Dict[str, float],
+    readback_poll: Dict[str, Any],
     *,
     body_exact: bool = False,
     subject_match: str = DEFAULT_SUBJECT_MATCH,
@@ -745,7 +745,7 @@ def execute(
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     allow_public_target: bool = False,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     client: Any = None,
     readback_client: Any = None,
@@ -782,10 +782,13 @@ def execute(
         printer(f"refused: the readback adapter could not be prepared: {exc}")
         return EXIT_REFUSED
 
+    poll = readback_poll_settings(
+        len(items), readback, quiet_window=quiet_window, max_wait=max_wait,
+        poll_interval=poll_interval,
+    )
     config = run_config(
         seed, count, tag_prefix, target_name, readback, route,
-        {"quiet_window": quiet_window, "max_wait": max_wait,
-         "poll_interval": poll_interval},
+        poll,
         body_exact=body_exact,
         subject_match=subject_match,
         attachment_match=attachment_match,
@@ -806,7 +809,7 @@ def execute(
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks

@@ -40,7 +40,6 @@ from ..core.targets import resolve_target
 from ..core.transport import DEFAULT_BOUNDARY, encode_multipart
 from .adapters import ReadbackConfig, parse_readback_config
 from .common import (
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     EXIT_MISMATCH,
@@ -51,6 +50,7 @@ from .common import (
     close_adapter,
     prepare_readback,
     read_back_all,
+    readback_poll_settings,
     require_synthetic,
     send_all,
 )
@@ -657,7 +657,7 @@ def run_config(
     outbound: Optional[ReadbackConfig],
     ticket_policy: str,
     reply_address: str,
-    poll: Dict[str, float],
+    poll: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Everything needed to reproduce the run. No latency, no wall clock."""
     return {
@@ -954,7 +954,7 @@ def execute(
     ticket_policy: str = TICKET_POLICY_NONE,
     reply_address: str = DEFAULT_REPLY_ADDRESS,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     ack_wait: float = DEFAULT_ACK_WAIT,
     allow_public_target: bool = False,
@@ -987,10 +987,21 @@ def execute(
         printer(f"refused: {exc}")
         return EXIT_REFUSED
 
+    # The readback asks for the precursor, the corpus and the bait; the sink,
+    # when there is one, for the corpus and the bait. One --max-wait covers
+    # both, so a default one is sized to the larger plan.
+    settings = dict(quiet_window=quiet_window, max_wait=max_wait, poll_interval=poll_interval)
+    poll_settings = readback_poll_settings(len(corpus) + 2, readback, **settings)
+    if outbound is not None:
+        poll_settings = max(
+            poll_settings,
+            readback_poll_settings(len(corpus) + 1, outbound, **settings),
+            key=lambda each: each["max_wait"],
+        )
+    max_wait = poll_settings["max_wait"]
     config = run_config(
         seed, count, tag_prefix, target_name, readback, outbound, ticket_policy,
-        reply_address,
-        {"quiet_window": quiet_window, "max_wait": max_wait, "poll_interval": poll_interval},
+        reply_address, poll_settings,
     )
     config.update(target.artifact_config())
     wire = LoopWireFormat(target.wire_format)

@@ -45,13 +45,13 @@ from .common import (
     READBACK_FAILED,
     SentMessage,
     close_adapter,
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
     prepare_readback,
     read_back_all,
     readback_failed,
+    readback_poll_settings,
     readback_state_phrase,
     readback_verdict,
     require_synthetic,
@@ -289,7 +289,7 @@ def run_config(
     readback: ReadbackConfig,
     route: Optional[str],
     body_exact: bool,
-    readback_poll: Dict[str, float],
+    readback_poll: Dict[str, Any],
     *,
     subject_match: str = DEFAULT_SUBJECT_MATCH,
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
@@ -525,7 +525,9 @@ def format_verification(artifact: Dict[str, Any]) -> str:
             f"  readback:          {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
-        if readback.get("missing_tags"):
+        # On an all-404 run nothing was found because nothing could be
+        # looked up, so no tag is called missing (ALL_404_NOT_CHECKED above).
+        if readback.get("missing_tags") and not summary.get("readback_failed"):
             missing = len(readback["missing_tags"])
             lines.append(
                 f"                    missing {missing}: the store went quiet without them"
@@ -675,7 +677,7 @@ def execute(
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     allow_public_target: bool = False,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     client: Any = None,
     readback_client: Any = None,
@@ -711,10 +713,13 @@ def execute(
         printer(f"refused: the readback adapter could not be prepared: {exc}")
         return EXIT_REFUSED
 
+    poll = readback_poll_settings(
+        len(items), readback, quiet_window=quiet_window, max_wait=max_wait,
+        poll_interval=poll_interval,
+    )
     config = run_config(
         seed, count, tag_prefix, target_name, readback, route, body_exact,
-        {"quiet_window": quiet_window, "max_wait": max_wait,
-         "poll_interval": poll_interval},
+        poll,
         subject_match=subject_match,
         attachment_match=attachment_match,
         wire_format=target.format_name,
@@ -734,7 +739,7 @@ def execute(
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks
@@ -874,7 +879,7 @@ def check_saved_run(
     tag_prefix: Optional[str] = None,
     readback_client: Any = None,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
@@ -993,11 +998,16 @@ def check_saved_run(
         "readback": readback.to_json(),
     }
     check_config.update(match)
+    poll = readback_poll_settings(
+        len(wanted), readback, quiet_window=quiet_window, max_wait=max_wait,
+        poll_interval=poll_interval,
+    )
     check_config.update(
         {
             "match_modes_from": sources,
             "source_run": run_path,
             "records_skipped_non_clean": skipped_categories,
+            "readback_poll": poll,
             "dry_run": False,
         }
     )
@@ -1009,7 +1019,7 @@ def check_saved_run(
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks
@@ -1044,8 +1054,9 @@ def check_saved_run(
     artifact = build_artifact(
         seed, check_config, fake_sent, verifications, readbacks, outcome
     )
-    printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
-            "because a mangled payload has no correct parse to grade against")
+    if skipped_categories:
+        printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
+                "because a mangled payload has no correct parse to grade against")
     printer(format_match_sources(sources))
     printer(format_verification(artifact))
     write_artifact(out, artifact)

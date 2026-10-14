@@ -691,6 +691,38 @@ def test_verify_check_says_how_many_records_it_skipped(
     assert "correct parse" in text
 
 
+def test_verify_check_says_nothing_about_skipping_when_nothing_was_skipped(
+    target_config, tmp_path, spec_probe
+):
+    """"0 non-clean record(s) not verified, because ..." explained a skip that
+    did not happen. An artifact of clean records only prints no such line."""
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    corpus = verify.build_tagged_corpus(SEED, COUNT)
+    held = {t: [_good_for(e, t)] for e, t, _r in corpus}
+    spec_probe["build"] = lambda: FunctionAdapter(lambda probe: held.get(probe.tag, []))
+    records = [
+        {"id": record_id, "category": "clean", "tag": tag,
+         "payload_sha256": report.payload_sha256(email)}
+        for email, tag, record_id in corpus
+    ]
+    (tmp_path / "run.json").write_text(
+        json.dumps({"seed": SEED, "config": {"count": COUNT}, "records": records}),
+        encoding="utf-8",
+    )
+
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "run.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+    )
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "non-clean" not in text
+    assert "correct parse" not in text
+
+
 # ---------------------------------------------------------------------------
 # Dry run
 # ---------------------------------------------------------------------------
@@ -1047,12 +1079,18 @@ def test_a_store_that_404s_every_lookup_is_readback_failed_not_loss(
     assert summary["verdict_source"] == "readback"
     assert summary["failed"] == 0
     assert summary["not_checked"] == COUNT
+    assert artifact["config"]["readback_poll"]["max_wait"] == 60.0
+    assert artifact["config"]["readback_poll"]["max_wait_source"] == "default"
     assert text.splitlines()[0].startswith("verify: READBACK FAILED")
     assert "  every lookup was 404: check the readback url" in text.splitlines()
     assert "not checked: every lookup was 404" in text
     assert "MISMATCHED" not in text
     assert "holds no record" not in text
     assert "mismatches (" not in text
+    # Nothing could be looked up, so nothing is called missing either: the
+    # console used to add "missing N: the store went quiet without them".
+    assert artifact["summary"]["readback"]["missing_tags"], "the readback found nothing"
+    assert not [line for line in text.splitlines() if "missing" in line], text
     for record in artifact["records"]:
         assert record["assertion"] == {
             "passed": False, "mismatches": ["not checked: every lookup was 404"],
