@@ -145,7 +145,40 @@ def _add_verify_parser(sub) -> None:
     v_check.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(v_check)
     _add_readback_poll_args(v_check)
-    _add_check_args(v_check)
+    _add_recorded_check_args(v_check)
+
+
+def _add_recorded_check_args(parser) -> None:
+    """The match-mode flags for `verify check`. Each defaults to the mode the
+    artifact recorded, so a run is re-checked the way it was fired; a flag
+    given here overrides it."""
+    recorded = " (default: the mode recorded in the artifact)"
+    parser.add_argument(
+        "--expect-route", default=None,
+        help="the route every message should have been filed under" + recorded,
+    )
+    parser.add_argument(
+        "--no-expect-route", dest="expect_route", action="store_const", const="",
+        help="skip the routing check even if the artifact recorded a route",
+    )
+    parser.add_argument(
+        "--subject-match", default=None,
+        choices=list(pipeline_expectations.SUBJECT_MATCH_MODES),
+        help="how the stored subject is compared" + recorded,
+    )
+    parser.add_argument(
+        "--attachment-match", default=None,
+        choices=list(pipeline_expectations.ATTACHMENT_MATCH_MODES),
+        help="how attachment names are compared" + recorded,
+    )
+    parser.add_argument(
+        "--body-exact", default=None, action="store_const", const=True,
+        help="require the stored body to equal the whole text part" + recorded,
+    )
+    parser.add_argument(
+        "--no-body-exact", dest="body_exact", action="store_const", const=False,
+        help="compare the body by containment even if the artifact recorded exact",
+    )
 
 
 def _add_ledger_parser(sub) -> None:
@@ -440,7 +473,11 @@ def _cmd_verify_check(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
-        **_match_kwargs(args),
+        # None for a flag not given, so the artifact's recorded mode is used.
+        route=args.expect_route,
+        body_exact=args.body_exact,
+        subject_match=args.subject_match,
+        attachment_match=args.attachment_match,
     )
 
 

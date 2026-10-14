@@ -791,6 +791,78 @@ def _artifact_tool(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+#: Where `verify check` took each match mode from, as recorded and printed.
+MODE_FROM_ARTIFACT = "artifact"
+MODE_FROM_FLAG = "flag"
+MODE_FROM_DEFAULT = "default"
+
+_MATCH_MODE_KEYS = ("subject_match", "body_exact", "attachment_match", "expect_route")
+
+
+def _recorded_match_modes(
+    config: Dict[str, Any],
+    route: Optional[str],
+    body_exact: Optional[bool],
+    subject_match: Optional[str],
+    attachment_match: Optional[str],
+) -> Tuple[Optional[str], bool, str, str, Dict[str, str]]:
+    """The match modes `verify check` grades with: a given value wins, then
+    the artifact's recorded one, then the default. Returns the four values
+    and, per config key, which of the three each came from."""
+    given = {
+        "subject_match": subject_match,
+        "body_exact": body_exact,
+        "attachment_match": attachment_match,
+        "expect_route": route,
+    }
+    defaults = {
+        "subject_match": DEFAULT_SUBJECT_MATCH,
+        "body_exact": False,
+        "attachment_match": DEFAULT_ATTACHMENT_MATCH,
+        "expect_route": None,
+    }
+    chosen: Dict[str, Any] = {}
+    sources: Dict[str, str] = {}
+    for key in _MATCH_MODE_KEYS:
+        if given[key] is not None:
+            chosen[key], sources[key] = given[key], MODE_FROM_FLAG
+        elif key in config:
+            chosen[key], sources[key] = config[key], MODE_FROM_ARTIFACT
+        else:
+            chosen[key], sources[key] = defaults[key], MODE_FROM_DEFAULT
+    return (
+        chosen["expect_route"] or None,
+        bool(chosen["body_exact"]),
+        chosen["subject_match"],
+        chosen["attachment_match"],
+        sources,
+    )
+
+
+def format_match_sources(sources: Dict[str, str]) -> str:
+    """One line saying where each match mode came from."""
+    names = {
+        "subject_match": "subject",
+        "body_exact": "body",
+        "attachment_match": "attachments",
+        "expect_route": "route",
+    }
+    by_source: Dict[str, List[str]] = {}
+    for key in _MATCH_MODE_KEYS:
+        by_source.setdefault(sources[key], []).append(names[key])
+    labels = {
+        MODE_FROM_ARTIFACT: "recorded in the artifact",
+        MODE_FROM_FLAG: "given on the command line",
+        MODE_FROM_DEFAULT: "the default (the artifact recorded none)",
+    }
+    parts = [
+        f"{', '.join(by_source[source])} {labels[source]}"
+        for source in (MODE_FROM_ARTIFACT, MODE_FROM_FLAG, MODE_FROM_DEFAULT)
+        if source in by_source
+    ]
+    return "verify check: match modes: " + "; ".join(parts)
+
+
 def check_saved_run(
     run_path: str,
     config_path: str,
@@ -798,9 +870,9 @@ def check_saved_run(
     *,
     readback: ReadbackConfig,
     route: Optional[str] = None,
-    body_exact: bool = False,
-    subject_match: str = DEFAULT_SUBJECT_MATCH,
-    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    body_exact: Optional[bool] = None,
+    subject_match: Optional[str] = None,
+    attachment_match: Optional[str] = None,
     tag_prefix: Optional[str] = None,
     readback_client: Any = None,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
@@ -815,6 +887,11 @@ def check_saved_run(
     The corpus is rebuilt from the artifact's seed, count and tag prefix, and
     only `clean` records are verified; the skipped count is printed. A blast
     artifact is refused, because its records carry no tag to look up.
+
+    Each match option left as None takes the value the artifact recorded (the
+    default when it recorded none), so a run fired with `--expect-route` is
+    re-checked with routing. A given value overrides it; `route=""` turns
+    the routing check off. The output says which source each mode came from.
     """
     try:
         data = json.loads(Path(run_path).read_text(encoding="utf-8"))
@@ -895,6 +972,9 @@ def check_saved_run(
         email, _rid = by_tag[tag]
         wanted.append((email, tag, record.get("id", ""), record.get("payload_sha256", "")))
 
+    route, body_exact, subject_match, attachment_match, sources = _recorded_match_modes(
+        config, route, body_exact, subject_match, attachment_match
+    )
     match = match_options(route, body_exact, subject_match, attachment_match)
     try:
         validate_match_modes(subject_match, attachment_match)
@@ -917,6 +997,7 @@ def check_saved_run(
     check_config.update(match)
     check_config.update(
         {
+            "match_modes_from": sources,
             "source_run": run_path,
             "records_skipped_non_clean": skipped_categories,
             "dry_run": False,
@@ -967,6 +1048,7 @@ def check_saved_run(
     )
     printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
             "because a mangled payload has no correct parse to grade against")
+    printer(format_match_sources(sources))
     printer(format_verification(artifact))
     write_artifact(out, artifact)
     return exit_code_for(artifact)
