@@ -525,7 +525,9 @@ def format_verification(artifact: Dict[str, Any]) -> str:
             f"  readback:          {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
-        if readback.get("missing_tags"):
+        # On an all-404 run nothing was found because nothing could be
+        # looked up, so no tag is called missing (ALL_404_NOT_CHECKED above).
+        if readback.get("missing_tags") and not summary.get("readback_failed"):
             missing = len(readback["missing_tags"])
             lines.append(
                 f"                    missing {missing}: the store went quiet without them"

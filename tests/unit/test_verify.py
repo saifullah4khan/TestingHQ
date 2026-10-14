@@ -1053,6 +1053,10 @@ def test_a_store_that_404s_every_lookup_is_readback_failed_not_loss(
     assert "MISMATCHED" not in text
     assert "holds no record" not in text
     assert "mismatches (" not in text
+    # Nothing could be looked up, so nothing is called missing either: the
+    # console used to add "missing N: the store went quiet without them".
+    assert artifact["summary"]["readback"]["missing_tags"], "the readback found nothing"
+    assert not [line for line in text.splitlines() if "missing" in line], text
     for record in artifact["records"]:
         assert record["assertion"] == {
             "passed": False, "mismatches": ["not checked: every lookup was 404"],
