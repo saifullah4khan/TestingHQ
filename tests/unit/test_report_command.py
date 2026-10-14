@@ -39,7 +39,7 @@ from testinghq.reporting import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = REPO_ROOT / "web" / "tests" / "fixtures"
+FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
 # ---------------------------------------------------------------------------

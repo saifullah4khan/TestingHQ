@@ -13,15 +13,15 @@ you have to do on purpose. That inversion is the entire point.
 
 WHAT IS BLOCKED. `socket.socket.connect`, `socket.socket.connect_ex` and
 `socket.create_connection`. Those are the three doors out. `bind` and `accept`
-are left alone on purpose: `tests/web/test_server.py` genuinely starts a real
-HTTP server on a loopback port and pytest's own machinery may bind a socket, so
+are left alone on purpose: the e2e and integration tests start real HTTP
+servers on loopback ports and pytest's own machinery may bind a socket, so
 blocking the server side would break things that are supposed to work while
 catching nothing. A client that reaches the network still has to connect, and
 that is the case worth stopping.
 
-OPTING OUT. Mark the test with `@pytest.mark.allow_network`. Applied at module
-level in `tests/web/test_server.py`, which is the only place that legitimately
-needs loopback.
+OPTING OUT. Mark the test with `@pytest.mark.allow_network`. Only tests under
+`tests/e2e/` or `tests/integration/` may carry it; collection fails otherwise,
+so the exemption cannot spread into the unit suite by copy-paste.
 
 Two things worth knowing about the marker:
 
@@ -31,9 +31,7 @@ Two things worth knowing about the marker:
    purpose of having to be deliberate.
 2. An unrecognised marker is silently ignored by pytest, so if the name were
    misspelled the tests would just be blocked and fail confusingly. It is
-   registered in `pyproject.toml` under `markers` for that reason, and there is
-   a test in `tests/unit/test_suite_network_block.py` that asserts the name is
-   exactly right.
+   registered in `pyproject.toml` under `markers` for that reason.
 
 The error message names the test that tried to reach out, because "a real
 socket was opened" with no context is close to useless when you are staring at
@@ -89,16 +87,15 @@ SLOW_TEST_BUDGET_ENV = "TESTINGHQ_SLOW_TEST_BUDGET"
 #: on purpose: every entry is a test that shells out, and a list of ten is a
 #: list of ten.
 SLOW_TEST_EXEMPTIONS: Dict[str, str] = {
-    "tests/unit/test_hermetic_suite.py::test_the_two_jobs_partition_the_suite_exactly": (
-        "runs pytest --collect-only three times to count what each CI selection "
-        "collects. Counting is the assertion; there is no cheaper way to count "
-        "what pytest collects."
-    ),
-    "tests/unit/test_hermetic_suite.py::test_a_local_run_still_covers_everything": (
-        "collects once, for the same reason: what pytest collects by default is "
-        "the thing being asserted about."
+    "tests/unit/test_release.py::test_the_wheel_builds_and_contains_the_package_data": (
+        "runs a real pip wheel build, because the wheel's contents are the "
+        "assertion and nothing cheaper produces a wheel."
     ),
 }
+
+#: Where a test marked `allow_network` may live. Anything else is refused at
+#: collection, so the hermetic unit suite cannot quietly acquire a socket test.
+ALLOW_NETWORK_DIRS = ("tests/e2e/", "tests/integration/")
 
 #: Below this many tests, the run is a targeted one (`pytest -k`, a single node)
 #: rather than a suite run, and the budget is not enforced. A deliberate
@@ -146,6 +143,18 @@ def pytest_collection_modifyitems(session, config, items):
     rest of the suite is not collected on purpose, so calling its exemptions
     stale would make every partial run fail.
     """
+    misplaced = sorted(
+        item.nodeid
+        for item in items
+        if item.get_closest_marker("allow_network") is not None
+        and not item.nodeid.startswith(ALLOW_NETWORK_DIRS)
+    )
+    if misplaced:
+        raise pytest.UsageError(
+            "allow_network is only allowed under "
+            f"{', '.join(ALLOW_NETWORK_DIRS)}; these tests carry it elsewhere: "
+            f"{misplaced}"
+        )
     _COLLECTED.update(item.nodeid for item in items)
     # CI invokes `pytest -q -m "not allow_network"` with no positional argument,
     # so an empty `config.args` is the whole suite and nothing else is.
