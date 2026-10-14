@@ -17,7 +17,7 @@ import io
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol
 
 from ..blast.payload import InboundEmail
@@ -53,10 +53,13 @@ class PreparedRequest:
 
 @dataclass(frozen=True)
 class ClientResponse:
-    """What an HttpClient hands back after a request completes."""
+    """What an HttpClient hands back after a request completes. `headers` is
+    optional for a client to fill; the readback adapter reads `Retry-After`
+    from it."""
 
     status: int
     body: bytes
+    headers: Dict[str, str] = field(default_factory=dict)
 
 
 class HttpClient(Protocol):
@@ -136,11 +139,14 @@ class UrllibHttpClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=request.timeout) as resp:
-                return ClientResponse(status=resp.status, body=resp.read())
+                return ClientResponse(
+                    status=resp.status, body=resp.read(), headers=dict(resp.headers.items())
+                )
         except urllib.error.HTTPError as exc:
             # A non-2xx status is still a response, not a transport failure.
             body = exc.read() if hasattr(exc, "read") else b""
-            return ClientResponse(status=exc.code, body=body)
+            headers = dict(exc.headers.items()) if exc.headers is not None else {}
+            return ClientResponse(status=exc.code, body=body, headers=headers)
 
 
 def build_request(
