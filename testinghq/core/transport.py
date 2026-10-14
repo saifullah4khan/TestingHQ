@@ -31,10 +31,7 @@ from .formats import WireFormat, get_format
 # on exact request bytes.
 DEFAULT_BOUNDARY = "----testinghq-boundary-2f6a9c"
 
-#: The format used when a target does not name one. SendGrid, because that is
-#: what every config in the wild was written against before formats were
-#: selectable, and changing a request's bytes without being asked would break
-#: every recorded artifact and replay.
+#: The format used when a target does not name one.
 DEFAULT_FORMAT = "sendgrid"
 
 #: A hook that sees the finished body and returns headers to add. Signatures and
@@ -159,9 +156,8 @@ def build_request(
     for it, without sending anything. Exposed separately so callers (e.g. a
     dry-run reporter) can inspect exactly what would go over the wire.
 
-    `wire_format` defaults to SendGrid Inbound Parse, which is what this function
-    emitted before the format layer existed, so an existing config with no
-    `format` key produces the identical bytes.
+    `wire_format` defaults to SendGrid Inbound Parse (parsed mode). Send paths
+    pass the resolved target's format (`core.targets.ResolvedTarget`).
 
     `extra_headers` is a callable taking the finished body bytes and returning a
     header dict. It runs after the body is built and never before, which is the
