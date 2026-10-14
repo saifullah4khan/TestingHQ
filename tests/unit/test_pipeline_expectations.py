@@ -852,3 +852,19 @@ def test_expectations_serialize_with_the_route_they_were_built_with():
     email = _email()
     assert exp.Expectations.from_email(email, route="q").to_json()["route"] == "q"
     assert exp.Expectations.from_email(email).to_json()["attachments"] == []
+
+
+def test_a_field_the_adapter_could_not_read_says_what_shape_it_found():
+    """A list of objects where names were expected is SKIPPED, and the detail
+    carries the adapter's note so the reader knows which path to map."""
+    from dataclasses import replace
+
+    email = _email(attachments=(Attachment(filename="a.pdf", content_type="application/pdf", content=b"x"),))
+    readback = replace(
+        _good(email),
+        fields=tuple(f for f in ALL_FIELDS if f != "attachment_names"),
+        field_notes=(("attachment_names", "a list of 1 object(s) with keys ['file_name']"),),
+    )
+    check = _status(exp.evaluate(email, readback, exp.Expectations.from_email(email)), exp.CHECK_ATTACHMENTS)
+    assert check.reason == exp.SKIP_NOT_VISIBLE
+    assert "list of 1 object(s) with keys ['file_name']" in check.detail

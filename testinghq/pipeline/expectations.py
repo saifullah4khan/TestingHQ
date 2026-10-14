@@ -376,6 +376,23 @@ def loose_attachment_key(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _not_visible(
+    name: str, detail: str, readback: Readback, *fields: str
+) -> CheckResult:
+    """SKIPPED as not visible, with the adapter's note on what shape it found
+    in each field, when it has one."""
+    note_for = getattr(readback, "note_for", None)
+    notes = []
+    if callable(note_for):
+        for field_name in fields:
+            note = note_for(field_name)
+            if note:
+                notes.append(f"{field_name}: {note}")
+    if notes:
+        detail = f"{detail} ({'; '.join(notes)})"
+    return _skipped(name, detail, SKIP_NOT_VISIBLE)
+
+
 def _skipped(name: str, detail: str, reason: str) -> CheckResult:
     if reason not in SKIP_REASONS:  # pragma: no cover - guards a typo
         raise ExpectationError(
@@ -418,10 +435,7 @@ def _check_sender(
     if readback is None:
         return _skipped(CHECK_SENDER, "no record to read a sender from", SKIP_NO_RECORD)
     if not readback.has("from_addr"):
-        return _skipped(
-            CHECK_SENDER, "the adapter could not see a sender on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_SENDER, "the adapter could not see a sender on this record", readback, "from_addr")
     expected = sender_address(expectations.sender)
     actual = sender_address(readback.from_addr)
     if expected == actual:
@@ -450,10 +464,7 @@ def _check_subject(
     if readback is None:
         return _skipped(CHECK_SUBJECT, "no record to read a subject from", SKIP_NO_RECORD)
     if not readback.has("subject"):
-        return _skipped(
-            CHECK_SUBJECT, "the adapter could not see a subject on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_SUBJECT, "the adapter could not see a subject on this record", readback, "subject")
     mode = expectations.subject_match
     expected = normalize_text(expectations.subject)
     actual = normalize_text(readback.subject)
@@ -479,10 +490,7 @@ def _check_body(
     if readback is None:
         return _skipped(CHECK_BODY, "no record to read a body from", SKIP_NO_RECORD)
     if not readback.has("body"):
-        return _skipped(
-            CHECK_BODY, "the adapter could not see a body on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_BODY, "the adapter could not see a body on this record", readback, "body")
     expected = normalize_text(expectations.expected_body())
     if not expected:
         # SKIPPED, not PASSED: an empty expectation is contained in anything.
@@ -519,10 +527,11 @@ def _check_attachments(
     if readback is None:
         return _skipped(CHECK_ATTACHMENTS, "no record to read attachments from", SKIP_NO_RECORD)
     if not readback.has("attachment_names"):
-        return _skipped(
+        return _not_visible(
             CHECK_ATTACHMENTS,
             "the adapter could not see attachments on this record",
-            SKIP_NOT_VISIBLE,
+            readback,
+            "attachment_names",
         )
     expected = normalize_attachment_names(expectations.attachment_names)
     if not expected:
@@ -604,10 +613,7 @@ def _check_routing(
     if readback is None:
         return _skipped(CHECK_ROUTING, "no record to read a route from", SKIP_NO_RECORD)
     if not readback.has("route"):
-        return _skipped(
-            CHECK_ROUTING, "the adapter could not see a route on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_ROUTING, "the adapter could not see a route on this record", readback, "route")
     expected = normalize_route(expected_value)
     actual = normalize_route(readback.route)
     if expected == actual:
@@ -750,10 +756,12 @@ def check_thread_link(
         if readback.has(field_name)
     ]
     if not visible:
-        return _skipped(
+        return _not_visible(
             name,
             "the adapter could not see an In-Reply-To or a References header",
-            SKIP_NOT_VISIBLE,
+            readback,
+            "in_reply_to",
+            "references",
         )
 
     problems = []
