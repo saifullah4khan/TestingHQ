@@ -109,3 +109,44 @@ def test_a_fabricated_bait_parent_is_reported():
     out = report(_artifact(summary))
     assert [f.kind for f in out.findings] == ["bait-fabricated"]
     assert out.exit_code == EXIT_OK
+
+
+def _html(tmp_path, artifact):
+    import json as _json
+
+    from testinghq import cli
+
+    path = tmp_path / "run.json"
+    path.write_text(_json.dumps(artifact), encoding="utf-8")
+    out = tmp_path / "run.html"
+    assert cli.main(["report", str(path), "--html", str(out)]) in (EXIT_OK, EXIT_FINDING)
+    return out.read_text(encoding="utf-8")
+
+
+def test_report_html_renders_loop_steady_and_sigcheck(tmp_path):
+    results = [_result("hq-1-0000", False)]
+    loop_page = _html(tmp_path, _artifact(summarize(results, results, "none",
+                                                    outbound_enumerated=True)))
+    assert "LOOP-SAFE" in loop_page
+
+    steady = {
+        "schema_version": 1, "tool": "steady", "aborted": False, "seed": 5,
+        "config": {"tool": "steady", "label_field": "category", "dry_run": False},
+        "stability": {"verdict": "UNSTABLE", "sent": 6, "labelled_variants": 6,
+                      "dissenters": 2, "gate": {"failed": True,
+                                                "reason": "majority dissent 33.3% is over the gate"},
+                      "families": [], "unlabelled_families": [], "label_reads": {}},
+        "families": [],
+    }
+    page = _html(tmp_path, steady)
+    assert "UNSTABLE" in page and "majority dissent 33.3% is over the gate" in page
+
+    sigcheck = {
+        "schema_version": 1, "tool": "sigcheck", "aborted": False, "seed": None,
+        "config": {"tool": "sigcheck", "scheme": "mailgun", "dry_run": False},
+        "summary": {"verdict": "GAPS", "findings": 1, "sent": 1, "notes": []},
+        "variants": [{"variant": "unsigned", "expect": "reject", "status": 200,
+                      "verdict": "FINDING", "detail": "accepted (200): not enforced"}],
+    }
+    page = _html(tmp_path, sigcheck)
+    assert "GAPS" in page and "unsigned" in page and "Variants" in page
