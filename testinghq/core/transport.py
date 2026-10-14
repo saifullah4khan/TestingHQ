@@ -264,3 +264,120 @@ def post(
         body_snippet=_content_snippet(response.body),
         error=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Keep-alive client. A self-contained block at the end of the module, with its
+# own imports, so it can be maintained without touching the code above.
+# ---------------------------------------------------------------------------
+
+import http.client as _http_client  # noqa: E402
+from urllib.parse import urlsplit as _urlsplit  # noqa: E402
+
+#: What a server that closed an idle kept-alive connection looks like from the
+#: client side. Retried once, and only on a connection that already carried a
+#: request: on a fresh connection the same error is a real failure, and a
+#: retry there could deliver a request twice.
+_STALE_CONNECTION_ERRORS = (
+    _http_client.RemoteDisconnected,
+    _http_client.BadStatusLine,
+    ConnectionResetError,
+    BrokenPipeError,
+)
+
+
+def _connection_for(scheme: str, host: str, port: Optional[int], timeout: float):
+    if scheme == "https":
+        return _http_client.HTTPSConnection(host, port, timeout=timeout)
+    return _http_client.HTTPConnection(host, port, timeout=timeout)
+
+
+class PersistentHttpClient(HttpClient):
+    """An HttpClient that keeps one HTTP/1.1 connection open across requests.
+
+    NOT thread-safe: give each worker thread its own instance. Returns a
+    ClientResponse for any status; raises on transport failure, like every
+    HttpClient. `PreparedRequest.timeout` applies to every request, including
+    one sent over a connection opened with a different timeout.
+
+    `connect_seconds` records the setup time of every connection this instance
+    opened, so a caller can report handshakes separately from request latency.
+    `connection_factory` exists for tests; it takes (scheme, host, port,
+    timeout) and returns an `http.client.HTTPConnection`-shaped object.
+    """
+
+    def __init__(self, connection_factory=None, clock=time.perf_counter) -> None:
+        self._factory = connection_factory or _connection_for
+        self._clock = clock
+        self._conn = None
+        self._origin = None
+        self._used = False
+        self.connect_seconds: List[float] = []
+        self.reconnects = 0
+
+    @staticmethod
+    def _split(url: str):
+        parts = _urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError(f"not an http(s) URL: {url!r}")
+        target = parts.path or "/"
+        if parts.query:
+            target = f"{target}?{parts.query}"
+        return (parts.scheme, parts.hostname, parts.port), target
+
+    def connect(self, url: str, timeout: float = 10.0) -> float:
+        """Open the connection for `url` now and return its setup time in
+        seconds. Optional: `send` connects on demand."""
+        origin, _target = self._split(url)
+        return self._open(origin, timeout)
+
+    def _open(self, origin, timeout: float) -> float:
+        self.close()
+        scheme, host, port = origin
+        conn = self._factory(scheme, host, port, timeout)
+        started = self._clock()
+        conn.connect()
+        elapsed = self._clock() - started
+        self._conn, self._origin, self._used = conn, origin, False
+        self.connect_seconds.append(elapsed)
+        return elapsed
+
+    def close(self) -> None:
+        conn, self._conn, self._origin = self._conn, None, None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 - closing is best effort
+                pass
+
+    def send(self, request: PreparedRequest) -> ClientResponse:
+        origin, target = self._split(request.url)
+        for attempt in (0, 1):
+            if self._conn is None or self._origin != origin:
+                self._open(origin, request.timeout)
+            conn, reused = self._conn, self._used
+            conn.timeout = request.timeout
+            if getattr(conn, "sock", None) is not None:
+                conn.sock.settimeout(request.timeout)
+            try:
+                conn.request(
+                    request.method, target,
+                    body=request.body if request.body else None,
+                    headers=request.headers,
+                )
+                response = conn.getresponse()
+                body = response.read()
+            except _STALE_CONNECTION_ERRORS:
+                self.close()
+                if not reused or attempt:
+                    raise
+                self.reconnects += 1
+                continue
+            except BaseException:
+                self.close()
+                raise
+            self._used = True
+            if response.will_close:
+                self.close()
+            return ClientResponse(status=response.status, body=body)
+        raise AssertionError("unreachable")  # pragma: no cover
