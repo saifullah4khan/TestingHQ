@@ -14,7 +14,7 @@ from testinghq.pipeline.adapters import ReadbackConfig
 from testinghq.pipeline.common import ReadbackOutcome, SentMessage
 from testinghq.pipeline.messages import make_tag, probe_for
 from testinghq.pipeline.readback import Readback
-from testinghq.reporting import ArtifactError, summarize
+from testinghq.reporting import ArtifactError, render, summarize
 
 SEED = 3
 COUNT = 3
@@ -92,6 +92,21 @@ def test_a_schema_0_verify_artifact_is_still_read_and_derived():
     result = summarize(artifact)
     assert result.verdict == "VERIFIED"
     assert result.verdict_source == "derived"
+
+
+@pytest.mark.parametrize("mode", ["fire", "check"])
+@pytest.mark.parametrize("aborted", [False, True])
+def test_the_json_tool_is_the_artifacts_own_tool_for_either_verify_mode(mode, aborted):
+    """`tool` is a frozen `report --json` key. It used to read "verify fire"
+    or "verify check", so a consumer switching on it saw two names for one
+    tool, neither of them the artifact's own `tool`."""
+    sent = _sent()
+    artifact = _verify_artifact({m.tag: [_good(m)] for m in sent})
+    artifact["config"]["mode"] = mode
+    artifact["aborted"] = aborted
+    result = summarize(artifact)
+    assert result.to_json()["tool"] == artifact["tool"] == "verify"
+    assert render(result).splitlines()[0] == f"tool:    verify ({mode})"
 
 
 @pytest.mark.parametrize("tool", ["verify", "ledger", "redeliver"])

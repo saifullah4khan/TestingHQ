@@ -111,7 +111,10 @@ class ArtifactSummary:
     rather than leaving the reader to assume. `exit_code_source` does the same
     for the exit code. `schema_version` is the artifact's (0 when it records
     none) and `aborted` says the run was interrupted. `to_json` emits exactly
-    `JSON_KEYS`, the frozen `report --json` shape.
+    `JSON_KEYS`, the frozen `report --json` shape. `mode` is the subcommand
+    for a tool that has several (verify fire or check); it is shown in the
+    text report and is not one of the JSON keys, so `tool` is always the
+    tool's own name, the one the artifact records.
     """
 
     tool: str
@@ -126,6 +129,7 @@ class ArtifactSummary:
     dry_run: bool = False
     schema_version: int = 0
     aborted: bool = False
+    mode: Optional[str] = None
 
     def to_json(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -356,7 +360,9 @@ def _readback_failed_finding(summary: Dict[str, Any]) -> Finding:
     return Finding(kind="readback-failed", detail=detail)
 
 
-def _read_aborted(artifact: Dict[str, Any], label: str) -> Optional[ArtifactSummary]:
+def _read_aborted(
+    artifact: Dict[str, Any], label: str, mode: Optional[str] = None
+) -> Optional[ArtifactSummary]:
     """A verify, ledger or redeliver run stopped by Ctrl-C, or None.
 
     Nothing in such an artifact was graded, so it reads as ABORTED with exit 3
@@ -379,14 +385,13 @@ def _read_aborted(artifact: Dict[str, Any], label: str) -> Optional[ArtifactSumm
             records=len(artifact.get("records") or []),
         ),
         findings=(Finding(kind="aborted", detail=detail),),
+        mode=mode,
         **_base(artifact, label),
     )
 
 
 def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
-    aborted = _read_aborted(
-        artifact, f"verify {_config(artifact).get('mode', 'fire')}"
-    )
+    aborted = _read_aborted(artifact, "verify", _config(artifact).get("mode", "fire"))
     if aborted is not None:
         return aborted
     summary = _summary(artifact)
@@ -437,7 +442,8 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
             records=len(artifact.get("records") or []),
         ),
         findings=tuple(findings),
-        **_base(artifact, f"verify {mode}"),
+        mode=mode,
+        **_base(artifact, "verify"),
     )
 
 
@@ -1004,7 +1010,7 @@ def render(summary: ArtifactSummary) -> str:
     terminal shows with no width. The machine-readable form is `--json`.
     """
     lines = [
-        f"tool:    {summary.tool}",
+        f"tool:    {summary.tool}" + (f" ({summary.mode})" if summary.mode else ""),
         f"verdict: {summary.verdict}"
         + ("" if summary.verdict_source == "recorded" else " (derived)"),
     ]
