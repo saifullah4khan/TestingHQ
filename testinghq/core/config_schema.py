@@ -11,17 +11,24 @@ render the effective config, and `docs/CONFIG.md` is generated from it, with a
 test that fails when the checked-in file no longer matches.
 
 THE IMPORTANT DIVISION OF LABOUR, because it is easy to get backwards.
-Validation does NOT consult this schema. It calls the real loaders,
+Validation of VALUES does NOT consult this schema. It calls the real loaders,
 `load_config` and `parse_readback_config`, because those are what will actually
 run, and a validator that checked the file against a description of the file
 would happily pass a config the tools then refuse.
 
-So this schema is documentation and rendering, and the anti-drift guarantee
-comes from elsewhere: `tests/unit/test_config_schema.py` asserts every default
-declared here equals the real default in the dataclass, and that every key the
-loaders accept is described. If the two disagree, a test fails. That is the
-only arrangement in which a generated doc can be trusted, because the thing
-being generated from is checked against the thing that actually runs.
+Key NAMES are the one thing checked against this schema: a key no table here
+declares is refused at load (`core.config.check_known_keys`), so a typo such
+as `formt = "mailgun"` fails instead of silently running with the default.
+That makes the schema a whitelist as well as documentation, so a key a loader
+reads but the schema omits would be refused, and the tests below catch it.
+
+So this schema is documentation, rendering and the key whitelist, and the
+anti-drift guarantee comes from elsewhere: `tests/unit/test_config_schema.py`
+asserts every default declared here equals the real default in the dataclass,
+and that every key the loaders accept is described. If the two disagree, a
+test fails. That is the only arrangement in which a generated doc can be
+trusted, because the thing being generated from is checked against the thing
+that actually runs.
 """
 from __future__ import annotations
 
@@ -73,6 +80,14 @@ class Table:
     #: hold, because a table of rows for an open-ended map is a list that is
     #: wrong the moment someone adds one.
     free_form: bool = False
+    #: The name of another table whose keys and sub-tables this one also
+    #: accepts: `[loop.outbound]` takes every `[readback]` key.
+    inherits: Optional[str] = None
+    #: True for a table that configures a readback adapter. When its `kind`
+    #: (or `spec`) names a custom `module:attribute` adapter, keys this schema
+    #: does not declare are allowed, because they may be that adapter's own and
+    #: the schema cannot know them. With a built-in kind they are refused.
+    custom_adapter_keys: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +157,7 @@ TARGETS = Table(
 
 READBACK = Table(
     name="readback",
+    custom_adapter_keys=True,
     summary=(
         "Where the pipeline's own output can be read back from. Optional for "
         "blast, barrage and compare, which judge a run by the HTTP status. "
@@ -520,6 +536,7 @@ LOOP = Table(
 
 LOOP_OUTBOUND = Table(
     name="loop.outbound",
+    inherits="readback",
     summary=(
         "Where `loop` reads what the pipeline sent: the same keys as "
         "[readback], usually a mailbox sink. Without it the auto-reply check is "
@@ -606,3 +623,49 @@ def table_named(name: str) -> Optional[Table]:
 
 def all_key_names() -> List[str]:
     return [key.name for table in TABLES for key in table.keys]
+
+
+def top_level_names() -> List[str]:
+    """The top-level tables a config file may hold: `targets`, `readback`,
+    `loop`, `steady`, `sigcheck`. Nothing else reads the file, so nothing else
+    is allowed in it."""
+    names: List[str] = []
+    for table in TABLES:
+        head = table.name.split(".", 1)[0]
+        if head not in names:
+            names.append(head)
+    return names
+
+
+def child_table(table: Table, key: str) -> Optional[Table]:
+    """The sub-table `key` of `table` (`fields` under `readback`), looking
+    through `inherits`, or None when `key` names no sub-table."""
+    found = table_named(f"{table.name}.{key}")
+    if found is None and table.inherits:
+        found = table_named(f"{table.inherits}.{key}")
+    return found
+
+
+def known_keys(table: Table) -> List[str]:
+    """Every key `table` may hold, sorted: its declared keys, those of the
+    table it inherits from, and the names of its sub-tables."""
+    sources = [table]
+    parent = table_named(table.inherits) if table.inherits else None
+    if parent is not None:
+        sources.append(parent)
+    names = {key.name for source in sources for key in source.keys}
+    for source in sources:
+        prefix = source.name + "."
+        for other in TABLES:
+            if other.name.startswith(prefix) and "." not in other.name[len(prefix):]:
+                names.add(other.name[len(prefix):])
+    return sorted(names)
+
+
+def accepts_custom_adapter_keys(table: Table) -> bool:
+    """True when `table`, or the table it inherits from, configures a
+    readback adapter and so may carry a custom adapter's own keys."""
+    if table.custom_adapter_keys:
+        return True
+    parent = table_named(table.inherits) if table.inherits else None
+    return bool(parent is not None and parent.custom_adapter_keys)
