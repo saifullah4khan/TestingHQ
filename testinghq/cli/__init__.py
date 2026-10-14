@@ -36,9 +36,7 @@ from .common import (
     DEFAULT_TARGET_CONFIG,
     _add_readback_args,
     _add_readback_poll_args,
-    _not_yet,
     _resolve_readback,
-    _resolve_target_url,
 )
 from .main import build_parser, main
 

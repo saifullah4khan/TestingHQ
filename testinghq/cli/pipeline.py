@@ -18,6 +18,7 @@ from .common import (
     _add_readback_args,
     _add_readback_poll_args,
     _resolve_readback,
+    add_send_args,
 )
 
 def _add_verify_parser(sub) -> None:
@@ -69,6 +70,7 @@ def _add_verify_parser(sub) -> None:
     )
     v_fire.add_argument("--out", help="path to write the verification artifact JSON")
     v_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(v_fire)
     _add_readback_args(v_fire)
     _add_readback_poll_args(v_fire)
 
@@ -118,6 +120,7 @@ def _add_ledger_parser(sub) -> None:
     l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
     l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
 
@@ -163,6 +166,7 @@ def _add_redeliver_parser(sub) -> None:
     r_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
     r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
     r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(r_fire)
     _add_readback_args(r_fire)
     _add_readback_poll_args(r_fire)
 
@@ -216,6 +220,7 @@ def _add_loop_parser(sub) -> None:
             "something real. Read from [loop].reply_address when set here"
         ),
     )
+    add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
 
@@ -283,6 +288,7 @@ def _add_steady_parser(sub) -> None:
     )
     s_fire.add_argument("--out", help="path to write the stability artifact JSON")
     s_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(s_fire)
     _add_readback_args(s_fire)
     _add_readback_poll_args(s_fire)
 
@@ -319,6 +325,7 @@ def _cmd_verify_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -376,6 +383,7 @@ def _cmd_ledger_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -420,6 +428,7 @@ def _cmd_loop_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -463,6 +472,7 @@ def _cmd_steady_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -502,4 +512,5 @@ def _cmd_redeliver_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
