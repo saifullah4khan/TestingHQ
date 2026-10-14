@@ -157,6 +157,31 @@ def loop_artifact(findings=0):
     }
 
 
+def steady_artifact():
+    return {
+        "schema_version": 1, "tool": "steady", "aborted": False, "seed": 5,
+        "config": {"tool": "steady", "seed": 5, "target": "local", "dry_run": False},
+        "stability": {"verdict": "STABLE", "sent": 4, "labelled_variants": 4,
+                      "dissenters": 0, "families": [], "unlabelled_families": [],
+                      "label_reads": {"labelled": 4}, "constant_label": None,
+                      "gate": {"failed": False, "reason": "within the gate"}},
+        "families": [{"intent_id": "a", "variants": [{}, {}, {}, {}]}],
+    }
+
+
+def sigcheck_artifact():
+    return {
+        "schema_version": 1, "tool": "sigcheck", "aborted": False, "seed": None,
+        "config": {"tool": "sigcheck", "scheme": "mailgun", "target": "local",
+                   "dry_run": False},
+        "summary": {"verdict": "GAPS", "findings": 1, "sent": 2, "notes": []},
+        "variants": [
+            {"variant": "valid", "verdict": "OK", "detail": "accepted (200)"},
+            {"variant": "unsigned", "verdict": "FINDING", "detail": "accepted (200)"},
+        ],
+    }
+
+
 def compare_artifact(regressed=True):
     return {
         "comparable": True, "warnings": [], "aligned_by": "id",
@@ -183,6 +208,8 @@ ALL_FIXTURES = {
     "ledger": ledger_artifact(),
     "redeliver": redeliver_artifact(),
     "loop": loop_artifact(),
+    "steady": steady_artifact(),
+    "sigcheck": sigcheck_artifact(),
     "compare": compare_artifact(),
 }
 
