@@ -1,270 +1,277 @@
-"""An end-to-end demonstration of verify, ledger, redeliver, loop and steady.
+"""The pipeline tools, run over real sockets against a small inbound-email pipeline.
 
-Most of this repository's suite is hermetic. This script is not, and
-deliberately so: it starts a real HTTP server on 127.0.0.1 that parses multipart
-inbound payloads into "tickets" the way a real intake pipeline would, points the
-CLI at it over a real socket, and prints what the five tools say.
+The pipeline in the first half of this file is the system under test. It
+imports nothing from testinghq. It parses the SendGrid-shaped webhook, decides
+what is machine mail by its own reading of RFC 3834, finds the run's tag with
+its own regex, deduplicates on Message-ID, threads replies onto their parent's
+ticket (even when the reply arrives first), acknowledges new tickets by mail,
+and labels each message with a toy keyword classifier that reads the content.
 
-It exists because the injectable-client seam, which the whole suite relies on,
-also means no test in the suite proves that the real transport, the real
-serializer, the real readback HTTP client and a real server can talk to each
-other. A seam that has only ever met a stub is a seam nobody has checked.
+The second half runs verify, ledger, redeliver, loop and steady against it,
+once against the correct pipeline and once with a defect switched on, and
+checks each run's exit code. The defects are on the write side: the pipeline
+answers 200 to every POST and then loses, duplicates or mishandles the message.
 
-Two things to notice when you read the output:
+    python examples/pipeline_demo.py
 
-  The pipeline here is correct. It deduplicates on Message-ID, it threads a
-  reply onto its parent's ticket, it keeps the attachments. That is the
-  baseline; a tool that reported a problem here would be wrong, and the
-  script fails if it does.
-
-  Then the same verification runs against a readback that reports every third
-  record as absent, while the endpoint keeps answering 200. That is the whole
-  argument for this suite of tools, made by running it.
-
-Run it:
-
-    .venv\\Scripts\\python.exe examples\\pipeline_demo.py
-
-It binds to loopback only. Every address in every payload is synthetic and
-reserved-example, and nothing is sent anywhere else.
+It binds to 127.0.0.1 only, and every address in every payload is on a
+reserved example domain.
 """
 from __future__ import annotations
 
 import email
+import email.utils
 import json
 import re
 import sys
 import tempfile
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from email.message import Message
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Dict, List, Optional
+from urllib.parse import parse_qs, urlsplit
 
-_BOUNDARY = re.compile(r"boundary=([^\s;]+)")
-TAG_MARKER = re.compile(r"\[testinghq:([^\]]+)\]")
-TAG_HEADER = re.compile(r"^X-TestingHQ-Tag:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+# ---------------------------------------------------------------------------
+# The pipeline under test
+# ---------------------------------------------------------------------------
 
-CONFIG = """[targets.local]
-name = "local"
-url = "http://127.0.0.1:{port}/intake"
+#: The marker a message carries its test tag in. A helpdesk search over the
+#: subject and body would find it the same way.
+TAG_PATTERN = re.compile(r"\[testinghq:([A-Za-z0-9._-]+)\]")
 
-[readback]
-kind = "http"
-url = "http://127.0.0.1:{port}/tickets"
-tag_param = "tag"
+#: RFC 3834 section 5: any Auto-Submitted value other than "no" is automatic.
+#: Section 2 lists the other signals a responder should respect.
+BULK_PRECEDENCE = ("bulk", "list", "junk")
+LIST_HEADERS = ("list-id", "list-unsubscribe", "list-post", "list-help")
+ROBOT_LOCALS = ("mailer-daemon", "postmaster", "noreply", "no-reply",
+                "donotreply", "do-not-reply")
+AUTO_REPLY_SUBJECTS = ("automatic reply", "auto-reply", "autoreply", "out of office")
 
-# The outbound sink loop reads to check whether the pipeline auto-replied.
-# It points at the file the demo's pipeline appends to, so the tool is checking
-# the same thing the pipeline did rather than a file nothing writes to.
-[loop.outbound]
-kind = "mailbox"
-path = "{sink}"
+#: The toy classifier's vocabulary: words (or word starts) per category, in the
+#: three languages the steady fixture is written in.
+CATEGORY_WORDS = {
+    "billing": ("charge", "refund", "invoice", "inv-", "paise", "رقم", "چارج", "انوائس"),
+    "account": ("account", "password", "log in", "login", "subscription", "cancel",
+                "gdpr", "mansookh", "اکاؤنٹ", "پاس ورڈ", "سبسکرپشن", "منسوخ"),
+    "shipping": ("order", "deliver", "arrived", "parcel", "size",
+                 "آرڈر", "پارسل", "سائز"),
+    "product": ("kettle", "crack", "damage", "daraar", "app", "feature",
+                "کیتل", "دراڑ", "ایپ"),
+    "sales": ("pricing", "price", "cost", "qeemat", "قیمت", "لاگت"),
+}
+_CATEGORY_PATTERNS = {
+    category: [re.compile(r"(?<!\w)" + re.escape(word), re.IGNORECASE) for word in words]
+    for category, words in CATEGORY_WORDS.items()
+}
 
-[loop]
-reply_address = "no-reply@example.com"
-"""
-
-
-def _tag_of(raw: str) -> str:
-    match = TAG_HEADER.search(raw)
-    if match:
-        return match.group(1).strip()
-    found = TAG_MARKER.search(raw)
-    return found.group(1) if found else ""
-
-
-def _bare(value: str) -> str:
-    return (value or "").strip().strip("<>").strip()
+REPLY_ADDRESS = "support@example.com"
 
 
-def _parse_multipart(raw: str, content_type: str) -> dict:
-    """Split the SendGrid-shaped multipart into `{part name: Message}`.
+def classify(text: str) -> str:
+    """The category whose words appear most often in `text`, or "general"."""
+    scores = {
+        category: sum(len(p.findall(text)) for p in patterns)
+        for category, patterns in _CATEGORY_PATTERNS.items()
+    }
+    best = max(scores.values())
+    if best == 0:
+        return "general"
+    return next(c for c in CATEGORY_WORDS if scores[c] == best)
 
-    This is the part a real pipeline has to get right, and getting it wrong is
-    exactly what the tools exist to catch: the payload's real headers arrive as
-    the body of a form field named `headers`, not as MIME headers on the
-    request. A handler that read `From` off the outer message would see nothing,
-    which is the shape of the bug the sender check reports as an empty address.
+
+def machine_mail_reason(headers: Message, sender: str, subject: str) -> Optional[str]:
+    """Why this message is automatic, or None for a person's mail."""
+    auto = (headers.get("Auto-Submitted") or "").split(";")[0].strip().lower()
+    if auto and auto != "no":
+        return f"Auto-Submitted: {auto}"
+    precedence = (headers.get("Precedence") or "").strip().lower()
+    if precedence in BULK_PRECEDENCE:
+        return f"Precedence: {precedence}"
+    present = {name.lower() for name in headers.keys()}
+    for name in LIST_HEADERS:
+        if name in present:
+            return f"{name} header"
+    if (headers.get("Return-Path") or "").strip() == "<>":
+        return "null Return-Path"
+    if (headers.get("Content-Type") or "").lower().startswith("multipart/report"):
+        return "delivery report"
+    local = email.utils.parseaddr(sender)[1].lower().split("@", 1)[0]
+    if local in ROBOT_LOCALS or local.startswith("owner-") or local.endswith("-request"):
+        return f"sender {local}@"
+    if subject.strip().lower().startswith(AUTO_REPLY_SUBJECTS):
+        return "auto-reply subject"
+    return None
+
+
+def _ids(value: Optional[str]) -> List[str]:
+    """Message-IDs in a header, read leniently: `<id>` as RFC 5322 writes
+    them, or bare `id@host` tokens as some senders do."""
+    bracketed = re.findall(r"<([^<>\s]+)>", value or "")
+    return bracketed or [t for t in (value or "").split() if "@" in t]
+
+
+class Pipeline:
+    """Intake state, and the defects a run can switch on.
+
+    lose_every           answer 200, then never write every Nth message
+    duplicate_every      write every Nth message twice, as a worker that lost
+                         its queue ack and processed the redelivery would
+    answer_machine_mail  send the acknowledgement to machine mail too
+    ticket_machine_mail  open a ticket for machine mail
+    truncated_classifier label from the first 60 characters of the body, as a
+                         prompt cut short to save tokens would
     """
-    boundary = _BOUNDARY.search(content_type)
-    if boundary is None:
-        return {}
-    container = email.message_from_string(
-        f"Content-Type: {content_type}\r\n\r\n{raw}"
+
+    def __init__(self, outbound_path: Path) -> None:
+        self.outbound_path = outbound_path
+        self.lock = threading.Lock()
+        self.reset()
+
+    def reset(self, **defects) -> None:
+        self.records: List[dict] = []
+        self.ticket_of: Dict[str, str] = {}
+        self.waiting: Dict[str, List[dict]] = {}
+        self.accepted = self.tickets = self.sent = 0
+        self.lose_every = defects.pop("lose_every", 0)
+        self.duplicate_every = defects.pop("duplicate_every", 0)
+        self.answer_machine_mail = defects.pop("answer_machine_mail", False)
+        self.ticket_machine_mail = defects.pop("ticket_machine_mail", False)
+        self.truncated_classifier = defects.pop("truncated_classifier", False)
+        if defects:
+            raise TypeError(f"unknown defects: {sorted(defects)}")
+        self.outbound_path.write_text("", encoding="utf-8")
+
+    def receive(self, form: Dict[str, str], attachments: List[str]) -> dict:
+        headers = email.message_from_string(form.get("headers", ""))
+        sender, subject, body = form.get("from", ""), form.get("subject", ""), form.get("text", "")
+        message_id = (_ids(headers.get("Message-ID")) or [""])[0]
+        with self.lock:
+            reason = machine_mail_reason(headers, sender, subject)
+            if reason and self.answer_machine_mail:
+                self._acknowledge(sender, subject, message_id, None)
+            if reason and not self.ticket_machine_mail:
+                return {"ignored": reason}
+            if message_id and message_id in self.ticket_of:
+                return {"duplicate_of": self.ticket_of[message_id]}
+            self.accepted += 1
+            if self.lose_every and self.accepted % self.lose_every == 0:
+                return {"accepted": True}
+            parents = _ids(headers.get("In-Reply-To")) + _ids(headers.get("References"))[::-1]
+            parent_ticket = next((self.ticket_of[p] for p in parents if p in self.ticket_of), None)
+            found = TAG_PATTERN.search(subject) or TAG_PATTERN.search(body)
+            label_text = body[:60] if self.truncated_classifier else f"{subject}\n{body}"
+            record = {
+                "id": parent_ticket or self._new_ticket(),
+                "tag": found.group(1) if found else None,
+                "from": sender,
+                "subject": subject,
+                "body": body,
+                "attachments": attachments,
+                "route": (json.loads(form.get("envelope") or "{}").get("to") or [""])[0],
+                "message_id": message_id,
+                "in_reply_to": (_ids(headers.get("In-Reply-To")) or [None])[0],
+                "references": _ids(headers.get("References")),
+                "category": classify(label_text),
+            }
+            self.records.append(record)
+            if self.duplicate_every and self.accepted % self.duplicate_every == 0:
+                self.records.append(dict(record, id=self._new_ticket()))
+            if parent_ticket is None and parents:
+                self.waiting.setdefault(parents[0], []).append(record)
+            if message_id:
+                self.ticket_of[message_id] = record["id"]
+                self._adopt_orphans(message_id, record["id"])
+            if parent_ticket is None and not reason:
+                self._acknowledge(sender, subject, message_id, record["id"])
+            return {"ticket": record["id"]}
+
+    def _new_ticket(self) -> str:
+        self.tickets += 1
+        return f"T{self.tickets:05d}"
+
+    def _adopt_orphans(self, message_id: str, ticket: str) -> None:
+        """Merge the tickets of replies that arrived before this message into
+        its ticket, together with anything already threaded onto them."""
+        for orphan in self.waiting.pop(message_id, []):
+            old = orphan["id"]
+            if old == ticket:
+                continue
+            for record in self.records:
+                if record["id"] == old:
+                    record["id"] = ticket
+            for known, value in self.ticket_of.items():
+                if value == old:
+                    self.ticket_of[known] = ticket
+
+    def _acknowledge(self, to: str, subject: str, message_id: str,
+                     ticket: Optional[str]) -> None:
+        """One outbound acknowledgement, appended to the outbound sink."""
+        self.sent += 1
+        own_id = f"ack-{self.sent}@helpdesk.example.com"
+        if ticket:
+            self.ticket_of[own_id] = ticket
+        line = {
+            "id": f"OUT{self.sent:04d}",
+            "from": REPLY_ADDRESS,
+            "to": to,
+            "subject": f"Re: {subject}",
+            "body": "We received your message and will reply soon.",
+            "attachments": [],
+            "message_id": own_id,
+            "in_reply_to": message_id or None,
+            "references": [message_id] if message_id else [],
+        }
+        with self.outbound_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(line) + "\n")
+
+    def find(self, tag: Optional[str]) -> List[dict]:
+        with self.lock:
+            return [dict(r) for r in self.records if tag is None or r["tag"] == tag]
+
+
+def parse_form(content_type: str, raw: bytes):
+    """A multipart/form-data body as ({field: text}, [attachment filenames])."""
+    container = email.message_from_bytes(
+        b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + raw
     )
-    fields = {}
-    for part in container.get_payload():
+    parts = {}
+    for part in container.get_payload() if container.is_multipart() else []:
         name = part.get_param("name", header="content-disposition")
         if name:
-            fields[name] = part
-    return fields
-
-
-def _decoded(part) -> str:
-    if part is None:
-        return ""
-    return (part.get_payload(decode=True) or b"").decode("utf-8", "replace")
-
-
-def _headers_blob(fields: dict) -> dict:
-    """The payload's own headers, re-parsed as a message so `Message-ID` and
-    the threading headers can be read normally."""
-    blob = _decoded(fields.get("headers"))
-    return email.message_from_string(blob) if blob else {}
-
-
-def _text_field(fields: dict, name: str) -> str:
-    return _decoded(fields.get(name))
-
-
-def _json_field(fields: dict, name: str):
-    raw = _decoded(fields.get(name))
-    if not raw:
-        return None
+            parts[name] = part
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+        charsets = json.loads(parts["charsets"].get_payload(decode=True) or b"{}")
+    except (KeyError, ValueError):
+        charsets = {}
+    form, files = {}, []
+    for name, part in parts.items():
+        if part.get_filename():
+            files.append(part.get_filename())
+            continue
+        data = part.get_payload(decode=True) or b""
+        try:
+            form[name] = data.decode(charsets.get(name, "utf-8"))
+        except (LookupError, UnicodeDecodeError):
+            form[name] = data.decode("utf-8", "replace")
+    return form, files
 
 
-def _attachment_names(fields: dict):
-    names = []
-    index = 1
-    while f"attachment{index}" in fields:
-        part = fields[f"attachment{index}"]
-        names.append(part.get_filename() or f"attachment{index}")
-        index += 1
-    return names
-
-
-class IntakeHandler(BaseHTTPRequestHandler):
-    """A small, correct intake pipeline.
-
-    One ticket per Message-ID, so a provider's retry produces no second ticket.
-    A reply is filed on its parent's ticket, so an out-of-order reply still ends
-    up in the right conversation. Machine-generated mail is recognised and
-    nothing further happens: no ticket, no reply. Every field the readback can
-    see is kept.
-
-    `auto_reply` and `ticket_machine_mail` turn the machine-mail behaviour into
-    the two defects `loop` is for. Both default off, so the handler is a correct
-    pipeline until a run says otherwise.
-    """
+class Handler(BaseHTTPRequestHandler):
+    """POST /intake is the webhook. GET /tickets?tag= is the readback, and
+    GET /tickets with no tag lists every record."""
 
     protocol_version = "HTTP/1.1"
-    records: list = []
-    by_message_id: dict = {}
-    counter = [0]
-    auto_reply = [False]
-    ticket_machine_mail = [False]
-    outbound_path = [None]
-    outbound: list = []
-    #: Tags whose route this pipeline gets wrong, for `steady`. Keyed on the
-    #: tag rather than on a header the payload carries, because a tool that told
-    #: the system under test which transform it had applied would be measuring
-    #: something other than what a customer sends.
-    unstable_tags: set = set()
+    pipeline: Pipeline
 
     def do_POST(self):  # noqa: N802 - the name the stdlib requires
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length).decode("utf-8", "replace")
-        content_type = self.headers.get("Content-Type", "")
-        fields = _parse_multipart(raw, content_type)
-        headers = _headers_blob(fields)
-
-        if self._handle_machine_mail(fields, headers, raw):
-            return self._json({"ok": True, "suppressed": True})
-
-        message_id = _bare(headers.get("Message-ID", ""))
-        if message_id and message_id in self.by_message_id:
-            self.by_message_id[message_id]["deliveries"] = (
-                self.by_message_id[message_id].get("deliveries", 1) + 1
-            )
-            return self._json({"ok": True, "deduplicated": True})
-
-        parent_id = _bare(headers.get("In-Reply-To", ""))
-        parent = self.by_message_id.get(parent_id)
-
-        IntakeHandler.counter[0] += 1
-        ticket_id = parent["id"] if parent else f"T{IntakeHandler.counter[0]:05d}"
-
-        envelope = _json_field(fields, "envelope") or {}
-        recipients = envelope.get("to") or []
-
-        record = {
-            "id": ticket_id,
-            "tag": _tag_of(raw),
-            "from": _text_field(fields, "from"),
-            "subject": _text_field(fields, "subject"),
-            "body": _text_field(fields, "text"),
-            "attachments": _attachment_names(fields),
-            # Filed in the mailbox the message was addressed to, which is what
-            # the routing check expects by default, unless this payload is one
-            # the classifier handles differently from its own baseline.
-            "route": self._route_for(recipients, fields),
-            "message_id": message_id,
-            "in_reply_to": parent_id or None,
-            "references": (headers.get("References") or "").split(),
-            "deliveries": 1,
-        }
-        self.records.append(record)
-        if message_id:
-            self.by_message_id[message_id] = record
-        _reconcile_orphans(self.records)
-        return self._json({"ok": True, "id": record["id"]})
-
-    def _handle_machine_mail(self, fields, headers, raw) -> bool:
-        """Recognise machine mail and, unless a defect is switched on, drop it.
-
-        Returns True when the message was recognised and did not become a ticket.
-        The auto-reply and the ticket are two independent defects, decided
-        separately, so a pipeline that does both reports both.
-        """
-        from testinghq.pipeline.loop import machine_mail_marker
-
-        marker = machine_mail_marker(
-            headers, _text_field(fields, "subject"), _text_field(fields, "from")
-        )
-        if marker is None:
-            return False
-        if self.auto_reply[0]:
-            self._emit(fields, marker)
-        return not self.ticket_machine_mail[0]
-
-    def _route_for(self, recipients, fields) -> str:
-        destination = recipients[0] if recipients else "nowhere"
-        if _tag_of(_text_field(fields, "headers")) in self.unstable_tags:
-            return f"{destination}-unstable"
-        return destination
-
-    def _emit(self, fields, marker) -> None:
-        """One outbound auto-reply, in memory and appended to the sink file."""
-        line = {
-            "id": f"OUT{len(self.outbound) + 1:04d}",
-            "tag": _tag_of(_text_field(fields, "headers")),
-            "to": _text_field(fields, "to"),
-            "from": _text_field(fields, "from"),
-            "subject": f"Re: {_text_field(fields, 'subject')}",
-            "body": "This is an automatic reply.",
-            "attachments": [],
-            "message_id": f"outbound-{len(self.outbound) + 1}@example.test",
-            "triggered_by": marker,
-        }
-        self.outbound.append(line)
-        if self.outbound_path[0]:
-            with open(self.outbound_path[0], "a", encoding="utf-8") as handle:
-                handle.write(json.dumps(line) + "\n")
+        raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        form, files = parse_form(self.headers.get("Content-Type", ""), raw)
+        self._json(self.pipeline.receive(form, files))
 
     def do_GET(self):  # noqa: N802
-        """The readback endpoint. `?tag=` looks one payload up; no tag
-        enumerates everything, which is what the ledger's stray check needs."""
-        if "?" not in self.path:
-            return self._json(self.records)
-        query = self.path.split("?", 1)[1]
-        params = dict(part.split("=", 1) for part in query.split("&") if "=" in part)
-        tag = params.get("tag", "")
-        if not tag:
-            return self._json(self.records)
-        return self._json([r for r in self.records if r["tag"] == tag])
+        query = parse_qs(urlsplit(self.path).query)
+        self._json(self.pipeline.find((query.get("tag") or [None])[0]))
 
     def _json(self, payload) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -275,295 +282,107 @@ class IntakeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, *_args) -> None:
-        return  # keep the demo's output readable
+        return
 
 
-def _steady_signed_tags(count=3) -> list:
-    """The tags `steady` will give the signed variants.
+# ---------------------------------------------------------------------------
+# The demonstration
+# ---------------------------------------------------------------------------
 
-    Computed with the tool's own builders, because the pipeline can only be
-    told which payloads to relabel and the readback is keyed by tag. A demo
-    that guessed the numbering would go stale silently.
-    """
-    from testinghq.pipeline import steady
+CONFIG = """[targets.local]
+url = "http://127.0.0.1:{port}/intake"
 
-    families = steady.build_families(0, intents=steady.load_intents()[:count])
-    items = steady.build_items(families)
-    tags, index = [], 0
-    for family in families:
-        for variant in family.variants:
-            tag = items[index][1]
-            index += 1
-            if variant.transform == "add-signature":
-                tags.append(tag)
-    return tags
+[readback]
+kind = "http"
+url = "http://127.0.0.1:{port}/tickets"
+tag_param = "tag"
 
+[loop.outbound]
+kind = "mailbox"
+path = "{sink}"
 
-def reset() -> None:
-    """Forget every ticket, as a fresh deployment would be.
+[loop]
+reply_address = "{reply}"
+"""
 
-    The machine-mail switches go back to correct too, so one run's defect does
-    not leak into the next."""
-    IntakeHandler.records = []
-    IntakeHandler.by_message_id = {}
-    IntakeHandler.counter[0] = 0
-    IntakeHandler.auto_reply[0] = False
-    IntakeHandler.ticket_machine_mail[0] = False
-    IntakeHandler.outbound = []
-    IntakeHandler.unstable_tags = set()
+#: Loopback answers in milliseconds, so the readback need not wait as long as
+#: it would for a real deployment, nor pace itself for a vendor API.
+FAST = ("--quiet-window", "1", "--poll-interval", "0.2", "--readback-rate", "200")
+#: For runs where records go missing: the readback waits for them until it
+#: gives up, so give up quickly.
+SHORT = ("--max-wait", "3")
+STEADY = ("steady", "fire", "--count", "3", "--label-field", "category")
+MACHINE_DEFECTS = {"answer_machine_mail": True, "ticket_machine_mail": True}
 
-
-def _reconcile_orphans(records: list) -> None:
-    """Move any message that was waiting for a parent onto that parent's ticket.
-
-    This is the whole reply-first case, and it is the part a correct intake
-    pipeline has to get right: a reply often lands before the message it
-    answers, so it is filed provisionally and moved when the parent finally
-    shows up. Opening a new conversation instead is the common bug, and it is
-    what the `thread_together` check catches. Re-runs to a fixed point because a
-    third message can be waiting on the second, which was waiting on the first.
-    """
-    by_message = {r["message_id"]: r for r in records if r["message_id"]}
-    moved = True
-    while moved:
-        moved = False
-        for record in records:
-            parent = by_message.get(record.get("in_reply_to") or "")
-            if parent is None or parent["id"] == record["id"]:
-                continue
-            record["id"] = parent["id"]
-            moved = True
-
-
-#: A readback that reports every third record as absent, while the endpoint
-#: keeps answering 200. The loss is invented on the read side, so every status
-#: code in the run is a success and the only thing that can notice is a tool
-#: that asks what the system produced.
-#:
-#: Built from the config it is handed rather than from a port stashed in this
-#: module. The first version read a module global, which is zero when the CLI
-#: imports this file as `examples.pipeline_demo` while the server was started
-#: from the `__main__` copy, and the run failed with "the requested address is
-#: not valid in its context" rather than with anything about pipelines.
-LOSSY_EVERY = 3
-_losy_seen = [0]
-#: The live server's port, so the config written by `main` can point at it.
-#: The lossy adapter deliberately does not read this: it is handed the config
-#: instead, because the CLI imports this file as `examples.pipeline_demo` while
-#: the server is started from the `__main__` copy, and the two module objects
-#: have separate globals.
-_PORT = [0]
-
-
-def lossy_adapter(config):
-    from testinghq.pipeline.adapters import HttpJsonAdapter
-
-    inner = HttpJsonAdapter(
-        config["url"],
-        tag_param=config["tag_param"],
-        items_key=config["items_key"],
-        field_map=config["field_map"],
-        list_path=config.get("list_path"),
-    )
-    inner_fetch = inner.fetch
-
-    class _Lossy:
-        def fetch(self, probe):
-            _losy_seen[0] += 1
-            if _losy_seen[0] % LOSSY_EVERY == 0:
-                return []
-            return inner_fetch(probe)
-
-        def list_all(self):
-            return inner.list_all()
-
-        def close(self) -> None:
-            return None
-
-    return _Lossy()
-
-
-def _rule(title: str) -> None:
-    print()
-    print("=" * 74)
-    print(title)
-    print("=" * 74)
+#: (title, argv, pipeline defects, expected exit code)
+RUNS = (
+    ("verify: the correct pipeline", ["verify", "fire", "--count", "12"], {}, 0),
+    ("ledger: the correct pipeline", ["ledger", "fire", "--count", "12"], {}, 0),
+    ("ledger: a worker that writes every fifth message twice",
+     ["ledger", "fire", "--count", "12"], {"duplicate_every": 5}, 3),
+    ("ledger: a pipeline that drops every third message after answering 200",
+     ["ledger", "fire", "--count", "12", *SHORT], {"lose_every": 3}, 3),
+    ("verify: the same lossy pipeline",
+     ["verify", "fire", "--count", "12", *SHORT], {"lose_every": 3}, 3),
+    ("redeliver: duplicates, a slow retry, a reply first, a reference chain",
+     ["redeliver", "fire", "--count", "2", "--retry-after", "1"], {}, 0),
+    ("loop: machine mail against the correct pipeline", ["loop", "fire"], {}, 0),
+    ("loop: a pipeline that tickets and acknowledges machine mail",
+     ["loop", "fire"], MACHINE_DEFECTS, 3),
+    ("loop: the same pipeline, with tickets for machine mail allowed",
+     ["loop", "fire", "--ticket-policy", "allowed"], MACHINE_DEFECTS, 3),
+    ("steady: a classifier that reads the whole message", [*STEADY], {}, 0),
+    ("steady: a classifier that reads the first 60 characters",
+     [*STEADY], {"truncated_classifier": True}, 3),
+)
 
 
 def main() -> int:
-    from testinghq.cli import main as cli_main
+    from testinghq.cli import main as cli
 
     work = Path(tempfile.mkdtemp(prefix="testinghq-demo-"))
+    sink = work / "outbound.jsonl"
+    pipeline = Pipeline(sink)
+    Handler.pipeline = pipeline
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     config = work / "target.toml"
-    sink = work / "outbound-sink.jsonl"
     config.write_text(
-        CONFIG.format(port=_PORT[0], sink=sink.as_posix()), encoding="utf-8"
+        CONFIG.format(port=server.server_address[1], sink=sink.as_posix(),
+                      reply=REPLY_ADDRESS),
+        encoding="utf-8",
     )
-    IntakeHandler.outbound_path[0] = str(sink)
     failures = []
 
-    def run(argv, expected, label):
-        code = cli_main(argv)
-        print(f"\nexit {code}\n")
+    def run(label: str, argv: List[str], expected: int) -> None:
+        code = cli(argv)
+        print(f"\nexit {code}, expected {expected}")
         if code != expected:
             failures.append(f"{label}: exit {code}, expected {expected}")
-        return code
 
-    # Poll settings for the runs that are meant to find losses. A run where a
-    # record never appears can never satisfy "every probe found", so the readback
-    # polls until it gives up, and waiting out the real 60s default twice over
-    # would make this demo take two and a half minutes to teach a lesson that is
-    # about the losses rather than the waiting. They report "GAVE UP before
-    # settling" rather than "settled", which is the honest description of what
-    # happened and is itself worth seeing.
-    lossy_poll = ("--max-wait", "3", "--poll-interval", "0.2")
-    # A one-second quiet window for the runs that are meant to settle. The
-    # default is 5s because a real pipeline deserves the patience; a demo
-    # running seven times in CI does not, and the loop it exercises is the same
-    # one either way.
-    quick_poll = ("--quiet-window", "1", "--poll-interval", "0.2")
-
-    _rule("verify: a correct pipeline, and every one of the six checks running")
-    reset()
-    run(
-        ["verify", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "12", "--out", str(work / "verify.json"), *quick_poll],
-        0,
-        "verify against a correct pipeline",
-    )
-
-    _rule("verify: the same run, against a system that lost every third record")
-    _rule("         every status code in that run was a 200")
-    reset()
-    _losy_seen[0] = 0
-    run(
-        ["verify", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "12", "--readback", "examples.pipeline_demo:lossy_adapter",
-         *lossy_poll],
-        3,
-        "verify against a lossy readback",
-    )
-
-    _rule("ledger: 12 uniquely tagged messages, reconciled against the system")
-    reset()
-    run(
-        ["ledger", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "12", "--out", str(work / "ledger.json"), *quick_poll],
-        0,
-        "ledger against a correct pipeline",
-    )
-
-    _rule("ledger: the same run, against a system that lost every third record")
-    reset()
-    _losy_seen[0] = 0
-    run(
-        ["ledger", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "12", "--readback", "examples.pipeline_demo:lossy_adapter",
-         *lossy_poll],
-        3,
-        "ledger against a lossy readback",
-    )
-
-    _rule("redeliver: a provider that retries, duplicates, and reorders")
-    reset()
-    run(
-        ["redeliver", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "2", "--retry-after", "1", "--out", str(work / "redeliver.json"),
-         *quick_poll],
-        0,
-        "redeliver against a correct pipeline",
-    )
-
-    _rule("verify check: reading a finished run back, sending nothing")
-    reset()
-    run(
-        ["verify", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "4", "--out", str(work / "run.json"), *quick_poll],
-        0,
-        "verify fire, to produce an artifact",
-    )
-    run(
-        ["verify", "check", str(work / "run.json"), "--config", str(config),
-         "--out", str(work / "check.json"), *quick_poll],
-        0,
-        "verify check on that artifact",
-    )
-
-    _rule("loop: machine-generated mail against a pipeline that ignores it")
-    reset()
-    run(
-        ["loop", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "10", "--out", str(work / "loop.json"), *quick_poll],
-        0,
-        "loop against a pipeline that ignores machine mail",
-    )
-
-    _rule("loop: the same run, against a pipeline that auto-replies to all of it")
-    _rule("         and opens a ticket for each one, which is how a loop starts")
-    reset()
-    IntakeHandler.auto_reply[0] = True
-    IntakeHandler.ticket_machine_mail[0] = True
-    run(
-        ["loop", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "10", "--out", str(work / "loop-bad.json"), *quick_poll],
-        3,
-        "loop against a pipeline that auto-replies to machine mail",
-    )
-
-    _rule("loop: the same pipeline, with --ticket-policy allowed")
-    _rule("         the auto-reply check still fails; only the tickets go quiet")
-    reset()
-    IntakeHandler.auto_reply[0] = True
-    run(
-        ["loop", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "10", "--ticket-policy", "allowed",
-         "--out", str(work / "loop-allowed.json"), *quick_poll],
-        3,
-        "loop with tickets allowed against a pipeline that auto-replies",
-    )
-
-    _rule("steady: a classifier that files a signed message differently")
-    _rule("         the message is parsed perfectly. Only comparing it to the")
-    _rule("         variants of itself can see that.")
-    reset()
-    IntakeHandler.unstable_tags = set(_steady_signed_tags(3))
-    run(
-        ["steady", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "3", "--max-flip-rate", "0",
-         "--out", str(work / "steady.json"), *quick_poll],
-        3,
-        "steady against a classifier that loses track of a signature",
-    )
-
-    _rule("steady: the same run, a gate loose enough to accept the flip rate")
-    reset()
-    IntakeHandler.unstable_tags = set(_steady_signed_tags(3))
-    run(
-        ["steady", "fire", "--config", str(config), "--target", "local", "--send",
-         "--count", "3", "--max-flip-rate", "0.9",
-         "--out", str(work / "steady-lax.json"), *quick_poll],
-        0,
-        "steady with a loose gate against the same classifier",
-    )
-
-    _rule("result")
+    try:
+        for number, (title, argv, defects, expected) in enumerate(RUNS, 1):
+            print(f"\n{'=' * 74}\n{number}. {title}\n{'=' * 74}")
+            pipeline.reset(**defects)
+            out = work / f"run{number}.json"
+            run(title, [*argv, "--config", str(config), "--target", "local", "--send",
+                        "--rate", "50", "--out", str(out), *FAST], expected)
+            if number == 1:
+                print("\nverify check: the same artifact read back again, sending nothing")
+                run("verify check", ["verify", "check", str(out), "--config", str(config),
+                                     *FAST], 0)
+    finally:
+        server.shutdown()
+    print(f"\n{'=' * 74}")
+    for failure in failures:
+        print(f"FAILED {failure}")
     if failures:
-        for failure in failures:
-            print(f"FAILED: {failure}")
         return 1
-    print("every run behaved as its readback said it should, including the two")
-    print("that found losses no status code mentioned")
+    print(f"every run exited as expected; artifacts in {work}")
     return 0
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("127.0.0.1", 0), IntakeHandler)
-    _PORT[0] = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        code = main()
-    finally:
-        server.shutdown()
-    sys.exit(code)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    sys.exit(main())
