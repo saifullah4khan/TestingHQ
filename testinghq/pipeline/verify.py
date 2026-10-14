@@ -52,6 +52,7 @@ from .common import (
     prepare_readback,
     read_back_all,
     readback_failed,
+    readback_state_phrase,
     readback_verdict,
     require_synthetic,
     send_all,
@@ -519,10 +520,7 @@ def format_verification(artifact: Dict[str, Any]) -> str:
 
     readback = summary.get("readback")
     if readback:
-        settled = (
-            "settled" if readback.get("stable")
-            else "UNSETTLED, still changing at --max-wait"
-        )
+        settled = readback_state_phrase(readback)
         lines.append(
             f"  readback:          {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"

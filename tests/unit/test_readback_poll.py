@@ -93,16 +93,16 @@ def test_a_system_that_answers_immediately_still_waits_the_quiet_window():
     """One answer is not evidence. Waiting the window is the only way to know
     nothing else is coming.
 
-    The window is measured from the first poll that confirms the counts, so a
-    run that settles immediately still takes the window plus one interval: 0.5s
-    to notice the counts had not moved, then 5s of them holding.
+    The window counts from the start of the first of two identical polls, the
+    moment the state was first observed, so a store that answers the same
+    thing from t=0 settles at the first poll at or after t=5.0.
     """
     adapter = _Scripted({1: {tag: 1 for tag in TAGS}})
     outcome, clock = _read(adapter)
 
     assert outcome.stable is True
     assert outcome.missing == ()
-    assert outcome.elapsed == pytest.approx(5.5)
+    assert outcome.elapsed == pytest.approx(5.0)
     assert all(len(found) == 1 for found in outcome.readbacks.values())
 
 
@@ -111,8 +111,8 @@ def test_polls_stop_as_soon_as_the_window_has_passed():
     take a minute, which is how a useful check becomes one nobody runs."""
     adapter = _Scripted({1: {tag: 1 for tag in TAGS}})
     outcome, clock = _read(adapter)
-    assert clock.now == pytest.approx(5.5)
-    assert outcome.polls == 12, "t=0 through t=5.5 inclusive, at 0.5s intervals"
+    assert clock.now == pytest.approx(5.0)
+    assert outcome.polls == 11, "t=0 through t=5.0 inclusive, at 0.5s intervals"
 
 
 def test_a_slow_pipeline_is_waited_for():
@@ -126,7 +126,9 @@ def test_a_slow_pipeline_is_waited_for():
 
     assert outcome.stable is True
     assert outcome.missing == ()
-    assert outcome.elapsed == pytest.approx(6.0), "counts land at t=1.0, window to t=6.0"
+    assert outcome.elapsed == pytest.approx(5.5), (
+        "the counts are complete from the t=0.5 poll, so the window runs to t=5.5"
+    )
 
 
 def test_a_run_that_never_settles_gives_up_and_says_so():
@@ -179,8 +181,9 @@ def test_a_count_moving_resets_the_window():
     })
     outcome, clock = _read(adapter)
 
-    # 0.5s to poll 2, 0.5s to poll 3, then a full 5s window from poll 3.
-    assert outcome.elapsed == pytest.approx(6.0), (
+    # Poll 2 (t=0.5) sees the duplicate, poll 3 confirms it, and the 5s window
+    # counts from the start of poll 2.
+    assert outcome.elapsed == pytest.approx(5.5), (
         "the window restarted when the count moved, so the run waited 5s again"
     )
 
@@ -232,12 +235,11 @@ def test_absent_counts_as_settled_when_the_caller_says_so():
     adapter = _Scripted({1: {}, 2: {}})
     outcome, clock = _read(adapter, require_all_found=False, quiet_window=0.5)
     assert outcome.stable is True
-    # One interval to see the counts, then the window. Same shape as the
-    # answers-immediately case above: the window starts when the counts are
-    # first seen unchanged, so the total is one interval longer than the window.
-    assert outcome.elapsed == pytest.approx(1.0)
+    # Same shape as the answers-immediately case above: the window counts from
+    # the first of the two identical polls, t=0, and the t=0.5 poll closes it.
+    assert outcome.elapsed == pytest.approx(0.5)
     assert outcome.missing == TAGS, "absence is recorded, it is just not blocking"
-    assert clock.now == pytest.approx(1.0)
+    assert clock.now == pytest.approx(0.5)
 
 
 def test_a_store_that_stays_empty_settles_with_every_tag_missing():
@@ -252,7 +254,7 @@ def test_a_store_that_stays_empty_settles_with_every_tag_missing():
     assert outcome.unsettled is False
     assert outcome.missing == TAGS
     assert outcome.headline() is None
-    assert clock.now == pytest.approx(1.5), "settled on the window, not max_wait"
+    assert clock.now == pytest.approx(1.0), "settled on the window, not max_wait"
 
 
 def test_a_late_duplicate_is_still_caught_with_the_relaxation():
@@ -286,7 +288,7 @@ def test_a_dropped_tag_is_missing_once_the_store_goes_quiet():
     assert outcome.missing == ("hq-1-0002",)
     assert outcome.headline() is None
     assert common.readback_verdict("UNACCOUNTED", outcome) == ("UNACCOUNTED", "tool")
-    assert clock.now == pytest.approx(5.5), "settled on the window, not on max_wait"
+    assert clock.now == pytest.approx(5.0), "settled on the window, not on max_wait"
 
 
 def test_a_store_still_writing_at_max_wait_is_unsettled():
@@ -338,8 +340,8 @@ def test_a_late_field_inside_the_window_is_seen_while_a_tag_stays_missing():
     assert outcome.stable is True
     assert outcome.readbacks["hq-1-0000"][0].route == "billing"
     assert outcome.missing == ("hq-1-0002",)
-    # The value changed at t=3.0, then one interval to confirm and 5s quiet.
-    assert outcome.elapsed == pytest.approx(8.5)
+    # The value changed at t=3.0, and the window counts 5s from that poll.
+    assert outcome.elapsed == pytest.approx(8.0)
 
 
 def test_a_quiet_store_shorter_than_max_wait_but_longer_than_the_window_settles():
@@ -350,7 +352,7 @@ def test_a_quiet_store_shorter_than_max_wait_but_longer_than_the_window_settles(
     outcome, clock = _read(adapter, quiet_window=2.0, max_wait=600.0)
     assert outcome.stable is True
     assert outcome.missing == ("hq-1-0001", "hq-1-0002")
-    assert clock.now == pytest.approx(2.5)
+    assert clock.now == pytest.approx(2.0)
 
 
 def test_the_outcome_serializes_the_numbers_a_report_needs():
@@ -360,7 +362,7 @@ def test_the_outcome_serializes_the_numbers_a_report_needs():
     assert payload["polls"] == outcome.polls
     assert payload["stable"] is True
     assert payload["missing_tags"] == []
-    assert payload["elapsed_s"] == pytest.approx(5.5)
+    assert payload["elapsed_s"] == pytest.approx(5.0)
 
 
 def test_a_zero_quiet_window_still_asks_twice():
@@ -483,7 +485,7 @@ def test_a_settled_run_keeps_the_tools_own_verdict():
 def test_a_field_filled_after_the_record_appears_resets_the_window():
     """An async pipeline creates the ticket first, triages it, then routes it.
     The count is steady from the first poll, so a window over counts alone
-    closes at t=2.5 on the interim "triage" value. Watching the values resets
+    closes at t=2.0 on the interim "triage" value. Watching the values resets
     the window at each change and reports the route the record ended with."""
 
     class _RoutedLate:
@@ -494,16 +496,18 @@ def test_a_field_filled_after_the_record_appears_resets_the_window():
             if probe.tag == TAGS[0]:
                 self.polls += 1
             route = None
-            if self.polls == 6:
+            if self.polls == 5:
                 route = "triage"
-            elif self.polls >= 7:
+            elif self.polls >= 6:
                 route = "billing"
             return [Readback(exists=True, ticket_id=f"{probe.tag}#0", route=route)]
 
     outcome, _clock = _read(_RoutedLate(), quiet_window=2.0)
     assert outcome.stable
     assert outcome.readbacks[TAGS[0]][0].route == "billing"
-    assert outcome.elapsed == pytest.approx(5.5)
+    # triage at t=2.0, billing at t=2.5, confirmed at t=3.0: the window counts
+    # 2s from the t=2.5 poll.
+    assert outcome.elapsed == pytest.approx(4.5)
 
 
 def test_every_lookup_answering_404_is_named_as_a_wrong_url():
@@ -588,3 +592,122 @@ def test_some_404s_leave_the_tools_verdict_alone():
 
     outcome, _clock = _read(FunctionAdapter(mixed), max_wait=2.0)
     assert common.readback_verdict("UNACCOUNTED", outcome)[0] != "READBACK FAILED"
+
+
+# ---------------------------------------------------------------------------
+# Running out of --max-wait: SETTLED, or UNSETTLED and why
+# ---------------------------------------------------------------------------
+
+
+def test_running_out_after_two_identical_polls_and_a_full_window_is_settled():
+    """Three tags at 1s a lookup: polls at [0,3] and [3.5,6.5] agree, which is
+    6.5s of quiet against an 8s window. The third poll is cut short at the 9s
+    budget having seen nothing new, and by then the state has held for 9s
+    from the start of the first identical poll. Running out of time while
+    watching a quiet store is not a store still changing."""
+    clock = _Clock()
+    adapter = _Slow(clock, cost=1.0)
+    outcome, _clock = _read(adapter, clock=clock, quiet_window=8.0, max_wait=9.0)
+    assert outcome.complete_polls == 2
+    assert outcome.budget_exhausted is True
+    assert outcome.stable is True
+    assert outcome.headline() is None
+    assert outcome.to_json()["cause"] is None
+
+
+def test_a_change_in_the_poll_the_budget_cut_short_is_still_changing():
+    """The same timing, but the cut-short third poll sees a second ticket:
+    the state was changing when the budget ran out."""
+    clock = _Clock()
+
+    class _GrowsLate(_Slow):
+        def fetch(self, probe):
+            records = super().fetch(probe)
+            if self.clock.now > 7.0:
+                records.append(Readback(exists=True, ticket_id=f"{probe.tag}#late"))
+            return records
+
+    outcome, _clock = _read(
+        _GrowsLate(clock, cost=1.0), clock=clock, quiet_window=8.0, max_wait=9.0
+    )
+    assert outcome.unsettled
+    assert outcome.cause == common.CAUSE_CHANGING
+    assert "still changing" in outcome.headline()
+
+
+def test_a_change_inside_the_last_window_is_still_changing():
+    """The last two complete polls agree, but the change they agree on was
+    seen at t=8.0, less than the 9s window before the 10s budget ran out."""
+    clock = _Clock()
+
+    class _ChangesAt(object):
+        def fetch(self, probe):
+            count = 2 if clock.now >= 8.0 else 1
+            return [Readback(exists=True, ticket_id=f"{probe.tag}#{n}") for n in range(count)]
+
+    outcome, _clock = _read(_ChangesAt(), clock=clock, quiet_window=9.0, max_wait=10.0)
+    assert outcome.unsettled
+    assert outcome.cause == common.CAUSE_CHANGING
+    assert "the last change was seen 2.0s before --max-wait ran out" in outcome.headline()
+    assert outcome.state_phrase() == "UNSETTLED, still changing at --max-wait"
+
+
+def test_a_max_wait_shorter_than_the_window_is_not_enough_time_not_changing():
+    """Nothing ever changed: the headline must not claim it did."""
+    adapter = _Scripted({1: {tag: 1 for tag in TAGS}})
+    outcome, _clock = _read(adapter, quiet_window=999.0, max_wait=4.0)
+    assert outcome.unsettled
+    assert outcome.cause == common.CAUSE_NO_TIME
+    headline = outcome.headline()
+    assert "still changing" not in headline
+    assert "nothing changed over 8 poll(s)" in headline
+    assert "--max-wait 4s ran out before the state had held for --quiet-window 999s" in headline
+    assert "raise --max-wait to at least 999, so it covers --quiet-window" in headline
+    assert outcome.to_json()["cause"] == common.CAUSE_NO_TIME
+
+
+def test_one_poll_that_does_not_fit_is_not_enough_time_with_the_numbers():
+    """An unpaced adapter (no --readback-rate applies) whose one poll
+    outlasts the budget: the headline gives the measured poll and the
+    --max-wait that would fit."""
+    clock = _Clock()
+    outcome, _clock = _read(_Slow(clock, cost=25.0), clock=clock, max_wait=30.0)
+    assert outcome.cause == common.CAUSE_NO_TIME
+    headline = outcome.headline()
+    assert "not enough time to poll every tag twice" in headline
+    assert "a poll of 3 tag(s) took more than 50.0s" in headline
+    assert "raise --max-wait to at least 105" in headline
+
+
+def test_an_artifact_without_a_cause_does_not_claim_one():
+    assert common.readback_state_phrase({"stable": False}) == "UNSETTLED at --max-wait"
+    assert common.readback_state_phrase({"stable": True}) == "settled"
+    assert common.readback_state_phrase(
+        {"stable": False, "cause": common.CAUSE_NO_TIME}
+    ) == "UNSETTLED, not enough time within --max-wait to confirm the store quiet"
+
+
+# ---------------------------------------------------------------------------
+# The dry-run warning
+# ---------------------------------------------------------------------------
+
+
+def test_the_settle_warning_is_silent_when_two_polls_and_the_window_fit():
+    # 2 x 100 / 4 + 5 = 55s inside 60s.
+    assert common.settle_time_warning(100, 4.0, 5.0, 60.0) is None
+    assert common.settle_time_warning(10_000, None, 5.0, 60.0) is None
+
+
+def test_the_settle_warning_names_the_numbers_and_the_fix():
+    # 2 x 120 / 4 + 5 = 65s, over 60s; 240 lookups in 55s is 4.37/s.
+    warning = common.settle_time_warning(120, 4.0, 5.0, 60.0)
+    assert warning.startswith("warning: a real run may end UNSETTLED for lack of time")
+    assert "120 tag(s) at --readback-rate 4/s take about 30.0s a poll" in warning
+    assert "about 65.0s, over --max-wait 60s" in warning
+    assert "Raise --max-wait to at least 65, or --readback-rate to at least 4.4" in warning
+
+
+def test_the_settle_warning_catches_a_window_longer_than_max_wait_unpaced():
+    warning = common.settle_time_warning(3, None, 30.0, 10.0)
+    assert "--quiet-window 30s, over --max-wait 10s" in warning
+    assert "Raise --max-wait to at least 30" in warning

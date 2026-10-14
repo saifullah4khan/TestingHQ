@@ -20,6 +20,7 @@ processing yet. `SETTLING_RULE` below is the rule the poll ends by.
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,10 +64,12 @@ DEFAULT_MAX_WAIT = 60.0
 SETTLING_RULE = (
     "The readback is SETTLED once what it sees (which tags are found, how many "
     "records each, and the field values the checks read) has not changed for "
-    "--quiet-window seconds; a tag still not found then is MISSING and is "
+    "--quiet-window seconds, counted from the start of the first of two "
+    "identical complete polls; a tag still not found then is MISSING and is "
     "reported as lost. It is UNSETTLED only when --max-wait runs out while that "
-    "state is still changing, which exits 3 with an UNSETTLED headline and "
-    "keeps every finding already proven. For a slow or async pipeline, raise "
+    "state is still changing, or before every tag could be polled twice, which "
+    "exits 3 with an UNSETTLED headline naming which and keeps every finding "
+    "already proven. For a slow or async pipeline, raise "
     "--quiet-window above the pipeline's worst processing latency (a "
     "search-indexed store such as Zendesk or Freshdesk can take minutes to "
     "index a new ticket), and keep --max-wait well above --quiet-window."
@@ -192,6 +195,101 @@ READBACK_FAILED = "READBACK FAILED"
 #: What a tool says in place of its list of lost messages on such a run.
 ALL_404_NOT_CHECKED = "not checked: every lookup was 404"
 
+#: Why a readback is UNSETTLED. The two are different problems with different
+#: fixes, and a headline that said "still changing" about a store that never
+#: changed once sent people looking for a pipeline fault that was not there.
+#: CAUSE_CHANGING: the store was seen changing within the last quiet window.
+#: CAUSE_NO_TIME: nothing changed, but --max-wait was too short to see every
+#: tag twice (or to cover --quiet-window), so the quiet was never confirmed.
+CAUSE_CHANGING = "still changing"
+CAUSE_NO_TIME = "not enough time"
+
+_CAUSE_PHRASES = {
+    CAUSE_CHANGING: "still changing at --max-wait",
+    CAUSE_NO_TIME: "not enough time within --max-wait to confirm the store quiet",
+}
+
+
+def _round_up(value: float, places: int = 0) -> float:
+    scale = 10 ** places
+    return math.ceil(value * scale - 1e-9) / scale
+
+
+def _fit_advice(
+    tags: int, rate: Optional[float], quiet_window: float, max_wait: float,
+    per_poll: Optional[float] = None,
+) -> str:
+    """The --max-wait, and with a paced adapter the --readback-rate, that would
+    leave room for two complete polls plus the quiet window."""
+    if per_poll is None:
+        per_poll = tags / rate if rate else 0.0
+    need = _round_up(2 * per_poll + quiet_window)
+    advice = f"raise --max-wait to at least {need:g}"
+    if rate and tags and max_wait > quiet_window:
+        rate_needed = max(_round_up(2 * tags / (max_wait - quiet_window), 1), rate)
+        if rate_needed > rate:
+            advice += f", or --readback-rate to at least {rate_needed:g} if the store allows it"
+    return advice
+
+
+def adapter_rate(readback: Any) -> Optional[float]:
+    """Readback requests per second for a `ReadbackConfig` or an adapter, or
+    None when lookups are not paced (a mailbox file, a custom adapter)."""
+    if readback is None:
+        return None
+    if getattr(readback, "spec", None):
+        return None
+    kind = getattr(readback, "kind", "http")
+    if kind != "http":
+        return None
+    rate = getattr(readback, "rate", None)
+    if isinstance(rate, (int, float)) and not isinstance(rate, bool) and rate > 0:
+        return float(rate)
+    return None
+
+
+def settle_time_warning(
+    tags: int,
+    readback_rate: Optional[float],
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+    max_wait: float = DEFAULT_MAX_WAIT,
+) -> Optional[str]:
+    """A warning for a dry run whose real run may end UNSETTLED for lack of
+    time, or None when it fits.
+
+    A readback settles at the earliest after two complete polls, and each poll
+    asks every tag once, paced to `readback_rate` per second. So a run needs
+    about 2 x tags / rate seconds to poll twice, plus the quiet window, inside
+    --max-wait. `readback_rate` None means lookups are not paced, and only the
+    quiet window counts. Every pipeline tool's dry run calls this.
+    """
+    per_poll = tags / readback_rate if readback_rate else 0.0
+    need = 2 * per_poll + quiet_window
+    if need <= max_wait:
+        return None
+    if readback_rate:
+        cost = (
+            f"{tags} tag(s) at --readback-rate {readback_rate:g}/s take about "
+            f"{per_poll:.1f}s a poll, so two polls plus --quiet-window "
+            f"{quiet_window:g}s is about {need:.1f}s"
+        )
+    else:
+        cost = f"--quiet-window {quiet_window:g}s"
+    advice = _fit_advice(tags, readback_rate, quiet_window, max_wait)
+    return (
+        f"warning: a real run may end UNSETTLED for lack of time: {cost}, over "
+        f"--max-wait {max_wait:g}s. {advice[0].upper()}{advice[1:]}"
+    )
+
+
+def readback_state_phrase(readback: Optional[Dict[str, Any]]) -> str:
+    """"settled", or "UNSETTLED, <why>", for a readback as `to_json` wrote it.
+    An artifact written before the cause was recorded says only UNSETTLED."""
+    if not readback or readback.get("stable"):
+        return "settled"
+    phrase = _CAUSE_PHRASES.get(readback.get("cause") or "")
+    return f"{UNSETTLED}, {phrase}" if phrase else f"{UNSETTLED} at --max-wait"
+
 
 @dataclass(frozen=True)
 class ReadbackOutcome:
@@ -200,9 +298,11 @@ class ReadbackOutcome:
     `stable` is True when the observed state held still for the quiet window.
     A tag in `missing` is then MISSING: the store went quiet without it, and
     the tool reports it as lost. `stable` is False when `max_wait` ran out
-    while the state was still changing, which makes the run UNSETTLED: a run
-    that never saw the store go quiet cannot claim a message it had not seen
-    yet was lost, and `missing` then means "not seen yet". `budget_exhausted`
+    while the state was still changing, or before the quiet could be
+    confirmed, which makes the run UNSETTLED: a run that never saw the store
+    go quiet cannot claim a message it had not seen yet was lost, and
+    `missing` then means "not seen yet". `cause` says which (CAUSE_CHANGING or
+    CAUSE_NO_TIME) and `reason` says it with the numbers. `budget_exhausted`
     says the budget ran out in the middle of a poll or a retry wait. `partial`
     names the tags whose lookup hit `max_pages`. `all_404` is True when every
     lookup of every poll got a 404, which is almost always a wrong url rather
@@ -218,10 +318,18 @@ class ReadbackOutcome:
     partial: Tuple[str, ...] = ()
     all_404: bool = False
     detail: Optional[str] = None
+    complete_polls: int = 0
+    cause: Optional[str] = None
+    reason: Optional[str] = None
+    advice: Optional[str] = None
 
     @property
     def unsettled(self) -> bool:
         return not self.stable
+
+    def state_phrase(self) -> str:
+        """"settled", or "UNSETTLED, <why>", for a one-line summary."""
+        return readback_state_phrase({"stable": self.stable, "cause": self.cause})
 
     @property
     def failed(self) -> bool:
@@ -238,11 +346,14 @@ class ReadbackOutcome:
             missing = (
                 f", {len(self.missing)} tag(s) not seen yet" if self.missing else ""
             )
+            reason = self.reason or "the store was not confirmed quiet"
+            advice = self.advice or (
+                "raise --max-wait above --quiet-window for a slow or async pipeline"
+            )
             return (
                 f"{UNSETTLED}: the readback did not settle within --max-wait "
-                f"({self.elapsed:.1f}s, {self.polls} poll(s){missing}): the "
-                "store was still changing. Unseen is not lost: raise --max-wait "
-                "above --quiet-window for a slow or async pipeline"
+                f"({self.elapsed:.1f}s, {self.polls} poll(s){missing}): "
+                f"{reason}. Unseen is not lost: {advice}"
             )
         return None
 
@@ -258,6 +369,8 @@ class ReadbackOutcome:
                 else None
             ),
             "budget_exhausted": self.budget_exhausted,
+            "complete_polls": self.complete_polls,
+            "cause": None if self.stable else self.cause,
             "missing_tags": list(self.missing),
             "partial_tags": list(self.partial),
             "all_404": self.all_404,
@@ -271,8 +384,9 @@ def readback_verdict(verdict: str, outcome: Optional[ReadbackOutcome]) -> Tuple[
 
     A readback whose every lookup was a 404 replaces the tool's verdict with
     READBACK FAILED: the tool ran and could not establish the answer, so no
-    message is reported as lost and the exit code is 3. An unsettled readback (the store was still changing at --max-wait)
-    replaces the tool's own verdict with UNSETTLED, because every absence that
+    message is reported as lost and the exit code is 3. An unsettled readback
+    (--max-wait ran out while the store was still changing, or before every
+    tag could be polled twice) replaces the tool's own verdict with UNSETTLED, because every absence that
     verdict rests on is unproven. The findings the tool did make still stand
     and are still listed and counted; the exit code stays 3. A settled
     readback leaves the tool's verdict alone, so a message the store went
@@ -313,13 +427,29 @@ def read_back_all(
     THE RULE (`SETTLING_RULE`). The observed state is which tags are found,
     how many records each, and every field value the checks read. The read is
     SETTLED, and `stable` is True, once that state has not changed for
-    `quiet_window` (measured from the first poll that confirms it). A tag
-    still not found at that point is MISSING, and the tool reports it as
-    lost. The run is UNSETTLED, `stable` False, only when `max_wait` runs out
-    while the state is still changing: records still arriving, or a field
-    value changed within the last quiet window. A store that never goes
-    quiet for a whole window before `max_wait` (including a `max_wait`
-    shorter than `quiet_window`) is UNSETTLED for the same reason.
+    `quiet_window`. The window counts from the START of the first of two
+    identical complete polls: that poll is when the state was first observed,
+    so a store that answers the same thing twice has held still since then. A
+    tag still not found at that point is MISSING, and the tool reports it as
+    lost.
+
+    The run is UNSETTLED, `stable` False, only when `max_wait` runs out first,
+    and `cause` says why:
+
+      CAUSE_CHANGING: the state was still changing. The last two complete
+        polls differed, a lookup after the last complete poll saw a change, or
+        the last change was seen less than `quiet_window` before the budget
+        ran out.
+      CAUSE_NO_TIME: nothing was seen changing, but there was not time to poll
+        every tag twice (each poll asks every tag once, at the adapter's
+        --readback-rate), or `max_wait` ran out before the window could pass
+        (a `max_wait` shorter than `quiet_window`).
+
+    When the budget runs out after two identical complete polls, nothing has
+    changed since (including in a poll the budget cut short), and the window
+    counted from the start of the first of them has passed, the run is
+    SETTLED: running out of time while watching a quiet store is not a store
+    still changing.
 
     Absence does not hold the window open. It used to: "every tag found" was
     part of the condition, so a pipeline that genuinely dropped one message
@@ -336,9 +466,9 @@ def read_back_all(
     record appearing, and between a record appearing and its last field being
     filled), or a message still in the queue is reported as lost. `max_wait`
     has to be longer than the quiet window plus the backlog the pipeline can
-    build. A search-indexed store (Zendesk, Freshdesk) can take minutes to
-    index a new ticket: raise `--quiet-window` above that, and `--max-wait`
-    well above it.
+    build, and long enough to poll every tag twice (`settle_time_warning`). A
+    search-indexed store (Zendesk, Freshdesk) can take minutes to index a new
+    ticket: raise `--quiet-window` above that, and `--max-wait` well above it.
 
     `max_wait` is a hard budget: it is checked before every lookup, and an
     adapter that supports `bind_clock` is told the deadline, so its request
@@ -377,8 +507,14 @@ def read_back_all(
     partial: Dict[str, bool] = {tag: False for tag in asked}
     statuses: Dict[str, List[Optional[int]]] = {tag: [] for tag in asked}
     previous: Optional[Tuple[Tuple[Readback, ...], ...]] = None
-    unchanged_since: Optional[float] = None
+    previous_start: Optional[float] = None
+    # The start of the first of the run of identical complete polls the state
+    # has held through, or None when the last two complete polls differed.
+    quiet_since: Optional[float] = None
+    changed = False
+    first_poll_s: Optional[float] = None
     polls = 0
+    complete = 0
     stable = False
     exhausted = False
     detail: Optional[str] = None
@@ -389,6 +525,7 @@ def read_back_all(
             if polls and clock() >= deadline:
                 break
             polls += 1
+            poll_start = clock()
             for tag in asked:
                 if lookups and clock() >= deadline:
                     exhausted = True
@@ -407,14 +544,17 @@ def read_back_all(
                 break
 
             now = clock()
+            complete += 1
+            if first_poll_s is None:
+                first_poll_s = now - poll_start
             # The whole observed state: an empty tuple for a tag not found yet,
             # so a tag appearing is a change like any other.
             signature = tuple(_signature(found[tag]) for tag in asked)
 
             if signature == previous:
-                if unchanged_since is None:
-                    unchanged_since = now
-                if now - unchanged_since >= quiet_window:
+                if quiet_since is None:
+                    quiet_since = previous_start
+                if now - quiet_since >= quiet_window:
                     stable = True
                     break
             else:
@@ -423,8 +563,11 @@ def read_back_all(
                 # earlier sighting is the bug this exists to prevent. A tag
                 # that is merely still missing does not: a store that has gone
                 # quiet without it has answered.
-                unchanged_since = None
+                if previous is not None:
+                    changed = True
+                quiet_since = None
             previous = signature
+            previous_start = poll_start
 
             if now - started >= max_wait:
                 break
@@ -433,13 +576,44 @@ def read_back_all(
         if callable(binder):
             binder(clock, sleep, None)
 
+    ended = clock()
+    cause: Optional[str] = None
+    reason: Optional[str] = None
+    advice: Optional[str] = None
+    if not stable:
+        # A poll the budget cut short still counts as evidence of a change:
+        # `found` then holds its answers for the tags it reached.
+        cut_short_changed = (
+            previous is not None
+            and tuple(_signature(found[tag]) for tag in asked) != previous
+        )
+        if (
+            quiet_since is not None
+            and not cut_short_changed
+            and ended - quiet_since >= quiet_window
+        ):
+            stable = True
+        else:
+            cause, reason, advice = _why_unsettled(
+                tags=len(asked),
+                rate=adapter_rate(adapter),
+                quiet_window=quiet_window,
+                max_wait=max_wait,
+                complete=complete,
+                first_poll_s=first_poll_s,
+                elapsed=ended - started,
+                changed=changed or cut_short_changed,
+                last_two_identical=quiet_since is not None,
+                quiet_for=None if quiet_since is None else ended - quiet_since,
+            )
+
     seen_statuses = [s for tag in asked for s in statuses[tag]]
     all_404 = bool(seen_statuses) and all(s == 404 for s in seen_statuses) and all(
         statuses[tag] for tag in asked
     )
     return ReadbackOutcome(
         readbacks=found,
-        elapsed=clock() - started,
+        elapsed=ended - started,
         polls=polls,
         stable=stable,
         missing=tuple(tag for tag in asked if not found[tag]),
@@ -447,6 +621,65 @@ def read_back_all(
         partial=tuple(tag for tag in asked if partial[tag]),
         all_404=all_404,
         detail=detail,
+        complete_polls=complete,
+        cause=cause,
+        reason=reason,
+        advice=advice,
+    )
+
+
+def _why_unsettled(
+    *,
+    tags: int,
+    rate: Optional[float],
+    quiet_window: float,
+    max_wait: float,
+    complete: int,
+    first_poll_s: Optional[float],
+    elapsed: float,
+    changed: bool,
+    last_two_identical: bool,
+    quiet_for: Optional[float],
+) -> Tuple[str, str, str]:
+    """(cause, reason, advice) for a readback that did not settle."""
+    if complete < 2:
+        if rate:
+            cost = f"{tags} tag(s) at --readback-rate {rate:g}/s take about {tags / rate:.1f}s a poll"
+            per_poll = None
+        else:
+            per_poll = first_poll_s if first_poll_s is not None else elapsed
+            cost = (
+                f"a poll of {tags} tag(s) took "
+                f"{'' if first_poll_s is not None else 'more than '}{per_poll:.1f}s"
+            )
+        return (
+            CAUSE_NO_TIME,
+            f"not enough time to poll every tag twice: {cost}, and --max-wait is "
+            f"{max_wait:g}s",
+            _fit_advice(tags, rate, quiet_window, max_wait, per_poll=per_poll),
+        )
+    if not last_two_identical:
+        return (
+            CAUSE_CHANGING,
+            "the store was still changing: the last two complete polls differed",
+            "raise --max-wait above --quiet-window for a slow or async pipeline",
+        )
+    if changed:
+        return (
+            CAUSE_CHANGING,
+            "the store was still changing: the last change was seen "
+            f"{quiet_for or 0.0:.1f}s before --max-wait ran out, inside the "
+            f"{quiet_window:g}s --quiet-window",
+            "raise --max-wait above --quiet-window for a slow or async pipeline",
+        )
+    return (
+        CAUSE_NO_TIME,
+        f"not enough time: nothing changed over {complete} poll(s), but "
+        f"--max-wait {max_wait:g}s ran out before the state had held for "
+        f"--quiet-window {quiet_window:g}s",
+        f"raise --max-wait to at least "
+        f"{_round_up(quiet_window + (first_poll_s or 0.0) * 2):g}, so it covers "
+        "--quiet-window",
     )
 
 
@@ -520,6 +753,8 @@ def status_class(result: TransportResult) -> str:
 __all__ = [
     "ALL_404_HEADLINE",
     "ALL_404_NOT_CHECKED",
+    "CAUSE_CHANGING",
+    "CAUSE_NO_TIME",
     "EXIT_DRY_RUN",
     "EXIT_MISMATCH",
     "EXIT_OK",
@@ -531,13 +766,16 @@ __all__ = [
     "SentMessage",
     "UNSETTLED",
     "VERDICT_SOURCE_READBACK",
+    "adapter_rate",
     "close_adapter",
     "prepare_readback",
     "read_back_all",
     "readback_failed",
+    "readback_state_phrase",
     "readback_verdict",
     "require_synthetic",
     "resolve_target_url",
     "send_all",
+    "settle_time_warning",
     "status_class",
 ]
