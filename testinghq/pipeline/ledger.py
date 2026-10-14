@@ -17,7 +17,9 @@ other's records.
 Four failure classes, kept separate because they are four bugs in four
 places:
 
-  missing     sent, and the system holds nothing. A lost email.
+  missing     sent, and the system holds nothing once the readback has
+              settled. A lost email. While the store is still changing at
+              --max-wait the run is UNSETTLED and these are "not seen yet".
   duplicated  more than one record for one message. Two tickets for one
               customer's email, which is what an intake owner actually feels.
   wrong       exactly one record, and its content does not match what was sent.
@@ -463,7 +465,10 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
 
     readback = summary.get("readback")
     if readback:
-        settled = "settled" if readback.get("stable") else "GAVE UP before settling"
+        settled = (
+            "settled" if readback.get("stable")
+            else "UNSETTLED, still changing at --max-wait"
+        )
         lines.append(
             f"  readback:        {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
@@ -509,7 +514,20 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
         if len(items) > MAX_LISTED:
             lines.append(f"    ... and {len(items) - MAX_LISTED} more, not shown")
 
-    _section("missing", summary.get("missing") or [], lambda t: f"{t}: sent, and the system holds nothing")
+    if summary.get("unsettled"):
+        # The store was still changing at --max-wait, so an absence is not yet
+        # a loss: say what is known, which is that it had not been seen.
+        _section(
+            "missing",
+            summary.get("missing") or [],
+            lambda t: f"{t}: sent, not seen yet (the readback never settled)",
+        )
+    else:
+        _section(
+            "missing",
+            summary.get("missing") or [],
+            lambda t: f"{t}: sent, and the system holds nothing",
+        )
     _section(
         "duplicated",
         summary.get("duplicated") or [],

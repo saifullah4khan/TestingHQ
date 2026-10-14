@@ -979,7 +979,10 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
 
     readback = summary.get("readback")
     if readback:
-        settled = "settled" if readback.get("stable") else "GAVE UP before settling"
+        settled = (
+            "settled" if readback.get("stable")
+            else "UNSETTLED, still changing at --max-wait"
+        )
         lines.append(
             f"  readback: {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
