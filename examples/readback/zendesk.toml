@@ -10,7 +10,7 @@
 # Copy to target.toml, fill in your subdomain, and pass --config.
 #
 #   export ZENDESK_AUTH="Basic $(printf '%s/token:%s' "$ZENDESK_EMAIL" "$ZENDESK_API_TOKEN" | base64 | tr -d '\n')"
-#   testinghq verify fire --target zendesk --send --config target.toml --max-wait 300
+#   testinghq verify fire --target zendesk --send --config target.toml --quiet-window 120 --max-wait 600
 #
 # AUTH. Zendesk API tokens use Basic auth with the username
 # "<agent email>/token" and the token as the password, base64 encoded behind a
@@ -19,8 +19,11 @@
 # `env:` reference is refused, because a config file is a file that gets shared.
 #
 # WAITING. Zendesk search is backed by an index that lags ticket creation by
-# seconds to a few minutes. With the default --max-wait of 60 a slow index
-# reads as UNSETTLED rather than as loss, but start with --max-wait 300 here.
+# seconds to a few minutes. The readback settles once nothing it sees has
+# changed for --quiet-window, and a ticket still not found then is reported as
+# lost, so raise --quiet-window above the index lag (120 is a start) and keep
+# --max-wait well above that (600). With the default 5s window a slow index
+# reads as loss.
 
 [targets.zendesk]
 name = "zendesk"
