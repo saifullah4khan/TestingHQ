@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Optional
 
-from ..core import guardrails
 from ..core.config import ConfigError, load_config
 from ..core.exit_codes import EXIT_REFUSED, MEANINGS as _EXIT_MEANINGS
+from ..core.targets import ResolvedTarget, resolve_target
 from ..pipeline import adapters as pipeline_adapters
 from ..pipeline import common
 from ..pipeline.adapters import AdapterError
@@ -46,28 +45,6 @@ class _Parser(argparse.ArgumentParser):
             f"{self.prog}: error: {message}\n"
             f"({_EXIT_CODE_HELP})\n",
         )
-
-
-def _not_yet(command):
-    """Fallback for a subcommand argparse accepted but main() has no handler
-    for. Every current subcommand is implemented, so reaching this means the
-    parser and the dispatcher disagree, which is a bug in this file rather than
-    a missing feature. The message says so instead of describing a milestone
-    that finished long ago.
-
-    Returns EXIT_REFUSED, not EXIT_DRY_RUN. A dry run is a successful run that
-    was asked to hold back, so a script reads 2 as "nothing was sent, all well".
-    What actually happened is that the tool could not do what was asked because
-    its own parser and dispatcher disagree, and that is the one code in this
-    table that means "fix the tool". Returning 2 hid a bug behind a code that
-    reads as a deliberate choice.
-    """
-    print(
-        f"testinghq blast {command}: no handler is wired up for this "
-        f"subcommand, which is a bug (argparse offered it anyway)",
-        file=sys.stderr,
-    )
-    return EXIT_REFUSED
 
 
 def _resolve_readback(args):
@@ -185,21 +162,37 @@ def _add_readback_args(parser) -> None:
     )
 
 
-def _resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, enforcing
-    the canonical guardrail twice: once on the configured name (the
-    allow-list check) and once on the resolved URL (the public-host check),
-    mirroring web/adapter.py's pattern. A bare target name has no dot, so
-    the public-host check on the name alone would pass vacuously; checking
-    the resolved URL too is what makes that hardening actually bite.
+#: Default for `resolve_for_send(target_name=...)`: read `--target` from args.
+_FROM_ARGS = object()
+
+
+def add_send_args(parser) -> None:
+    """Add `--allow-public-target` to a command that can send."""
+    parser.add_argument(
+        "--allow-public-target",
+        action="store_true",
+        help=(
+            "allow firing at a public host: one that is not a reserved test "
+            "domain, an internal name or a private address, and does not "
+            "resolve only to private addresses. Refused by default. Only for "
+            "an endpoint you own. barrage also needs public = true on the "
+            "target's config table"
+        ),
+    )
+
+
+def resolve_for_send(args, tool: str, *, target_name=_FROM_ARGS) -> ResolvedTarget:
+    """Resolve the target a sending command will fire at, or raise.
+
+    Reads `--target`, `--config` and `--allow-public-target` from `args`.
+    `target_name` overrides `--target` (replay takes it from the artifact).
+    `tool` is the command name; "barrage" applies the double opt-in rule.
+    Raises `GuardrailError` or `ConfigError`.
     """
-    if not target_name:
-        raise guardrails.GuardrailError(
-            "refusing to fire: --send requires --target"
-        )
-    config = load_config(config_path)
-    allowed = config.allowed_target_names()
-    guardrails.require_configured_target(target_name, allowed)
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
+    name = getattr(args, "target", None) if target_name is _FROM_ARGS else target_name
+    return resolve_target(
+        name,
+        getattr(args, "config", DEFAULT_TARGET_CONFIG),
+        allow_public_target=bool(getattr(args, "allow_public_target", False)),
+        load_tool=tool,
+    )

@@ -33,6 +33,7 @@ from ..blast.attachments import generate_attachment
 from ..blast.generate import generate_corpus
 from ..blast.payload import InboundEmail
 from ..core import report
+from ..core.targets import resolve_target
 from ..core.transport import TransportResult
 from . import messages
 from .adapters import ReadbackConfig, build_adapter
@@ -48,7 +49,6 @@ from .common import (
     ReadbackOutcome,
     read_back_all,
     require_synthetic,
-    resolve_target_url,
     send_all,
 )
 from .expectations import (
@@ -475,6 +475,7 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     printer: Callable[[str], None] = print,
+    allow_public_target: bool = False,
 ) -> int:
     """Fire the clean corpus, read back what the system made of it, and report.
 
@@ -492,7 +493,9 @@ def execute(
 
     try:
         require_synthetic([email for email, _tag, _rid in corpus])
-        url = resolve_target_url(target_name, config_path)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED
@@ -505,7 +508,10 @@ def execute(
         # unimportable `--readback module:attr` escaped as a traceback rather
         # than as the clean refusal the CLI is supposed to print.
         adapter = build_adapter(readback, client=readback_client)
-        sent = send_all(items, url, rate, client=client, sleep=sleep, clock=clock)
+        sent = send_all(
+            items, target.url, rate, client=client, sleep=sleep, clock=clock,
+            wire_format=target.wire_format,
+        )
         outcome = read_back_all(
             adapter,
             [probe for _e, _t, _r, probe in items],
@@ -535,6 +541,7 @@ def execute(
         readbacks,
         outcome,
     )
+    artifact["config"].update(target.artifact_config())
     printer(format_verification(artifact))
     if out:
         Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")

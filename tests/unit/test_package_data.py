@@ -1,9 +1,8 @@
 """Every non-Python file the package reads must be declared as package data.
 
-`steady` shipped in 0.1.0 unable to run from a wheel: its intent fixture was not
-declared, setuptools left it out, and `steady` loads it by path. The failure is
-invisible to an editable install, which is what the suite and every developer
-use, so it is checked here against the declaration directly.
+A file setuptools leaves out is invisible to an editable install, which is what
+the suite uses, so the declaration is checked directly. `steady` once could not
+run from a wheel for exactly this reason.
 """
 from __future__ import annotations
 
@@ -44,6 +43,3 @@ def test_every_data_file_in_the_package_is_declared():
     )
 
 
-def test_the_steady_fixture_is_the_one_that_prompted_this():
-    assert (PACKAGE / "pipeline" / "fixtures" / "steady_intents.json").is_file()
-    assert "testinghq.pipeline" in _declared()

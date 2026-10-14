@@ -385,7 +385,7 @@ def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
         "pipeline/common.py must import the canonical guardrails module"
     )
     assert "guardrails.require_synthetic_content" in common
-    assert "guardrails.require_configured_target" in common
+    assert "from ..core.targets import resolve_target" in common
     assert "guardrails.evaluate_send" not in common, (
         "evaluate_send is the CLI's decision, and the pipeline package is only "
         "ever called after it has said yes; calling it here too would be a "
@@ -409,20 +409,6 @@ def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
         assert "def evaluate_send(" not in source, (
             f"pipeline/{name} must not define its own send decision"
         )
-
-
-def test_an_unimplemented_subcommand_says_so_rather_than_crashing(capsys):
-    """`_not_yet` is the honest answer for a subcommand argparse accepted but
-    `main` has no handler for. Every current subcommand is implemented, so
-    reaching it means the parser and the dispatcher disagree, and that should
-    be a message naming a bug in this file rather than a traceback or a
-    misleading `--not-yet` milestone."""
-    assert callable(cli_common._not_yet)
-    code = cli_common._not_yet("nonsense")
-    captured = capsys.readouterr()
-    assert code != 0
-    assert "nonsense" in captured.err
-    assert "no handler is wired up" in captured.err
 
 
 def test_an_unknown_tool_is_rejected_by_the_parser():

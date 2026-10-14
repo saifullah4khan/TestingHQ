@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.corrupt import _op_forward_header, _op_quote_chain, _op_signature
 from ..blast.payload import InboundEmail
+from ..core.targets import resolve_target
 from .common import (
     DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
@@ -42,7 +43,6 @@ from .common import (
     close_adapter,
     read_back_all,
     require_synthetic,
-    resolve_target_url,
     send_all,
 )
 from .messages import DEFAULT_TAG_PREFIX
@@ -996,6 +996,7 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     printer: Callable[[str], None] = print,
+    allow_public_target: bool = False,
 ) -> int:
     """Send every variant, read every label back, report, gate.
 
@@ -1032,7 +1033,9 @@ def execute(
     every = [email for email, _tag, _rid, _probe in items + repeat_items]
     try:
         require_synthetic(every)
-        url = resolve_target_url(target_name, config_path)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED
@@ -1043,7 +1046,8 @@ def execute(
 
         adapter = build_adapter(readback, client=readback_client)
         sent = send_all(
-            items + repeat_items, url, rate, client=client, sleep=sleep, clock=clock
+            items + repeat_items, target.url, rate, client=client, sleep=sleep,
+            clock=clock, wire_format=target.wire_format,
         )
         outcome = read_back_all(
             adapter, [probe for _e, _t, _r, probe in items + repeat_items],
@@ -1076,6 +1080,7 @@ def execute(
         families,
         report,
     )
+    artifact["config"].update(target.artifact_config())
     summary = artifact["stability"]
     summary["gate"] = {"failed": failed, "reason": reason,
                        "max_flip_rate": max_flip_rate}
