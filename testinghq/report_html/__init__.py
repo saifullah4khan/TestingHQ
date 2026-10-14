@@ -49,6 +49,7 @@ RECORD_SOURCES = (
     ("records", "Records"),
     ("messages", "Messages"),
     ("scenarios", "Scenarios"),
+    ("variants", "Variants"),
 )
 
 _TONES = {

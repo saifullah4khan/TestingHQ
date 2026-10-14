@@ -10,6 +10,7 @@ from .. import __version__
 from . import barrage as barrage_module
 from . import blast as blast_module
 from . import pipeline as pipeline_module
+from . import sigcheck as sigcheck_module
 from . import utility as utility_module
 from .common import _EXIT_CODE_HELP, _Parser
 
@@ -32,6 +33,7 @@ def build_parser():
     pipeline_module._add_loop_parser(sub)
     pipeline_module._add_redeliver_parser(sub)
     pipeline_module._add_steady_parser(sub)
+    sigcheck_module.add_sigcheck_parser(sub)
     utility_module._add_report_parser(sub)
     utility_module._add_config_parser(sub)
 
@@ -69,6 +71,9 @@ def main(argv=None):
     if args.tool == "steady":
         if args.command == "fire":
             return pipeline_module._cmd_steady_fire(args)
+
+    if args.tool == "sigcheck":
+        return sigcheck_module.run(args)
 
     if args.tool == "redeliver":
         if args.command == "fire":

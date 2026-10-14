@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 from ..core import guardrails
@@ -14,6 +15,7 @@ from ..pipeline import verify as pipeline_verify
 from ..pipeline.adapters import AdapterError
 from ..pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
 from .common import (
+    _EXIT_CODE_HELP,
     DEFAULT_TARGET_CONFIG,
     _add_readback_args,
     _add_readback_poll_args,
@@ -229,111 +231,134 @@ def _add_redeliver_parser(sub) -> None:
     _add_check_args(r_fire)
 
 
-def _add_loop_parser(sub) -> None:
-    """The `loop` subcommand.
+def _drop_option(parser, option: str) -> None:
+    """Remove `option` from `parser` when a shared helper added it. loop and
+    steady do not honour `--expect-route`, so they must not accept it."""
+    action = parser._option_string_actions.get(option)
+    if action is None:
+        return
+    parser._remove_action(action)
+    for name in action.option_strings:
+        parser._option_string_actions.pop(name, None)
+    for group in parser._action_groups:
+        if action in group._group_actions:
+            group._group_actions.remove(action)
 
-    Reads two things back: what the pipeline produced, and what it tried to send.
-    The second is a separate adapter configured in `[loop.outbound]`, and it is
-    optional on purpose. Without it the auto-reply check reports SKIPPED rather
-    than passing, because a tool that cannot see whether a reply was sent has no
-    evidence that one was not.
-    """
+
+def _readback_for_dry_run(args):
+    """(readback config or None, refusal message or None). A dry run sends
+    nothing and reads nothing, so a missing readback is reported, not refused."""
+    try:
+        return _resolve_readback(args), None
+    except (AdapterError, ConfigError) as exc:
+        return None, str(exc)
+
+
+def _add_loop_parser(sub) -> None:
+    """The `loop` subcommand. Reads two things back: what the pipeline filed,
+    and, through `[loop.outbound]`, what it sent. Without the second the
+    auto-reply check is NOT CHECKED rather than passed."""
     loop = sub.add_parser(
         "loop",
         help="auto-reply and mail-loop detection",
+        description="Send machine-generated mail and a loop bait, then check the "
+                    "pipeline neither ticketed nor answered it.",
+        epilog=_EXIT_CODE_HELP,
     )
     loop_sub = loop.add_subparsers(dest="command", required=True)
 
     l_fire = loop_sub.add_parser(
         "fire",
         help="send machine-generated mail and check the pipeline ignored it",
+        description="Send an ordinary message, read the pipeline's reply to it, "
+                    "then send machine mail and an auto-reply to that reply. "
+                    "Dry run unless --send.",
+        epilog=_EXIT_CODE_HELP,
     )
-    l_fire.add_argument("--target")
-    l_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED)
+    l_fire.add_argument("--target", help="the configured target to send to")
+    l_fire.add_argument("--seed", type=int, default=pipeline_verify.DEFAULT_SEED,
+                        help="corpus seed (default %(default)s)")
     l_fire.add_argument(
-        "--count", type=int, default=12,
-        help="how many machine-generated messages to send",
+        "--count", type=int, default=pipeline_loop.DEFAULT_COUNT,
+        help="machine-generated messages to send; the default covers every "
+             "shape once (default %(default)s)",
     )
     l_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
-    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
+    l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
+                        help="messages per second (default %(default)s)")
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix(),
+                        help="tag prefix (default: unique per run)")
     l_fire.add_argument("--out", help="path to write the loop artifact JSON")
-    l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG,
+                        help="target config file (default %(default)s)")
     l_fire.add_argument(
-        "--ticket-policy", choices=list(pipeline_loop.TICKET_POLICIES),
-        default=pipeline_loop.TICKET_POLICY_NONE,
-        help=(
-            "whether opening a ticket for machine mail is a finding. 'none' "
-            "reports every one; 'allowed' makes them informational and keeps "
-            "only the auto-reply check. The loop bait is a finding under both"
-        ),
+        "--ticket-policy", choices=list(pipeline_loop.TICKET_POLICIES), default=None,
+        help="whether a ticket for machine mail is a finding: 'none' (default) "
+             "or 'allowed'. Overrides [loop].ticket_policy. The loop bait is a "
+             "finding under both",
     )
     l_fire.add_argument(
-        "--reply-address",
-        default=pipeline_loop.DEFAULT_REPLY_ADDRESS,
-        help=(
-            "the pipeline's own reply address, so the loop bait aims at "
-            "something real. Read from [loop].reply_address when set here"
-        ),
+        "--reply-address", default=None,
+        help="the pipeline's own reply address, which the loop bait is sent to. "
+             f"Overrides [loop].reply_address (default "
+             f"{pipeline_loop.DEFAULT_REPLY_ADDRESS})",
+    )
+    l_fire.add_argument(
+        "--ack-wait", type=float, default=pipeline_loop.DEFAULT_ACK_WAIT,
+        help="seconds to wait for the pipeline's reply to the ordinary message "
+             "before the bait falls back to a fabricated parent (default %(default)s)",
     )
     add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
+    _drop_option(l_fire, "--expect-route")
 
 
 def _add_steady_parser(sub) -> None:
-    """The `steady` subcommand.
-
-    `--max-flip-rate` is the gate, and it exists so the tool can sit in CI. The
-    default is generous: a classifier that is 6% unstable is worth a
-    conversation, not a red build.
-
-    `--label-field` names the readback field that carries the label: `route`
-    (the default), `category` or `priority`. The report says which field the
-    number is about, because a flip rate with no field named is a number nobody
-    can act on.
-
-    Deliberately without `--allow-high-rate`. This sends a few hundred variants
-    at a rate the operator chose; sustained load is Barrage's job, with the
-    ceiling already in place.
-    """
+    """The `steady` subcommand. `--max-dissent-rate` is the gate, so the tool
+    can sit in CI; `--max-flip-rate` adds a second gate on the pairwise rate.
+    Without `--allow-high-rate`: sustained load is Barrage's job."""
     steady = sub.add_parser(
         "steady",
         help="metamorphic stability testing for an AI triage classifier",
+        description="Send meaning-preserving variants of reviewed intents and "
+                    "measure how often the classifier's label moves.",
+        epilog=_EXIT_CODE_HELP,
     )
     steady_sub = steady.add_subparsers(dest="command", required=True)
 
     s_fire = steady_sub.add_parser(
         "fire",
         help="send meaning-preserving variants and measure how often the label moves",
+        description="Dry run unless --send.",
+        epilog=_EXIT_CODE_HELP,
     )
-    s_fire.add_argument("--target")
-    s_fire.add_argument("--seed", type=int, default=pipeline_steady.DEFAULT_SEED)
+    s_fire.add_argument("--target", help="the configured target to send to")
+    s_fire.add_argument("--seed", type=int, default=pipeline_steady.DEFAULT_SEED,
+                        help="seed (default %(default)s)")
     s_fire.add_argument(
-        "--count", type=int, default=6,
-        help="how many intent families to use from the reviewed fixture",
+        "--count", type=int, default=pipeline_steady.DEFAULT_COUNT,
+        help="intent families to use from the fixture (default %(default)s)",
     )
     s_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
-    s_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    s_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
+    s_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE,
+                        help="messages per second (default %(default)s)")
+    s_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix(),
+                        help="tag prefix (default: unique per run)")
     s_fire.add_argument(
         "--repeats", type=int, default=1,
-        help=(
-            "send the same payload this many times to measure model "
-            "nondeterminism separately from sensitivity to wording"
-        ),
+        help="send one payload per family this many times, to measure "
+             "nondeterminism apart from wording (default %(default)s)",
     )
     s_fire.add_argument(
-        "--label-field", choices=list(pipeline_steady.LABEL_FIELDS),
-        default=pipeline_steady.LABEL_FIELD,
-        help=(
-            "which readback field carries the classifier's label. A run that "
-            "cannot see the chosen field exits 3 with nothing measured"
-        ),
+        "--label-field", choices=list(pipeline_steady.LABEL_FIELDS), default=None,
+        help="the readback field carrying the classifier's label. Overrides "
+             "[steady].label_field; with neither, 'route' is read and a run "
+             "where it cannot vary is refused",
     )
     s_fire.add_argument(
         "--transform", action="append",
@@ -341,14 +366,21 @@ def _add_steady_parser(sub) -> None:
         help="only apply this transform; repeatable. Default is all of them",
     )
     s_fire.add_argument(
-        "--max-flip-rate", type=float, default=pipeline_steady.DEFAULT_MAX_FLIP_RATE,
-        help="exit 3 above this flip rate, so the tool can gate CI",
+        "--max-dissent-rate", type=float,
+        default=pipeline_steady.DEFAULT_MAX_DISSENT_RATE,
+        help="exit 3 above this majority-dissent rate (default %(default)s)",
+    )
+    s_fire.add_argument(
+        "--max-flip-rate", type=float, default=None,
+        help="also exit 3 above this pairwise flip rate (default: not gated)",
     )
     s_fire.add_argument("--out", help="path to write the stability artifact JSON")
-    s_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    s_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG,
+                        help="target config file (default %(default)s)")
     add_send_args(s_fire)
     _add_readback_args(s_fire)
     _add_readback_poll_args(s_fire)
+    _drop_option(s_fire, "--expect-route")
 
 
 def _cmd_verify_fire(args) -> int:
@@ -453,28 +485,31 @@ def _cmd_ledger_fire(args) -> int:
 
 def _cmd_loop_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
-
     try:
-        readback = _resolve_readback(args)
-        # `core/config.py` is owned elsewhere, so the `[loop]` table is read by
-        # the tool. One read, reused for the outbound adapter and the reply
-        # address, rather than parsing the file twice.
-        section = pipeline_loop.load_loop_config(args.config)
+        section = pipeline_loop.load_loop_config(args.config, required=decision.will_send)
+        policy, reply_address = pipeline_loop.effective_settings(
+            section, flag_policy=args.ticket_policy, flag_reply=args.reply_address
+        )
         outbound = pipeline_loop.build_outbound_config(section, args.config)
-        reply_address = section.get("reply_address") or args.reply_address
-    except (AdapterError, pipeline_loop.LoopConfigError, ConfigError) as exc:
+        tag_prefix = args.tag_prefix
+        corpus = pipeline_loop.build_machine_corpus(args.seed, args.count, tag_prefix)
+    except (AdapterError, pipeline_loop.LoopConfigError, ConfigError, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_REFUSED
 
-    corpus = pipeline_loop.build_machine_corpus(
-        args.seed, args.count, args.tag_prefix, reply_address
-    )
+    readback, missing = _readback_for_dry_run(args)
+    if missing is not None and decision.will_send:
+        print(f"refused: {missing}", file=sys.stderr)
+        return EXIT_REFUSED
 
     print(f"loop fire: {decision.reason}")
     if not decision.will_send:
-        print(
-            pipeline_loop.format_dry_run(corpus, readback, args.ticket_policy)
+        bait = pipeline_loop.build_loop_bait(
+            args.seed, args.count, tag_prefix, reply_address, None
         )
+        print(pipeline_loop.format_dry_run(
+            [*corpus, bait], readback, policy, reply_address, outbound
+        ))
         return EXIT_DRY_RUN
 
     return pipeline_loop.execute(
@@ -485,41 +520,52 @@ def _cmd_loop_fire(args) -> int:
         args.out,
         readback=readback,
         outbound=outbound,
-        tag_prefix=args.tag_prefix,
+        tag_prefix=tag_prefix,
         rate=args.rate,
-        ticket_policy=args.ticket_policy,
+        ticket_policy=policy,
         reply_address=reply_address,
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        ack_wait=args.ack_wait,
         allow_public_target=args.allow_public_target,
     )
 
 
 def _cmd_steady_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
-
     try:
-        readback = _resolve_readback(args)
-    except (AdapterError, ConfigError) as exc:
+        section = pipeline_steady.load_steady_config(
+            args.config if decision.will_send or os.path.exists(args.config) else None
+        )
+    except pipeline_steady.SteadyConfigError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_REFUSED
+    label_field = args.label_field or section.get("label_field")
+    intents_path = section.get("intents_path")
+    tag_prefix = args.tag_prefix
 
-    try:
-        families = pipeline_steady.build_families(
-            args.seed,
-            intents=pipeline_steady.load_intents()[: max(args.count, 1)],
-            transforms=args.transform,
-        )
-    except (OSError, ValueError, KeyError) as exc:
-        print(f"refused: the intent fixture could not be read: {exc}", file=sys.stderr)
+    readback, missing = _readback_for_dry_run(args)
+    if missing is not None and decision.will_send:
+        print(f"refused: {missing}", file=sys.stderr)
         return EXIT_REFUSED
 
-    print(f"steady fire: {decision.reason}")
     if not decision.will_send:
-        print(pipeline_steady.format_dry_run(families, readback, args.label_field))
+        if args.count < 1:
+            print(f"refused: --count must be >= 1, got {args.count}", file=sys.stderr)
+            return EXIT_REFUSED
+        try:
+            families = pipeline_steady.load_families(
+                args.seed, args.count, args.transform, intents_path
+            )
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"refused: the intent fixture could not be read: {exc}", file=sys.stderr)
+            return EXIT_REFUSED
+        print(f"steady fire: {decision.reason}")
+        print(pipeline_steady.format_dry_run(families, readback, label_field, args.transform))
         return EXIT_DRY_RUN
 
+    print(f"steady fire: {decision.reason}")
     return pipeline_steady.execute(
         args.seed,
         args.count,
@@ -527,11 +573,13 @@ def _cmd_steady_fire(args) -> int:
         args.config,
         args.out,
         readback=readback,
-        tag_prefix=args.tag_prefix,
-        label_field=args.label_field,
+        tag_prefix=tag_prefix,
+        label_field=label_field,
         transforms=args.transform,
         repeats=args.repeats,
+        max_dissent_rate=args.max_dissent_rate,
         max_flip_rate=args.max_flip_rate,
+        intents_path=intents_path,
         rate=args.rate,
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,

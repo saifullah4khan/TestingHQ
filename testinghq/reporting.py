@@ -537,50 +537,227 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
+#: The newest loop, steady and sigcheck artifact schema these readers know.
+_WS6_SCHEMA_VERSION = 1
+
+
+def _known_schema(artifact: Dict[str, Any], tool: str) -> int:
+    """The artifact's `schema_version`: missing reads as 0, a value above what
+    this build knows is refused rather than half-read."""
+    version = artifact.get("schema_version", 0)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version!r}, which is not a "
+            "non-negative integer"
+        )
+    if version > _WS6_SCHEMA_VERSION:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version}; this build reads "
+            f"{tool} artifacts up to schema_version {_WS6_SCHEMA_VERSION}"
+        )
+    return version
+
+
+def _int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
-    """The same verdict `loop` prints, including its qualifier.
+    """`loop`'s own verdict, recorded since schema 1 and derived before it,
+    including the NOT CHECKED qualifier: a run that skipped the auto-reply
+    check and one that passed it must not read the same on one line.
 
-    `loop` puts "(auto-reply NOT CHECKED)" in its own headline when no outbound
-    sink was configured, because a run that skipped the auto-reply check and a
-    run that passed it are otherwise identical on one line. A report that
-    dropped the qualifier would be the false green `loop` was built to refuse,
-    so it is carried here, and the skip is also listed as a `not-checked` note.
-    The exit code is unaffected by the skip, exactly as in `loop`.
-
-    `passed` is messages checked minus messages that failed. It is not
-    `checked`, which counts every machine-generated message looked at.
+    `passed` is messages checked minus messages with a finding.
     """
+    _known_schema(artifact, "loop")
     summary = _summary(artifact)
-    findings = summary.get("findings", 0)
-    findings = findings if isinstance(findings, int) else 0
-    checked = summary.get("checked", 0)
-    checked = checked if isinstance(checked, int) else 0
-    skipped = summary.get("auto_reply_skipped", 0)
-    skipped = skipped if isinstance(skipped, int) else 0
+    aborted = artifact.get("aborted") is True or summary.get("aborted") is True
+    findings_count = _int(summary.get("findings"))
+    message_findings = _int(summary.get("message_findings", findings_count))
+    checked = _int(summary.get("checked"))
+    skipped = _int(summary.get("auto_reply_skipped"))
 
-    verdict = "LOOP-SAFE" if findings == 0 else "LOOPS-DETECTED"
-    notes = []
+    recorded = summary.get("verdict")
+    if isinstance(recorded, str) and recorded:
+        verdict, source = recorded, "recorded"
+    else:
+        source = "derived"
+        verdict = "LOOP-SAFE" if findings_count == 0 else "LOOPS-DETECTED"
+        if skipped:
+            verdict = f"{verdict} (auto-reply NOT CHECKED)"
+
+    notes: List[Finding] = []
+    if aborted:
+        notes.append(Finding(kind="aborted",
+                             detail="interrupted before the run finished; nothing was judged"))
+    for line in summary.get("run_findings") or []:
+        kind = "unattributed" if str(line).startswith("outbound, unattributed") else "run"
+        if str(line).startswith("UNSETTLED"):
+            kind = "unsettled"
+        notes.append(Finding(kind=kind, detail=str(line)))
+    for message in artifact.get("messages") or []:
+        result = message.get("result") if isinstance(message, dict) else None
+        if not isinstance(result, dict):
+            continue
+        for finding in result.get("findings") or []:
+            kind = "loop-bait-answered" if result.get("is_loop_bait") and "bait" in str(finding) \
+                else "machine-mail"
+            notes.append(Finding(kind=kind, detail=f"{result.get('tag')}: {finding}"))
     if skipped:
-        verdict = f"{verdict} (auto-reply NOT CHECKED)"
         notes.append(
             Finding(
                 kind="not-checked",
-                detail=f"auto-reply check skipped for {skipped} message(s): "
-                       "no [loop.outbound] sink was configured",
+                detail=f"auto-reply check not run for {skipped} message(s): no sink "
+                       "configured ([loop.outbound])",
             )
         )
+    elif summary.get("outbound_enumerated") is False:
+        notes.append(
+            Finding(
+                kind="not-checked",
+                detail="the outbound sink cannot be enumerated, so an auto-reply "
+                       "that carries no tag would not have been seen",
+            )
+        )
+    parent = summary.get("bait_parent")
+    if isinstance(parent, dict) and parent.get("source") == "fabricated":
+        notes.append(
+            Finding(
+                kind="bait-fabricated",
+                detail="the loop bait replied to a fabricated Message-ID"
+                       + (f": {parent['reason']}" if parent.get("reason") else ""),
+            )
+        )
+
+    failed = findings_count != 0 or aborted or verdict.startswith("UNSETTLED")
     return ArtifactSummary(
         verdict=verdict,
-        verdict_source="derived",
-        exit_code=EXIT_OK if findings == 0 else EXIT_FINDING,
+        verdict_source=source,
+        exit_code=EXIT_FINDING if failed else EXIT_OK,
         exit_code_source="derived",
         counts=Counts(
-            sent=summary.get("sent", 0),
-            passed=max(checked - findings, 0),
-            failed=findings,
+            sent=_int(summary.get("sent")),
+            passed=max(checked - message_findings, 0),
+            failed=findings_count,
+            records=checked,
         ),
         findings=tuple(notes),
         **_base(artifact, "loop"),
+    )
+
+
+def _read_steady(artifact: Dict[str, Any]) -> ArtifactSummary:
+    """`steady`'s recorded verdict and gate. The exit code is the gate's."""
+    _known_schema(artifact, "steady")
+    stability = artifact.get("stability")
+    stability = stability if isinstance(stability, dict) else {}
+    gate = stability.get("gate") if isinstance(stability.get("gate"), dict) else {}
+    aborted = artifact.get("aborted") is True
+
+    recorded = stability.get("verdict")
+    verdict = recorded if isinstance(recorded, str) and recorded else (
+        "ABORTED" if aborted else "UNKNOWN"
+    )
+    source = "recorded" if isinstance(recorded, str) and recorded else "derived"
+    failed = bool(gate.get("failed")) or aborted or not (isinstance(recorded, str) and recorded)
+
+    findings: List[Finding] = []
+    if aborted:
+        findings.append(Finding(kind="aborted",
+                                detail="interrupted before the run finished; nothing was measured"))
+    if gate.get("failed") and gate.get("reason"):
+        findings.append(Finding(kind="gate", detail=str(gate["reason"])))
+    for family in stability.get("families") or []:
+        if not isinstance(family, dict) or family.get("consistent", True):
+            continue
+        dissent = ", ".join(
+            f"{d.get('transform')} ({d.get('language')}) got {d.get('label')!r}"
+            for d in family.get("dissenters") or [] if isinstance(d, dict)
+        )
+        findings.append(Finding(
+            kind="dissent",
+            detail=f"{family.get('intent_id')}: majority {family.get('majority')!r}; {dissent}",
+        ))
+    unlabelled = stability.get("unlabelled_families") or []
+    if unlabelled:
+        findings.append(Finding(
+            kind="not-measured",
+            detail=f"{len(unlabelled)} family(ies) not fully labelled: "
+                   + ", ".join(str(u) for u in unlabelled),
+        ))
+    reads = stability.get("label_reads") if isinstance(stability.get("label_reads"), dict) else {}
+    unread = {k: v for k, v in reads.items() if k != "labelled" and _int(v)}
+    if unread:
+        findings.append(Finding(
+            kind="label-reads",
+            detail=", ".join(f"{v} {k}" for k, v in sorted(unread.items())),
+        ))
+    if stability.get("constant_label") is not None:
+        findings.append(Finding(
+            kind="constant-label",
+            detail=f"every family read {stability['constant_label']!r}; check the label field",
+        ))
+
+    labelled = _int(stability.get("labelled_variants"))
+    dissenters = _int(stability.get("dissenters"))
+    variants = sum(
+        len(f.get("variants") or []) for f in artifact.get("families") or [] if isinstance(f, dict)
+    )
+    return ArtifactSummary(
+        verdict=verdict,
+        verdict_source=source,
+        exit_code=EXIT_FINDING if failed else EXIT_OK,
+        exit_code_source="derived",
+        counts=Counts(
+            sent=_int(stability.get("sent")),
+            found=labelled,
+            passed=max(labelled - dissenters, 0),
+            failed=dissenters,
+            records=variants,
+        ),
+        findings=tuple(findings),
+        **_base(artifact, "steady"),
+    )
+
+
+def _read_sigcheck(artifact: Dict[str, Any]) -> ArtifactSummary:
+    """`sigcheck`'s recorded verdict; each variant the endpoint got wrong is a
+    finding, and informational answers are listed apart."""
+    _known_schema(artifact, "sigcheck")
+    summary = _summary(artifact)
+    aborted = artifact.get("aborted") is True
+    findings: List[Finding] = []
+    if aborted:
+        findings.append(Finding(kind="aborted",
+                                detail="interrupted before every variant was sent"))
+    passed = failed = 0
+    for item in artifact.get("variants") or []:
+        if not isinstance(item, dict):
+            continue
+        verdict = item.get("verdict")
+        if verdict == "FINDING":
+            failed += 1
+            findings.append(Finding(kind=str(item.get("variant")), detail=str(item.get("detail"))))
+        elif verdict == "OK":
+            passed += 1
+        elif verdict == "INFO":
+            findings.append(Finding(kind=f"info:{item.get('variant')}",
+                                    detail=str(item.get("detail"))))
+    for note in summary.get("notes") or []:
+        findings.append(Finding(kind="note", detail=str(note)))
+    recorded = summary.get("verdict")
+    verdict = recorded if isinstance(recorded, str) and recorded else (
+        "ENFORCED" if failed == 0 and not aborted else "GAPS"
+    )
+    return ArtifactSummary(
+        verdict=verdict,
+        verdict_source="recorded" if isinstance(recorded, str) and recorded else "derived",
+        exit_code=EXIT_FINDING if failed or aborted else EXIT_OK,
+        exit_code_source="derived",
+        counts=Counts(sent=_int(summary.get("sent")), passed=passed, failed=failed,
+                      records=len(artifact.get("variants") or [])),
+        findings=tuple(findings),
+        **_base(artifact, "sigcheck"),
     )
 
 
@@ -635,6 +812,8 @@ _READERS = {
     "ledger": _read_ledger,
     "redeliver": _read_redeliver,
     "loop": _read_loop,
+    "steady": _read_steady,
+    "sigcheck": _read_sigcheck,
     "compare": _read_compare,
 }
 
