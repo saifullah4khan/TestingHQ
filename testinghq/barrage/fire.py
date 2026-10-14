@@ -12,9 +12,9 @@ module is where all three are enforced on the way to the wire:
 1. Dry-run is the DEFAULT. Sending requires an explicit --send, decided by
    guardrails.evaluate_send. A dry run makes ZERO network calls: it never
    resolves a client, never builds a request, never touches transport.
-2. Configured targets ONLY. guardrails.require_configured_target gates
-   both the target name (the allow-list check) and the resolved URL (the
-   public-host check).
+2. Configured targets ONLY. core.targets.resolve_target gates the target
+   name (the allow-list check) and the resolved URL (the public-host check;
+   a public host needs --allow-public-target and `public = true`).
 3. A hard rate, duration and concurrency ceiling, enforced by runner.check_rate_ceiling
    before any dispatch.
 
@@ -35,7 +35,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.config import load_config
+from ..core.targets import BARRAGE, resolve_target
 from ..core.transport import post
 from . import report as barrage_report
 from .payloads import DEFAULT_POOL_SIZE, build_payload_pool, payload_for_index
@@ -74,31 +74,6 @@ class BarrageError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Guardrail wiring
 # ---------------------------------------------------------------------------
-
-
-def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, enforcing
-    the canonical guardrail TWICE: once on the configured name (the
-    allow-list check) and once on the resolved URL (the public-host check).
-
-    Both calls are positional, matching the blast fire path in
-    testinghq/cli/blast.py and web/adapter.py.
-
-    Checking only the name is the trap: a bare single-label target name
-    like "local" has no dot, so guardrails' public-host hardening
-    classifies it as an internal name and passes it unconditionally. The
-    hardening then looks correct while being completely inert, and a real
-    public URL hiding behind a friendly name would fire. Resolving the URL
-    and running it through the same guardrail is what makes that hardening
-    actually bite.
-    """
-    if not target_name:
-        raise guardrails.GuardrailError("refusing to fire: --send requires --target")
-    config = load_config(config_path)
-    guardrails.require_configured_target(target_name, config.allowed_target_names())
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
 
 
 def _address_fields(email: InboundEmail) -> List[str]:
@@ -198,6 +173,7 @@ def make_send_fn(
     url: str,
     client=None,
     clock: Callable[[], float] = time.monotonic,
+    wire_format=None,
 ):
     """Build the runner's send hook: post the pool's payload for `index` at
     `url` and report how long it took, so closed-loop dispatch knows when
@@ -206,7 +182,7 @@ def make_send_fn(
 
     def send_fn(index: int):
         payload = payload_for_index(pool, index)
-        result = post(payload, url, client=client, clock=clock)
+        result = post(payload, url, client=client, clock=clock, wire_format=wire_format)
         return (result, result.latency_ms / 1000.0)
 
     return send_fn
@@ -292,6 +268,7 @@ def execute(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     printer: Callable[[str], None] = print,
+    allow_public_target: bool = False,
 ) -> int:
     """The shared send path for `fire` and `replay`. Returns a process exit
     code. Never called unless guardrails.evaluate_send already said yes.
@@ -304,11 +281,17 @@ def execute(
     """
     pool = build_payload_pool(seed, pool_size)
     require_synthetic_pool(pool)
-    url = resolve_target_url(target_name, config_path)
+    target = resolve_target(
+        target_name, config_path,
+        allow_public_target=allow_public_target, load_tool=BARRAGE,
+    )
 
     records = run(
         plan,
-        make_send_fn(pool, url, client=client, clock=clock),
+        make_send_fn(
+            pool, target.url, client=client, clock=clock,
+            wire_format=target.wire_format,
+        ),
         clock=clock,
         sleep=sleep,
         allow_high_rate=allow_high_rate,
@@ -316,7 +299,10 @@ def execute(
 
     artifact = barrage_report.build_artifact(
         seed,
-        run_config(plan, seed, pool_size, target_name, dry_run=False),
+        {
+            **run_config(plan, seed, pool_size, target_name, dry_run=False),
+            **target.artifact_config(),
+        },
         samples_from_records(records),
     )
     artifact["dispatch"] = dispatch_summary(records, plan.concurrency)

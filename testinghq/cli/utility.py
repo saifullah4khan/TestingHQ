@@ -108,7 +108,7 @@ def _cmd_config_validate(args) -> int:
     print(f"config: {args.config_file}")
     print(f"targets: {len(targets)}")
     for name, target in targets.items():
-        print(f"  {name}: {target['url']} (format {target['format']})")
+        print(f"  {config_doc.describe_target(name, target)}")
 
     if readback is None:
         print("readback: none configured")

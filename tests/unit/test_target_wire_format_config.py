@@ -114,3 +114,13 @@ format = "sendgrid"
     )
     assert config.get("local").url == "http://127.0.0.1:9100/other"
     assert config.get("local").wire_format == "sendgrid"
+
+
+@pytest.mark.parametrize("name", ["sendgrid-raw", "mailgun", "postmark", "mime"])
+def test_every_registered_format_loads(tmp_path, name):
+    config = load_config(_write(tmp_path, f"""
+[targets.local]
+url = "http://127.0.0.1:9000/inbound"
+format = "{name}"
+"""))
+    assert config.get("local").wire_format == name

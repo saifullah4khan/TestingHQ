@@ -1,25 +1,22 @@
 """Configuration loading for TestingHQ.
 
 Targets are declared explicitly in a TOML config file, one `[targets.<name>]`
-table per target with a required `url`. A target may name a wire `format`; the
-default is SendGrid Inbound Parse, which is what an undeclared format has always
-meant. Environment variables may override a declared target's url (but never
-invent a new one); this lets a target config be checked in while keeping the
-real URL out of source control.
+table per target with a required `url`, an optional wire `format` (default
+SendGrid Inbound Parse) and an optional `public` flag (default false, read only
+by Barrage). Environment variables may override a declared target's url (but
+never invent a new one), so a target config can be checked in while the real
+URL stays out of source control.
 
 Loading fails loud: a missing file, unparsable TOML, a malformed `targets`
-table, a target missing its `url`, or a target naming an unknown `format` all
-raise ConfigError. Nothing here silently drops a bad value or falls back to an
-empty config, and nothing falls back to a default format either, because a
-typo'd format that quietly became SendGrid would post the wrong bytes and
-report the run as sent.
+table, a target missing its `url`, an unknown `format` or a non-boolean
+`public` all raise ConfigError. Nothing falls back to a default for a bad value.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Mapping, Optional, Union
+from typing import Any, Dict, Mapping, Optional, Union
 
 from .formats import format_names
 from .transport import DEFAULT_FORMAT
@@ -51,6 +48,9 @@ class Target:
     #: Validated here rather than at send time so a typo fails on load, with
     #: the list of valid names, instead of after a dry-run looked fine.
     wire_format: str = DEFAULT_FORMAT
+    #: Barrage's half of the double opt-in for a public host: a load test at a
+    #: public host needs `public = true` here as well as --allow-public-target.
+    public: bool = False
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not self.name:
@@ -73,6 +73,11 @@ class Target:
             raise ConfigError(
                 f"target {self.name!r}: unknown format {self.wire_format!r}; "
                 f"known formats are {format_names()}"
+            )
+        if not isinstance(self.public, bool):
+            raise ConfigError(
+                f"target {self.name!r}: public must be true or false, got "
+                f"{self.public!r}"
             )
 
 
@@ -203,11 +208,20 @@ def load_config(
                 f"string, got {type(wire_format).__name__}"
             )
 
+        public = entry.get("public", False)
+        if not isinstance(public, bool):
+            raise ConfigError(
+                f"config file {config_path}: targets.{name}.public must be true "
+                f"or false, got {type(public).__name__}"
+            )
+
         env_key = f"TESTINGHQ_TARGET_{_env_key(name)}_URL"
         if env_key in env:
             url = env[env_key]
 
-        targets[name] = Target(name=name, url=url, wire_format=wire_format)
+        targets[name] = Target(
+            name=name, url=url, wire_format=wire_format, public=public
+        )
 
     readback = raw.get("readback")
     if readback is not None and not isinstance(readback, dict):
