@@ -68,8 +68,8 @@ every latency.
   the window), or slowing (median service latency above twice the baseline).
   The baseline is the hold stage's first two buckets, never a ramp request.
 - `records`: one row per scheduled request (index, scheduled_at,
-  dispatched_at, status, service_ms, offered_ms, outcome), the rows `compare`
-  aligns two load runs on.
+  dispatched_at, status, service_ms, offered_ms, outcome), from which `compare`
+  diffs two load runs on error rate, latency and achieved rate.
 
 ## How to revisit this
 
