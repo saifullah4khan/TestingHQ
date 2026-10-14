@@ -233,12 +233,32 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
+#: The newest barrage artifact schema this reader understands.
+BARRAGE_SCHEMA_VERSION = 1
+
+
 def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
+    # An artifact from before schema_version existed is version 0.
+    version = artifact.get("schema_version", 0)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 0:
+        raise ArtifactError(f"barrage artifact has an invalid schema_version: {version!r}")
+    if version > BARRAGE_SCHEMA_VERSION:
+        raise ArtifactError(
+            f"barrage artifact has schema_version {version}, newer than this "
+            f"reader understands ({BARRAGE_SCHEMA_VERSION}). Upgrade testinghq to read it."
+        )
     summary = _summary(artifact)
     buckets = artifact.get("buckets") or []
     knee = summary.get("knee")
+    requests = summary.get("requests") if isinstance(summary.get("requests"), dict) else {}
+    aborted = artifact.get("aborted") is True
 
     findings: List[Finding] = []
+    if aborted:
+        findings.append(Finding(
+            kind="aborted",
+            detail="interrupted before the plan finished; the counts are partial",
+        ))
     if isinstance(knee, dict):
         findings.append(
             Finding(
@@ -247,17 +267,38 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
                        f"{knee.get('at_seconds')}s: {knee.get('detail', '')}".strip(),
             )
         )
-    total = sum(b.get("count", 0) for b in buckets if isinstance(b, dict))
+    for key, words in (
+        ("dropped_backlog", "waited too long for a worker and were never sent"),
+        ("abandoned", "were still in flight at the run deadline"),
+        ("not_dispatched", "were never sent before the run deadline"),
+    ):
+        if requests.get(key):
+            findings.append(Finding(kind=key, detail=f"{requests[key]} request(s) {words}"))
 
+    if requests:
+        sent = requests.get("sent", 0)
+    else:
+        sent = sum(b.get("count", 0) for b in buckets if isinstance(b, dict))
+
+    if aborted:
+        verdict = "ABORTED"
+    elif isinstance(knee, dict):
+        verdict = "KNEE"
+    else:
+        verdict = "STEADY"
     return ArtifactSummary(
-        verdict="KNEE" if isinstance(knee, dict) else "STEADY",
+        verdict=verdict,
         verdict_source="derived",
-        # barrage's execute returns EXIT_OK for any completed run. Its health is
-        # in the artifact, not the exit code, and pretending otherwise would
-        # change what a CI script gating on the code does.
-        exit_code=EXIT_OK,
+        # A completed barrage run exits 0 whatever it measured: its health is
+        # the report, and a knee is a finding in it. An aborted run exits 3.
+        exit_code=EXIT_FINDING if aborted else EXIT_OK,
         exit_code_source="derived",
-        counts=Counts(sent=total, buckets=len(buckets)),
+        counts=Counts(
+            sent=sent,
+            produced=requests.get("scheduled", 0),
+            records=len(artifact.get("records") or []),
+            buckets=len(buckets),
+        ),
         findings=tuple(findings),
         **_base(artifact, "barrage"),
     )
