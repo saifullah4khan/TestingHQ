@@ -116,8 +116,8 @@ def test_the_dispatch_note_names_what_the_deadline_and_backlog_cut():
 
 
 def test_records_scale_linearly_with_the_run():
-    """Result write-back used to scan the run per completion, which is
-    quadratic. 5000 requests through the whole engine stay quick."""
+    """Recording results is linear: 5000 requests through the whole engine
+    stay quick."""
     clock = FakeClock()
     plan = RunPlan(mode="open", rate=1000.0, concurrency=1, warmup_seconds=0.0,
                    hold_seconds=5.0, ramp_step_count=0)

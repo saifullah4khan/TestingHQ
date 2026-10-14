@@ -113,7 +113,6 @@ def test_429_counts_as_an_error_and_is_named_shed():
 
 
 def test_an_endpoint_that_sheds_with_429_has_a_knee():
-    """It used to report 0% errors and "Knee: none found"."""
     samples = _steady(20, status=200) + _steady(20, start=2.0, status=429)
     knee = find_knee(bucketize(samples))
     assert knee is not None and knee["reason"] == "shedding"
@@ -224,8 +223,8 @@ def test_falling_behind_the_target_is_a_knee():
 
 
 def test_slowing_is_measured_against_the_hold_baseline_not_the_first_request():
-    """A slow first ramp request (a cold handshake) used to set the baseline.
-    The baseline is now the hold stage's first two buckets."""
+    """A slow first ramp request (a cold handshake) does not set the
+    baseline; the hold stage's first two buckets do."""
     ramp = [_s(0.0, latency_ms=500.0, in_hold=False)]
     hold = _steady(20, start=1.0, latency_ms=10.0) + _steady(20, start=3.0, latency_ms=100.0)
     buckets = bucketize(ramp + hold, origin=0.0, hold_start=1.0)

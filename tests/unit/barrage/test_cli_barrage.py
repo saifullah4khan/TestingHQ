@@ -86,10 +86,7 @@ def test_barrage_fire_parser_defaults():
     assert args.command == "fire"
     assert args.rate == barrage_fire.DEFAULT_RATE
     assert args.duration == barrage_fire.DEFAULT_DURATION
-    # None, not DEFAULT_CONCURRENCY: the flag means "not specified", which
-    # build_plan resolves per mode. Defaulting it here would make an explicit
-    # --concurrency indistinguishable from an omitted one, and open mode has
-    # to refuse the explicit case.
+    # None means "not given"; build_plan resolves it to DEFAULT_CONCURRENCY.
     assert args.concurrency is None
     assert args.mode == barrage_fire.DEFAULT_MODE
     assert args.send is False  # dry-run is the DEFAULT
@@ -255,10 +252,8 @@ def test_barrage_fire_send_without_target_flag_is_refused(tmp_path, monkeypatch)
 
 
 def test_execute_refuses_public_host_even_when_configured(tmp_path, forbid_network):
-    # The trap this pins: a bare single-label target name has no dot, so
-    # the public-host hardening would pass it unconditionally if only the
-    # name were checked. Resolving the URL and checking that too is what
-    # makes the hardening bite.
+    # A single-label target name has no dot, so the host check has to run on
+    # the resolved URL, not on the name.
     _write_target_config(tmp_path, name="prod", url="https://ingest.mycompany.com/inbound")
     plan = barrage_fire.build_plan("open", 10.0, 10.0, 1, 0.0)
     client = FakeClient()
@@ -443,76 +438,31 @@ def test_require_synthetic_pool_refuses_a_non_reserved_address():
 
 
 # ---------------------------------------------------------------------------
-# --concurrency, in both modes.
-#
-# Barrage used to have no executor: `testinghq` imported no threading
-# anywhere, there was no concurrent.futures or asyncio in `testinghq` or in
-# core/transport, and a request was issued, its response read, and only then
-# was the next dispatched. So exactly one was ever in flight and
-# --concurrency could not mean anything.
-#
-# Measured against a real local server sleeping 300ms, driving the shipped
-# binary at 6 req/s: open mode achieved 3.14 req/s at --concurrency 1, 3.13 at
-# 4 and 3.16 at 64. Closed mode was the same story. The flag was parsed,
-# validated, stored in the plan, written into the run artifact and printed by
-# the dry-run preview, and did nothing.
-#
-# That is issue #38 and it is fixed: runs dispatch through a pool of
-# plan.concurrency workers. The two tests here pin that the flag is accepted
-# and that the preview says what will actually happen. The measurement, the
-# concurrency itself, is pinned in tests/unit/barrage/test_runner.py with a
-# real-time probe and in tests/e2e/test_real_sockets.py against a real socket,
-# because a fake clock cannot see concurrency.
+# --concurrency is the worker count in both modes. The concurrency itself is
+# measured in test_runner.py and tests/e2e/test_real_sockets.py, because a
+# fake clock cannot see overlap.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", ["open", "closed"])
 def test_concurrency_is_accepted_in_both_modes(mode, capsys):
-    """Both modes, not just open.
-
-    This used to be `test_concurrency_is_refused_with_a_reason`, and it was
-    right at the time: the dispatcher was serial, so `--concurrency` could not
-    mean anything and refusing it was the honest thing to do. Its own docstring
-    carried the measurement: "concurrency 1, 4 and 64 all produced the same
-    throughput in both modes, because `testinghq` had no executor and a send
-    was never more than one request in flight."
-
-    The executor exists now, so the flag is the control that decides how much
-    load is in flight, and refusing it would be refusing the tool's one job.
-    """
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--mode", mode, "--concurrency", "8"]
     )
-    capsys.readouterr()
-
-    assert rc == barrage_fire.EXIT_DRY_RUN, (
-        f"--concurrency 8 exited {rc} in {mode} mode. It is the one control that "
-        "decides how much load is in flight; refusing it is refusing the tool."
-    )
-    assert "no effect" not in capsys.readouterr().err
+    assert rc == barrage_fire.EXIT_DRY_RUN, capsys.readouterr().err
 
 
 def test_the_dry_run_preview_reports_the_requested_concurrency(capsys):
-    """The preview has to describe what this build can actually do, which was
-    the note above the preview tests. With the executor, the number it prints is
-    the number that will be used, and that is the property a preview exists for.
-    """
     cli.main(
         ["barrage", "fire", "--target", "local", "--mode", "closed",
          "--concurrency", "8"]
     )
     out = capsys.readouterr().out
-
     assert "concurrency: 8" in out
-    assert "SERIAL" not in out, (
-        "the preview no longer dispatches one at a time, so it must not say it "
-        "does"
-    )
+    assert "each of the 8 worker(s) sends its next request only after" in out
+
 
 def test_concurrency_of_one_is_accepted_in_both_modes(capsys):
-    """1 is the truth, so passing it explicitly is not asking for something
-    inert. Refusing it would be pedantry that teaches users to distrust the
-    flag."""
     for mode in ("open", "closed"):
         rc = cli.main(
             ["barrage", "fire", "--target", "local", "--mode", mode,
@@ -522,65 +472,21 @@ def test_concurrency_of_one_is_accepted_in_both_modes(capsys):
         assert "concurrency: 1" in capsys.readouterr().out
 
 
-def test_refusing_concurrency_sends_nothing(capsys, forbid_network):
-    """The refusal has to happen before any request, not after. A dry run is
-    the default here, so this is the easy half to get wrong: a plan that
-    previews happily and only then refuses would already have told the
-    operator the run was fine."""
-    rc = cli.main(
-        ["barrage", "fire", "--target", "local", "--mode", "open",
-         "--concurrency", "8", "--send"]
-    )
-    out = capsys.readouterr()
-
-    assert rc == barrage_fire.EXIT_REFUSED
-    assert "dry-run preview" not in out.out
-    assert "refused" in out.err
-
-
-def test_closed_mode_still_records_the_concurrency_it_was_given():
-    """Closed mode threads the number into its slot allocation, so the value is
-    meaningful the moment an executor exists. Coercing it in `build_plan` would
-    throw that away and make the eventual fix harder to see.
-
-    The CLI refuses an explicit value above 1 meanwhile; this is about what the
-    plan records, which is the layer `barrage replay` depends on."""
+def test_build_plan_keeps_the_concurrency_it_was_given_in_both_modes():
+    """`barrage replay` rebuilds the plan from this value."""
     assert barrage_fire.build_plan("closed", 5.0, 20.0, 8, 5.0).concurrency == 8
+    assert barrage_fire.build_plan("open", 5.0, 20.0, 64, 5.0).concurrency == 64
 
 
 def test_omitting_concurrency_resolves_to_the_default_in_both_modes():
-    """None must not leak into the plan, and both modes now agree.
-
-    Open mode used to resolve to 1, which was the truth at the time: the
-    dispatcher was serial, so one was what it had. With an executor, 1 would be
-    a choice to measure almost nothing, and the same default in both modes is
-    the one thing that does not need explaining per mode.
-    """
     closed = barrage_fire.build_plan("closed", 5.0, 20.0, None, 5.0)
     opened = barrage_fire.build_plan("open", 5.0, 20.0, None, 5.0)
-
-    assert closed.concurrency == barrage_fire.DEFAULT_CONCURRENCY
-    assert opened.concurrency == barrage_fire.DEFAULT_CONCURRENCY
-    assert opened.concurrency == closed.concurrency
+    assert closed.concurrency == opened.concurrency == barrage_fire.DEFAULT_CONCURRENCY
 
 
-def test_open_mode_records_the_concurrency_it_will_actually_use():
-    """A run artifact is a record of what ran.
-
-    This test used to assert the opposite, and its docstring explained why:
-    "Recording a number that had no effect makes every future replay of it a
-    reproduction of a fiction." That reasoning was right and it is now obsolete
-    for a new run, because the number does have an effect. Recording 1 for a
-    64-worker run would once again be the fiction.
-    """
-    plan = barrage_fire.build_plan("open", 5.0, 20.0, 64, 5.0)
-    assert plan.concurrency == 64
-
-
-def test_replay_of_a_legacy_artifact_with_a_meaningless_concurrency_still_works(tmp_path):
-    """Artifacts written before this was true carry an inert number, and
-    refusing them would break replay of every open-mode run this tool has
-    produced. The record is historical; the rebuild has to tolerate it."""
+def test_replay_of_an_artifact_without_the_newer_keys_uses_the_defaults(tmp_path, capsys):
+    """An artifact written before grace, timeout and keep-alive were recorded
+    still replays, with today's defaults for what it lacks."""
     artifact = {
         "seed": 5,
         "config": {
@@ -592,18 +498,14 @@ def test_replay_of_a_legacy_artifact_with_a_meaningless_concurrency_still_works(
     run_path.write_text(json.dumps(artifact), encoding="utf-8")
 
     assert cli.main(["barrage", "replay", str(run_path)]) == barrage_fire.EXIT_DRY_RUN
+    out = capsys.readouterr().out
+    assert f"(duration + {barrage_fire.DEFAULT_GRACE_SECONDS:g}s grace)" in out
+    assert f"per-request timeout: {barrage_fire.DEFAULT_TIMEOUT:g}s" in out
+    assert "kept alive, one per worker" in out
 
 
 # ---------------------------------------------------------------------------
-# The dry-run preview has to describe what this build can actually do.
-#
-# Every test in this section used to assert that the preview said SERIAL, in
-# both modes, and warned that a slow target would cap the rate. All three were
-# correct and all three described a tool that could not do its job. The
-# executor exists now, so the preview describes a pool instead, and these tests
-# assert the pool. The shape of each is unchanged, because the property they
-# protect is unchanged: the preview must not describe a different build from
-# the one that will run.
+# The dry-run preview describes the pool that will run.
 # ---------------------------------------------------------------------------
 
 
@@ -617,14 +519,9 @@ def test_dry_run_preview_states_how_many_requests_can_be_in_flight(capsys):
     assert rc == barrage_fire.EXIT_DRY_RUN
     assert "pool of 16 workers" in out
     assert "16 request(s) in flight" in out
-    assert "SERIAL" not in out
 
 
-def test_dry_run_preview_says_so_honestly_at_concurrency_one(capsys):
-    """The `concurrency == 1` branch is not decoration. One worker really is one
-    request in flight, and the operator who asked for it needs the same warning
-    the preview gave everyone before, because a single worker against a slow
-    target still cannot hold the schedule."""
+def test_dry_run_preview_warns_that_one_worker_caps_the_rate(capsys):
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--mode", "open",
          "--concurrency", "1"]
@@ -634,28 +531,19 @@ def test_dry_run_preview_says_so_honestly_at_concurrency_one(capsys):
     assert rc == barrage_fire.EXIT_DRY_RUN
     assert "one worker" in out
     assert "slower than the arrival interval" in out
-    assert "raise --concurrency" in out, (
-        "the warning has to say what to do about it, not only what will happen"
-    )
+    assert "raise --concurrency" in out
 
 
 def test_dry_run_preview_states_the_pool_in_closed_mode_too(capsys):
-    """Closed mode's default is above 1, so its preview describes a pool. The
-    default is still reported alongside it, because a number with no
-    description next to it is the thing this section exists to prevent."""
     rc = cli.main(["barrage", "fire", "--target", "local", "--mode", "closed"])
     out = capsys.readouterr().out
 
     assert rc == barrage_fire.EXIT_DRY_RUN
     assert f"concurrency: {barrage_fire.DEFAULT_CONCURRENCY}" in out
     assert f"pool of {barrage_fire.DEFAULT_CONCURRENCY} workers" in out
-    assert "SERIAL" not in out
 
 
 def test_dry_run_preview_reports_the_memory_cost_of_the_pool(capsys):
-    """The pool is one interpreter thread per in-flight request, so a high
-    concurrency is a memory cost and not a free setting. A preview is the place
-    an operator finds that out, before they set it to 4000."""
     rc = cli.main(
         ["barrage", "fire", "--target", "local", "--mode", "closed",
          "--concurrency", "64"]
