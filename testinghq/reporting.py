@@ -109,7 +109,9 @@ class ArtifactSummary:
     `tool` is what wrote it. `verdict` is the tool's own word where it has one
     and a derived word where it does not, in which case `verdict_source` says so
     rather than leaving the reader to assume. `exit_code_source` does the same
-    for the exit code.
+    for the exit code. `schema_version` is the artifact's (0 when it records
+    none) and `aborted` says the run was interrupted. `to_json` emits exactly
+    `JSON_KEYS`, the frozen `report --json` shape.
     """
 
     tool: str
@@ -122,12 +124,14 @@ class ArtifactSummary:
     seed: Optional[int] = None
     target: Optional[str] = None
     dry_run: bool = False
+    schema_version: int = 0
+    aborted: bool = False
 
     def to_json(self) -> Dict[str, Any]:
         payload = asdict(self)
         payload["findings"] = [asdict(f) for f in self.findings]
         payload["counts"] = asdict(self.counts)
-        return payload
+        return {key: payload[key] for key in JSON_KEYS}
 
 
 # ---------------------------------------------------------------------------
@@ -190,21 +194,20 @@ def detect_tool(artifact: Dict[str, Any]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def _base(artifact: Dict[str, Any], tool: str) -> Dict[str, Any]:
-    config = _config(artifact)
-    return {
-        "tool": tool,
-        "seed": artifact.get("seed") if isinstance(artifact.get("seed"), int) else None,
-        "target": config.get("target") if isinstance(config.get("target"), str) else None,
-        "dry_run": bool(config.get("dry_run", False)),
-    }
+#: The newest artifact schema_version the readers below know, for every tool.
+KNOWN_SCHEMA_VERSION = 1
+
+#: The top-level keys of `report --json`, frozen for 1.0.
+JSON_KEYS = (
+    "tool", "verdict", "verdict_source", "exit_code", "exit_code_source",
+    "counts", "findings", "seed", "target", "dry_run", "schema_version",
+    "aborted",
+)
 
 
-#: The newest blast and compare artifact schema these readers know.
-_BLAST_SCHEMA_VERSION = 1
-
-
-def _check_schema_version(artifact: Dict[str, Any], tool: str, known: int) -> int:
+def _schema_version(
+    artifact: Dict[str, Any], tool: str, known: int = KNOWN_SCHEMA_VERSION
+) -> int:
     """The artifact's schema_version: missing is 0, above `known` is refused."""
     version = artifact.get("schema_version", 0)
     if isinstance(version, bool) or not isinstance(version, int) or version < 0:
@@ -220,8 +223,23 @@ def _check_schema_version(artifact: Dict[str, Any], tool: str, known: int) -> in
     return version
 
 
+def _base(
+    artifact: Dict[str, Any], tool: str, *, aborted: Optional[bool] = None
+) -> Dict[str, Any]:
+    """The fields every reader fills the same way. `aborted` defaults to the
+    artifact's top-level flag; a reader that knows better passes its own."""
+    config = _config(artifact)
+    return {
+        "tool": tool,
+        "seed": artifact.get("seed") if isinstance(artifact.get("seed"), int) else None,
+        "target": config.get("target") if isinstance(config.get("target"), str) else None,
+        "dry_run": bool(config.get("dry_run", False)),
+        "schema_version": _schema_version(artifact, tool),
+        "aborted": artifact.get("aborted") is True if aborted is None else bool(aborted),
+    }
+
+
 def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
-    _check_schema_version(artifact, "blast", _BLAST_SCHEMA_VERSION)
     summary = _summary(artifact)
     records = artifact.get("records") or []
     flags = summary.get("flags") or []
@@ -264,20 +282,7 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
-#: The newest barrage artifact schema this reader understands.
-BARRAGE_SCHEMA_VERSION = 1
-
-
 def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
-    # An artifact from before schema_version existed is version 0.
-    version = artifact.get("schema_version", 0)
-    if not isinstance(version, int) or isinstance(version, bool) or version < 0:
-        raise ArtifactError(f"barrage artifact has an invalid schema_version: {version!r}")
-    if version > BARRAGE_SCHEMA_VERSION:
-        raise ArtifactError(
-            f"barrage artifact has schema_version {version}, newer than this "
-            f"reader understands ({BARRAGE_SCHEMA_VERSION}). Upgrade testinghq to read it."
-        )
     summary = _summary(artifact)
     buckets = artifact.get("buckets") or []
     knee = summary.get("knee")
@@ -335,27 +340,6 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
-#: The newest artifact schema the verify, ledger and redeliver readers know.
-_CHECK_SCHEMA_VERSION = 1
-
-
-def _check_schema(artifact: Dict[str, Any], tool: str) -> int:
-    """The artifact's schema_version: missing is 0, above what this build
-    knows is refused."""
-    version = artifact.get("schema_version", 0)
-    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
-        raise ArtifactError(
-            f"this {tool} artifact has schema_version {version!r}, which is not "
-            "a non-negative integer"
-        )
-    if version > _CHECK_SCHEMA_VERSION:
-        raise ArtifactError(
-            f"this {tool} artifact has schema_version {version}; this build "
-            f"reads {tool} artifacts up to schema_version {_CHECK_SCHEMA_VERSION}"
-        )
-    return version
-
-
 def _read_aborted(artifact: Dict[str, Any], label: str) -> Optional[ArtifactSummary]:
     """A verify, ledger or redeliver run stopped by Ctrl-C, or None.
 
@@ -384,7 +368,6 @@ def _read_aborted(artifact: Dict[str, Any], label: str) -> Optional[ArtifactSumm
 
 
 def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
-    _check_schema(artifact, "verify")
     aborted = _read_aborted(
         artifact, f"verify {_config(artifact).get('mode', 'fire')}"
     )
@@ -439,7 +422,6 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
-    _check_schema(artifact, "ledger")
     aborted = _read_aborted(artifact, "ledger")
     if aborted is not None:
         return aborted
@@ -544,7 +526,6 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
-    _check_schema(artifact, "redeliver")
     aborted = _read_aborted(artifact, "redeliver")
     if aborted is not None:
         return aborted
@@ -609,27 +590,6 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
-#: The newest loop, steady and sigcheck artifact schema these readers know.
-_WS6_SCHEMA_VERSION = 1
-
-
-def _known_schema(artifact: Dict[str, Any], tool: str) -> int:
-    """The artifact's `schema_version`: missing reads as 0, a value above what
-    this build knows is refused rather than half-read."""
-    version = artifact.get("schema_version", 0)
-    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
-        raise ArtifactError(
-            f"this {tool} artifact has schema_version {version!r}, which is not a "
-            "non-negative integer"
-        )
-    if version > _WS6_SCHEMA_VERSION:
-        raise ArtifactError(
-            f"this {tool} artifact has schema_version {version}; this build reads "
-            f"{tool} artifacts up to schema_version {_WS6_SCHEMA_VERSION}"
-        )
-    return version
-
-
 def _int(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
@@ -641,7 +601,6 @@ def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
 
     `passed` is messages checked minus messages with a finding.
     """
-    _known_schema(artifact, "loop")
     summary = _summary(artifact)
     aborted = artifact.get("aborted") is True or summary.get("aborted") is True
     findings_count = _int(summary.get("findings"))
@@ -714,13 +673,12 @@ def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
             records=checked,
         ),
         findings=tuple(notes),
-        **_base(artifact, "loop"),
+        **_base(artifact, "loop", aborted=aborted),
     )
 
 
 def _read_steady(artifact: Dict[str, Any]) -> ArtifactSummary:
     """`steady`'s recorded verdict and gate. The exit code is the gate's."""
-    _known_schema(artifact, "steady")
     stability = artifact.get("stability")
     stability = stability if isinstance(stability, dict) else {}
     gate = stability.get("gate") if isinstance(stability.get("gate"), dict) else {}
@@ -795,7 +753,6 @@ def _read_steady(artifact: Dict[str, Any]) -> ArtifactSummary:
 def _read_sigcheck(artifact: Dict[str, Any]) -> ArtifactSummary:
     """`sigcheck`'s recorded verdict; each variant the endpoint got wrong is a
     finding, and informational answers are listed apart."""
-    _known_schema(artifact, "sigcheck")
     summary = _summary(artifact)
     aborted = artifact.get("aborted") is True
     findings: List[Finding] = []
@@ -834,7 +791,6 @@ def _read_sigcheck(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
-    _check_schema_version(artifact, "compare", _BLAST_SCHEMA_VERSION)
     regressions = artifact.get("regressions") or {}
     fixes = artifact.get("fixes") or {}
     regressed = bool(artifact.get("regressed"))
@@ -959,6 +915,9 @@ def summarize(data: Any) -> ArtifactSummary:
             "Add a reader rather than letting it fall through to a guess."
         )
 
+    # Refused before the reader looks at anything, so a newer shape is never
+    # half-read. The readers fill the field through `_base`.
+    _schema_version(data, tool)
     return reader(data)
 
 
