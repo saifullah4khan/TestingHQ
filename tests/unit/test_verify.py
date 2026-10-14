@@ -364,7 +364,6 @@ def _verify_with(readbacks, target_config, tmp_path, spec_probe, **kwargs):
 
 
 def _one(tag, **kwargs):
-    from testinghq.pipeline.readback import FunctionAdapter
 
     return {tag: [Readback(exists=True, ticket_id="T1", **kwargs)]}
 
@@ -384,8 +383,10 @@ def test_the_summary_counts_the_checks_that_never_ran(target_config, tmp_path, s
     )
     grouped = artifact["summary"]["checks_skipped_by_reason"]
     not_visible = grouped[expectations_module.SKIP_NOT_VISIBLE]
-    assert set(not_visible) >= {"sender", "body", "attachments", "routing"}
+    assert set(not_visible) >= {"sender", "body", "attachments"}
     assert not_visible["sender"] == COUNT
+    # No --expect-route, so routing is filed under its own reason.
+    assert grouped[expectations_module.SKIP_NO_EXPECTED_ROUTE] == {"routing": COUNT}
     # The adapter COULD see the subject, so nothing is filed against it there,
     # and no other reason is credited with these.
     assert not grouped[expectations_module.SKIP_NOTHING_TO_CHECK]
@@ -451,12 +452,16 @@ def test_a_run_that_verified_nothing_says_nothing_checked(
 
     spec_probe["build"] = lambda: FunctionAdapter(lambda probe: [])
     lines: list = []
-    verify.execute(
+    code = verify.execute(
         SEED, COUNT, TARGET, target_config, str(tmp_path / "verify.json"),
         readback=_config(), client=_RecordingClient(),
         sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
     )
-    assert "MISMATCHED" in lines[0]
+    # Nothing was ever found, so the readback never settled: the headline is
+    # UNSETTLED, not a pass, and the exit code says something is wrong.
+    assert code == 3
+    assert lines[0].startswith("verify: UNSETTLED")
+    assert "UNSETTLED: the readback did not settle" in lines[0]
 
 
 # ---------------------------------------------------------------------------
@@ -700,3 +705,195 @@ def test_the_dry_run_names_the_adapter_it_would_use():
     text = verify.format_dry_run(corpus, _config(), "hq")
     assert "python" in text
     assert "testinghq.verify_spec_probe:build" in text
+
+
+# ---------------------------------------------------------------------------
+# Match modes, route, artifact header
+# ---------------------------------------------------------------------------
+
+
+def _prefixed_subjects():
+    """A system that stores every subject behind a ticket number."""
+    corpus = {t: e for e, t, _r in verify.build_tagged_corpus(SEED, COUNT)}
+
+    def fetch(probe):
+        email = corpus.get(probe.tag)
+        if email is None:
+            return []
+        good = _good_for(email, probe.tag)
+        return [Readback(
+            exists=True, ticket_id=good.ticket_id, from_addr=good.from_addr,
+            subject=f"[Ticket #{probe.tag}] {good.subject}", body=good.body,
+            attachment_names=good.attachment_names, route=good.route,
+            fields=ALL_FIELDS,
+        )]
+
+    return fetch
+
+
+def test_a_helpdesk_subject_prefix_passes_by_default(target_config, tmp_path, spec_probe):
+    code, _client, text, artifact = _run(
+        target_config, tmp_path, spec_probe, _prefixed_subjects()
+    )
+    assert code == EXIT_OK, text
+    assert artifact["config"]["subject_match"] == "contains"
+
+
+def test_subject_match_exact_is_passed_through_execute(target_config, tmp_path, spec_probe):
+    code, _client, text, artifact = _run(
+        target_config, tmp_path, spec_probe, _prefixed_subjects(), subject_match="exact"
+    )
+    assert code == EXIT_MISMATCH
+    assert artifact["config"]["subject_match"] == "exact"
+    assert "match: exact" in text
+
+
+def test_an_unknown_match_mode_is_refused_before_anything_is_sent(
+    target_config, tmp_path, spec_probe
+):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    spec_probe["build"] = lambda: FunctionAdapter(_perfect())
+    client = _RecordingClient()
+    lines: list = []
+    code = verify.execute(
+        SEED, COUNT, TARGET, target_config, None, readback=_config(), client=client,
+        sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append, attachment_match="nope",
+    )
+    assert code == EXIT_REFUSED
+    assert client.sent == []
+
+
+def test_without_expect_route_routing_is_not_checked(target_config, tmp_path, spec_probe):
+    _code, _client, text, artifact = _run(target_config, tmp_path, spec_probe, _perfect())
+    grouped = artifact["summary"]["checks_skipped_by_reason"]
+    assert grouped[expectations_module.SKIP_NO_EXPECTED_ROUTE] == {"routing": COUNT}
+    assert "routing" not in artifact["summary"]["checks_passed_by_name"]
+    assert "no expected route" in text
+
+
+def test_the_artifact_leads_with_schema_version_and_tool(target_config, tmp_path, spec_probe):
+    _code, _client, _text, artifact = _run(target_config, tmp_path, spec_probe, _perfect())
+    assert list(artifact)[:2] == ["schema_version", "tool"]
+    assert artifact["schema_version"] == 1
+    assert artifact["tool"] == "verify"
+    assert artifact["config"]["tool"] == "verify"
+    assert artifact["summary"]["verdict"] == "VERIFIED"
+
+
+def test_preflight_runs_before_the_first_send_and_refuses(target_config, tmp_path, spec_probe):
+    """A readback that cannot authenticate is found before anything is sent."""
+    client = _RecordingClient()
+
+    class _Unauthorised:
+        def preflight(self):
+            assert client.sent == [], "preflight ran after a send"
+            raise RuntimeError("401 from the readback")
+
+        def fetch(self, probe):  # pragma: no cover - never reached
+            return []
+
+        def close(self):
+            return None
+
+    spec_probe["build"] = _Unauthorised
+    lines: list = []
+    code = verify.execute(
+        SEED, COUNT, TARGET, target_config, None, readback=_config(), client=client,
+        sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert client.sent == []
+    assert "401" in "\n".join(lines)
+
+
+def test_an_unsettled_readback_is_its_own_verdict(
+    target_config, tmp_path, spec_probe, monkeypatch
+):
+    """A message the readback has not seen yet is not a lost message when the
+    readback itself says it never settled."""
+    from testinghq.pipeline.common import ReadbackOutcome
+
+    class _Unsettled(ReadbackOutcome):
+        unsettled = True
+
+    def fake_read_back_all(adapter, probes, **kwargs):
+        return _Unsettled(readbacks={}, elapsed=60.0, polls=3, stable=False,
+                          missing=tuple(p.tag for p in probes))
+
+    monkeypatch.setattr(verify, "read_back_all", fake_read_back_all)
+    code, _client, text, artifact = _run(target_config, tmp_path, spec_probe, _perfect())
+    assert code == EXIT_MISMATCH
+    assert artifact["summary"]["verdict"] == "UNSETTLED"
+    assert artifact["summary"]["unsettled"] is True
+    assert text.splitlines()[0].startswith("verify: UNSETTLED")
+
+
+# ---------------------------------------------------------------------------
+# verify check: refusals
+# ---------------------------------------------------------------------------
+
+
+def test_verify_check_refuses_a_blast_artifact_in_one_line(target_config, tmp_path, spec_probe):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    spec_probe["build"] = lambda: FunctionAdapter(_perfect())
+    blast = {
+        "seed": SEED,
+        "config": {"count": 2, "target": TARGET},
+        "summary": {"by_status_class": {"2xx": 2}, "flags": []},
+        "records": [{"id": "clean-6-0000", "category": "clean"}],
+    }
+    (tmp_path / "blast.json").write_text(json.dumps(blast), encoding="utf-8")
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "blast.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert lines == ["verify check: blast artifacts carry no tags; run verify fire"]
+
+
+def test_verify_check_refuses_a_bad_adapter_spec_instead_of_raising(
+    target_config, tmp_path, spec_probe
+):
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "verify.json"), target_config, None,
+        readback=ReadbackConfig(kind="python", spec="no.such.module:build"),
+        printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert "no.such.module" in "\n".join(lines)
+
+
+def test_verify_check_refuses_a_schema_from_the_future(target_config, tmp_path, spec_probe):
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    data = json.loads((tmp_path / "verify.json").read_text(encoding="utf-8"))
+    data["schema_version"] = 99
+    (tmp_path / "future.json").write_text(json.dumps(data), encoding="utf-8")
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "future.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert "schema_version 99" in "\n".join(lines)
+
+
+def test_verify_check_takes_the_match_modes(target_config, tmp_path, spec_probe):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "verify.json"), target_config, str(tmp_path / "checked.json"),
+        readback=_config(), printer=lines.append, subject_match="exact",
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+    )
+    assert code == EXIT_MISMATCH
+    checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
+    assert checked["config"]["subject_match"] == "exact"
+    assert checked["tool"] == "verify" and checked["schema_version"] == 1

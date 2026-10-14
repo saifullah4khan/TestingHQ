@@ -21,16 +21,24 @@ THE ONE EXCEPTION. `ticket_created` does not skip. It is built on `exists` and
 `ticket_id`, which `Readback` requires whenever it reports a record at all, and a
 lookup that found nothing is the most important thing this tool can report.
 
-BODY MATCHING IS SUBSTRING BY DEFAULT, for a structural reason rather than a
-lenient one. The payload carries a text and an HTML part, a real pipeline reads
-whichever it prefers, and HTML extracted back to text is not byte-identical to
-the text part. `body_core` is already the generator's "the substantive
-sentence". Asking for equality would make every correct pipeline report a body
-mismatch and train the reader to ignore the field. `body_exact` is opt-in for a
-system that really does store one field verbatim."""
+MATCH MODES. Body matching is containment by default: the payload carries a text
+and an HTML part, a pipeline stores whichever it prefers, and `body_core` is the
+substantive sentence. A body stored as HTML is compared after tag stripping and
+entity unescaping. `body_exact` is opt-in. Subjects default to `contains`, so a
+helpdesk prefix such as "[Ticket #123]" is not a failure; `exact` and `suffix`
+are stricter. Attachments default to `exact` names; `loose` compares
+casefolded alphanumeric stems, for systems that sanitise filenames. Every check
+detail names the mode it used.
+
+ROUTING. There is no default route. Without a declared `route` the routing
+check is SKIPPED with reason "no expected route"."""
 from __future__ import annotations
 
+import html
+import re
+from collections import Counter
 from dataclasses import dataclass, field
+from email.utils import getaddresses
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
@@ -38,7 +46,6 @@ from ..core import report
 from .readback import (
     Readback,
     ReadbackError,
-    normalize_address,
     normalize_attachment_names,
     normalize_message_ids,
     normalize_route,
@@ -77,8 +84,36 @@ SKIPPED = "skipped"
 SKIP_NO_RECORD = "no record found"
 SKIP_NOT_VISIBLE = "adapter cannot see field"
 SKIP_NOTHING_TO_CHECK = "nothing to check"
+#: The routing check had nothing to compare against: no `--expect-route`.
+SKIP_NO_EXPECTED_ROUTE = "no expected route"
 
-SKIP_REASONS: Tuple[str, ...] = (SKIP_NO_RECORD, SKIP_NOT_VISIBLE, SKIP_NOTHING_TO_CHECK)
+SKIP_REASONS: Tuple[str, ...] = (
+    SKIP_NO_RECORD,
+    SKIP_NOT_VISIBLE,
+    SKIP_NOTHING_TO_CHECK,
+    SKIP_NO_EXPECTED_ROUTE,
+)
+
+#: How the subject check compares, after normalisation. `contains` (the
+#: default) passes when the expected subject appears anywhere in the stored
+#: one; `suffix` when the stored one ends with it; `exact` when they are equal.
+SUBJECT_MATCH_EXACT = "exact"
+SUBJECT_MATCH_CONTAINS = "contains"
+SUBJECT_MATCH_SUFFIX = "suffix"
+SUBJECT_MATCH_MODES: Tuple[str, ...] = (
+    SUBJECT_MATCH_EXACT,
+    SUBJECT_MATCH_CONTAINS,
+    SUBJECT_MATCH_SUFFIX,
+)
+DEFAULT_SUBJECT_MATCH = SUBJECT_MATCH_CONTAINS
+
+#: How attachment names are compared. `exact` compares casefolded basenames as
+#: a set; `loose` compares casefolded stems with every non-alphanumeric removed,
+#: as a multiset, so "Q3 report.pdf" and "q3_report.PDF" are the same file.
+ATTACHMENT_MATCH_EXACT = "exact"
+ATTACHMENT_MATCH_LOOSE = "loose"
+ATTACHMENT_MATCH_MODES: Tuple[str, ...] = (ATTACHMENT_MATCH_EXACT, ATTACHMENT_MATCH_LOOSE)
+DEFAULT_ATTACHMENT_MATCH = ATTACHMENT_MATCH_EXACT
 
 
 class ExpectationError(ValueError):
@@ -86,16 +121,28 @@ class ExpectationError(ValueError):
     must not be reported as a pipeline failure."""
 
 
+def validate_match_modes(subject_match: str, attachment_match: str) -> None:
+    """Raise `ExpectationError` for a match mode this module does not know.
+    Tools call it before sending, so a typo is a refusal and not a lost run."""
+    if subject_match not in SUBJECT_MATCH_MODES:
+        raise ExpectationError(
+            f"subject match {subject_match!r} is not one of "
+            f"{list(SUBJECT_MATCH_MODES)}"
+        )
+    if attachment_match not in ATTACHMENT_MATCH_MODES:
+        raise ExpectationError(
+            f"attachment match {attachment_match!r} is not one of "
+            f"{list(ATTACHMENT_MATCH_MODES)}"
+        )
+
+
 @dataclass(frozen=True)
 class Expectations:
     """What the system under test was supposed to produce for one payload.
 
     Built from a generated payload's own ground truth, plus an optional
-    declared route. `body_exact` switches the body check from "contains the
-    substantive text" to "is exactly the whole text body", which is the right
-    mode for a system that stores one field verbatim and the wrong mode for one
-    that extracts the HTML part. See the module docstring for why the
-    containment form is the default.
+    declared route and the match modes. `route` is None unless the operator
+    declared one, and a None route makes the routing check SKIPPED.
     """
 
     sender: str
@@ -105,10 +152,21 @@ class Expectations:
     attachment_names: Tuple[str, ...] = field(default_factory=tuple)
     route: Optional[str] = None
     body_exact: bool = False
+    subject_match: str = DEFAULT_SUBJECT_MATCH
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH
+
+    def __post_init__(self) -> None:
+        validate_match_modes(self.subject_match, self.attachment_match)
 
     @classmethod
     def from_email(
-        cls, email: InboundEmail, route: Optional[str] = None, body_exact: bool = False
+        cls,
+        email: InboundEmail,
+        route: Optional[str] = None,
+        body_exact: bool = False,
+        *,
+        subject_match: str = DEFAULT_SUBJECT_MATCH,
+        attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     ) -> "Expectations":
         return cls(
             sender=email.ground_truth.from_addr,
@@ -120,7 +178,13 @@ class Expectations:
             ),
             route=route,
             body_exact=body_exact,
+            subject_match=subject_match,
+            attachment_match=attachment_match,
         )
+
+    @property
+    def body_match(self) -> str:
+        return "exact" if self.body_exact else "contains"
 
     def expected_body(self) -> str:
         """The body to grade against, given the mode. Falls back to `body_core`
@@ -131,24 +195,11 @@ class Expectations:
         return self.body_core
 
     def route_for(self, email: Optional[InboundEmail] = None) -> Optional[str]:
-        """The route this payload should have been routed to.
-
-        A declared `route` always wins. Otherwise the payload's own recipient
-        is the expected destination, because that is ground truth Blast
-        already generates: `envelope.to` is the mailbox the message was
-        addressed to, so a mail sink that filed it somewhere else has misrouted
-        it.
-
-        This is a default, not a guess about the operator's business. A pipeline
-        with its own routing taxonomy declares `route` and gets that instead. A
-        pipeline with no notion of routing at all declares nothing, and the
-        check reports SKIPPED rather than a false failure.
-        """
-        if self.route is not None:
-            return self.route
-        if email is not None and email.envelope.to:
-            return email.envelope.to[0]
-        return None
+        """The declared route, or None. There is no default: a payload's
+        recipient is not a routing decision, and a helpdesk that maps routes to
+        groups would fail every message against it. `email` is accepted for
+        callers that still pass it and is not consulted."""
+        return self.route
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -158,7 +209,24 @@ class Expectations:
             "attachments": list(self.attachment_names),
             "route": self.route,
             "body_exact": self.body_exact,
+            "subject_match": self.subject_match,
+            "attachment_match": self.attachment_match,
         }
+
+
+def match_options(
+    route: Optional[str],
+    body_exact: bool,
+    subject_match: str,
+    attachment_match: str,
+) -> Dict[str, Any]:
+    """The match settings a run used, as recorded in an artifact's config."""
+    return {
+        "expect_route": route,
+        "body_exact": body_exact,
+        "subject_match": subject_match,
+        "attachment_match": attachment_match,
+    }
 
 
 @dataclass(frozen=True)
@@ -254,8 +322,75 @@ class Verification:
 
 
 # ---------------------------------------------------------------------------
+# Comparison helpers
+# ---------------------------------------------------------------------------
+
+_ANGLE_ADDRESS = re.compile(r"<\s*([^<>\s]+@[^<>\s]+)\s*>")
+_HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*)?/?>")
+_HTML_DROP = re.compile(r"<(script|style|head)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_HTML_BREAK = re.compile(r"<\s*(br|/p|/div|/li|/tr|/h[1-6])\b[^>]*>", re.IGNORECASE)
+_NON_ALNUM = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def sender_address(value: Any) -> str:
+    """The bare, lowercase address in a stored sender, or "".
+
+    An address in angle brackets wins, so "Last, First <a@b.example>" reads as
+    a@b.example rather than splitting on the comma. Otherwise the first entry
+    `getaddresses` finds that contains an "@". A display name with no address
+    yields "".
+    """
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    bracketed = _ANGLE_ADDRESS.search(value)
+    if bracketed:
+        return bracketed.group(1).strip().lower()
+    for _name, address in getaddresses([value]):
+        if "@" in address:
+            return address.strip().strip("<>").lower()
+    return ""
+
+
+def looks_like_html(value: Any) -> bool:
+    return isinstance(value, str) and bool(_HTML_TAG.search(value))
+
+
+def html_to_text(value: str) -> str:
+    """Tags removed, block ends turned into line breaks, entities unescaped."""
+    text = _HTML_DROP.sub(" ", value)
+    text = _HTML_BREAK.sub("\n", text)
+    text = _HTML_TAG.sub(" ", text)
+    return html.unescape(text)
+
+
+def loose_attachment_key(name: str) -> str:
+    """Basename, extension dropped, casefolded, non-alphanumerics removed."""
+    base = name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    stem = base.rsplit(".", 1)[0] if "." in base[1:] else base
+    key = _NON_ALNUM.sub("", stem.casefold())
+    return key or base.casefold()
+
+
+# ---------------------------------------------------------------------------
 # The individual checks
 # ---------------------------------------------------------------------------
+
+
+def _not_visible(
+    name: str, detail: str, readback: Readback, *fields: str
+) -> CheckResult:
+    """SKIPPED as not visible, with the adapter's note on what shape it found
+    in each field, when it has one."""
+    note_for = getattr(readback, "note_for", None)
+    notes = []
+    if callable(note_for):
+        for field_name in fields:
+            note = note_for(field_name)
+            if note:
+                notes.append(f"{field_name}: {note}")
+    if notes:
+        detail = f"{detail} ({'; '.join(notes)})"
+    return _skipped(name, detail, SKIP_NOT_VISIBLE)
 
 
 def _skipped(name: str, detail: str, reason: str) -> CheckResult:
@@ -300,14 +435,20 @@ def _check_sender(
     if readback is None:
         return _skipped(CHECK_SENDER, "no record to read a sender from", SKIP_NO_RECORD)
     if not readback.has("from_addr"):
-        return _skipped(
-            CHECK_SENDER, "the adapter could not see a sender on this record",
-            SKIP_NOT_VISIBLE,
-        )
-    expected = normalize_address(expectations.sender)
-    actual = normalize_address(readback.from_addr)
+        return _not_visible(CHECK_SENDER, "the adapter could not see a sender on this record", readback, "from_addr")
+    expected = sender_address(expectations.sender)
+    actual = sender_address(readback.from_addr)
     if expected == actual:
         return _passed(CHECK_SENDER, f"sender parsed as {actual or '(empty)'}")
+    stored = readback.from_addr
+    if not actual and isinstance(stored, str) and stored.strip():
+        return _failed(
+            CHECK_SENDER,
+            f"expected {expected or '(empty)'} but the system stored only a "
+            f"display name ({stored.strip()!r}) with no address",
+            expected=expectations.sender,
+            actual=stored,
+        )
     return _failed(
         CHECK_SENDER,
         f"expected {expected or '(empty)'} but the system recorded "
@@ -323,17 +464,21 @@ def _check_subject(
     if readback is None:
         return _skipped(CHECK_SUBJECT, "no record to read a subject from", SKIP_NO_RECORD)
     if not readback.has("subject"):
-        return _skipped(
-            CHECK_SUBJECT, "the adapter could not see a subject on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_SUBJECT, "the adapter could not see a subject on this record", readback, "subject")
+    mode = expectations.subject_match
     expected = normalize_text(expectations.subject)
     actual = normalize_text(readback.subject)
-    if expected == actual:
-        return _passed(CHECK_SUBJECT, "subject parsed intact")
+    if mode == SUBJECT_MATCH_EXACT:
+        ok = expected == actual
+    elif mode == SUBJECT_MATCH_SUFFIX:
+        ok = actual.endswith(expected)
+    else:
+        ok = expected in actual
+    if ok:
+        return _passed(CHECK_SUBJECT, f"subject parsed intact (match: {mode})")
     return _failed(
         CHECK_SUBJECT,
-        f"expected {expected!r} but the system recorded {actual!r}",
+        f"expected {expected!r} but the system recorded {actual!r} (match: {mode})",
         expected=expectations.subject,
         actual=readback.subject,
     )
@@ -345,26 +490,29 @@ def _check_body(
     if readback is None:
         return _skipped(CHECK_BODY, "no record to read a body from", SKIP_NO_RECORD)
     if not readback.has("body"):
-        return _skipped(
-            CHECK_BODY, "the adapter could not see a body on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_BODY, "the adapter could not see a body on this record", readback, "body")
     expected = normalize_text(expectations.expected_body())
-    actual = normalize_text(readback.body)
     if not expected:
-        return _passed(
-            CHECK_BODY, "the payload carried no body to check"
+        # SKIPPED, not PASSED: an empty expectation is contained in anything.
+        return _skipped(
+            CHECK_BODY, "the payload carried no body to check", SKIP_NOTHING_TO_CHECK
         )
+    stored = readback.body if isinstance(readback.body, str) else ""
+    stripped = looks_like_html(stored)
+    actual = normalize_text(html_to_text(stored) if stripped else stored)
+    mode = expectations.body_match
+    how = f"match: {mode}" + (", after HTML tag stripping" if stripped else "")
     if expectations.body_exact:
         ok = expected == actual
-        detail = "body matched exactly" if ok else (
-            f"expected exactly {expected!r} but the system recorded {actual!r}"
+        detail = f"body matched exactly ({how})" if ok else (
+            f"expected exactly {expected!r} but the system recorded {actual!r} "
+            f"({how})"
         )
     else:
         ok = expected in actual
-        detail = "body survived intact" if ok else (
+        detail = f"body survived intact ({how})" if ok else (
             f"the substantive text {expected!r} is not present in what the "
-            f"system recorded"
+            f"system recorded ({how})"
         )
     if ok:
         return _passed(CHECK_BODY, detail)
@@ -379,10 +527,11 @@ def _check_attachments(
     if readback is None:
         return _skipped(CHECK_ATTACHMENTS, "no record to read attachments from", SKIP_NO_RECORD)
     if not readback.has("attachment_names"):
-        return _skipped(
+        return _not_visible(
             CHECK_ATTACHMENTS,
             "the adapter could not see attachments on this record",
-            SKIP_NOT_VISIBLE,
+            readback,
+            "attachment_names",
         )
     expected = normalize_attachment_names(expectations.attachment_names)
     if not expected:
@@ -394,11 +543,14 @@ def _check_attachments(
             CHECK_ATTACHMENTS, "the payload carried no attachments to check",
             SKIP_NOTHING_TO_CHECK,
         )
+    mode = expectations.attachment_match
+    if mode == ATTACHMENT_MATCH_LOOSE:
+        return _check_attachments_loose(readback, expectations)
     actual = normalize_attachment_names(readback.attachment_names)
     if expected == actual:
         return _passed(
             CHECK_ATTACHMENTS,
-            f"all {len(expected)} attachment(s) present",
+            f"all {len(expected)} attachment(s) present (match: {mode})",
         )
     missing = [name for name in expected if name not in actual]
     extra = [name for name in actual if name not in expected]
@@ -409,9 +561,42 @@ def _check_attachments(
         parts.append(f"unexpected {extra}")
     return _failed(
         CHECK_ATTACHMENTS,
-        f"the system stored {len(actual)} attachment(s): " + "; ".join(parts),
+        f"the system stored {len(actual)} attachment(s): " + "; ".join(parts)
+        + f" (match: {mode})",
         expected=list(expected),
         actual=list(actual),
+    )
+
+
+def _check_attachments_loose(
+    readback: Readback, expectations: Expectations
+) -> CheckResult:
+    expected_names = [n for n in expectations.attachment_names if isinstance(n, str)]
+    actual_names = [n for n in (readback.attachment_names or ()) if isinstance(n, str)]
+    expected = Counter(loose_attachment_key(n) for n in expected_names)
+    actual = Counter(loose_attachment_key(n) for n in actual_names)
+    if expected == actual:
+        return _passed(
+            CHECK_ATTACHMENTS,
+            f"all {sum(expected.values())} attachment(s) present (match: loose)",
+        )
+    missing = [
+        n for n in expected_names if (expected - actual).get(loose_attachment_key(n))
+    ]
+    extra = [
+        n for n in actual_names if (actual - expected).get(loose_attachment_key(n))
+    ]
+    parts = []
+    if missing:
+        parts.append(f"missing {missing}")
+    if extra:
+        parts.append(f"unexpected {extra}")
+    return _failed(
+        CHECK_ATTACHMENTS,
+        f"the system stored {len(actual_names)} attachment(s): " + "; ".join(parts)
+        + " (match: loose)",
+        expected=expected_names,
+        actual=actual_names,
     )
 
 
@@ -422,16 +607,13 @@ def _check_routing(
     if expected_value is None:
         return _skipped(
             CHECK_ROUTING,
-            "no expected route: declare one with --expect-route to check this",
-            SKIP_NOTHING_TO_CHECK,
+            "no expected route: declare one with --expect-route to check routing",
+            SKIP_NO_EXPECTED_ROUTE,
         )
     if readback is None:
         return _skipped(CHECK_ROUTING, "no record to read a route from", SKIP_NO_RECORD)
     if not readback.has("route"):
-        return _skipped(
-            CHECK_ROUTING, "the adapter could not see a route on this record",
-            SKIP_NOT_VISIBLE,
-        )
+        return _not_visible(CHECK_ROUTING, "the adapter could not see a route on this record", readback, "route")
     expected = normalize_route(expected_value)
     actual = normalize_route(readback.route)
     if expected == actual:
@@ -539,13 +721,18 @@ def evaluate_sequence(
 
 
 def check_thread_link(
-    readback: Optional[Readback], parent_message_id: str
+    readback: Optional[Readback],
+    parent_message_id: str,
+    ancestry: Sequence[str] = (),
 ) -> CheckResult:
     """Is this reply actually linked to the message it claims to answer?
 
     Checks `in_reply_to` first and `references` second, independently, because
     a pipeline that threads on one and ignores the other is common and a single
-    combined boolean would hide which half is broken.
+    combined boolean would hide which half is broken. `In-Reply-To` must name
+    the immediate parent. `References` must contain the parent and, when
+    `ancestry` is given, every message id in it: the full chain, not just the
+    last link.
 
     Only the headers the adapter could see are judged, and a readback that
     exposes neither is SKIPPED rather than failed. Blaming the pipeline for a
@@ -569,10 +756,12 @@ def check_thread_link(
         if readback.has(field_name)
     ]
     if not visible:
-        return _skipped(
+        return _not_visible(
             name,
             "the adapter could not see an In-Reply-To or a References header",
-            SKIP_NOT_VISIBLE,
+            readback,
+            "in_reply_to",
+            "references",
         )
 
     problems = []
@@ -581,18 +770,34 @@ def check_thread_link(
             problems.append(
                 f"In-Reply-To is {readback.in_reply_to!r}, not {parent_message_id!r}"
             )
+    wanted_chain = list(normalize_message_ids(list(ancestry))) if ancestry else []
     if "references" in visible:
-        if not parent_ids <= set(normalize_message_ids(readback.references)):
+        stored = set(normalize_message_ids(readback.references))
+        if not parent_ids <= stored:
             problems.append(
                 f"References {list(readback.references)} does not contain "
                 f"{parent_message_id!r}"
             )
+        else:
+            lost = [mid for mid in wanted_chain if mid not in stored]
+            if lost:
+                problems.append(
+                    f"References {list(readback.references)} does not carry the "
+                    f"full ancestry: missing {lost}"
+                )
 
     if problems:
-        return _failed(name, "; ".join(problems), expected=parent_message_id)
+        return _failed(
+            name,
+            "; ".join(problems),
+            expected=wanted_chain or parent_message_id,
+            actual=list(readback.references) if "references" in visible else None,
+        )
 
     unseen = [f for f in ("in_reply_to", "references") if f not in visible]
     detail = f"linked to {parent_message_id}"
+    if wanted_chain and "references" in visible:
+        detail += f", References carries all {len(wanted_chain)} ancestor(s)"
     if unseen:
         detail += f" ({', '.join(unseen)} not checked: the adapter could not see it)"
     return CheckResult(name=name, passed=True, detail=detail, expected=parent_message_id)

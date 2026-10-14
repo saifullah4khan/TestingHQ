@@ -263,7 +263,61 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
+#: The newest artifact schema the verify, ledger and redeliver readers know.
+_CHECK_SCHEMA_VERSION = 1
+
+
+def _check_schema(artifact: Dict[str, Any], tool: str) -> int:
+    """The artifact's schema_version: missing is 0, above what this build
+    knows is refused."""
+    version = artifact.get("schema_version", 0)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version!r}, which is not "
+            "a non-negative integer"
+        )
+    if version > _CHECK_SCHEMA_VERSION:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version}; this build "
+            f"reads {tool} artifacts up to schema_version {_CHECK_SCHEMA_VERSION}"
+        )
+    return version
+
+
+def _read_aborted(artifact: Dict[str, Any], label: str) -> Optional[ArtifactSummary]:
+    """A verify, ledger or redeliver run stopped by Ctrl-C, or None.
+
+    Nothing in such an artifact was graded, so it reads as ABORTED with exit 3
+    and the number of messages sent (when known), never as a pass."""
+    if artifact.get("aborted") is not True:
+        return None
+    summary = _summary(artifact)
+    sent = summary.get("sent")
+    phase = summary.get("aborted_during") or "unknown"
+    detail = f"interrupted during the {phase} phase; nothing was graded"
+    if not isinstance(sent, int):
+        detail += ", and how many messages were sent is unknown"
+    return ArtifactSummary(
+        verdict=str(summary.get("verdict") or "ABORTED"),
+        verdict_source="recorded",
+        exit_code=EXIT_FINDING,
+        exit_code_source="derived",
+        counts=Counts(
+            sent=sent if isinstance(sent, int) else 0,
+            records=len(artifact.get("records") or []),
+        ),
+        findings=(Finding(kind="aborted", detail=detail),),
+        **_base(artifact, label),
+    )
+
+
 def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
+    _check_schema(artifact, "verify")
+    aborted = _read_aborted(
+        artifact, f"verify {_config(artifact).get('mode', 'fire')}"
+    )
+    if aborted is not None:
+        return aborted
     summary = _summary(artifact)
     sent = summary.get("sent", 0)
     found = summary.get("found", 0)
@@ -272,32 +326,51 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
     config = _config(artifact)
     mode = config.get("mode", "fire")
 
-    findings = _skip_findings(summary.get("checks_skipped_by_reason") or {})
+    findings = list(_skip_findings(summary.get("checks_skipped_by_reason") or {}))
 
-    # The verdict verify prints, reproduced rather than read, because it never
-    # writes it down. Pinned against verify's own formatter in the tests.
-    if verified + failed == 0:
-        verdict = "NOTHING CHECKED"
-    elif failed == 0:
-        verdict = "VERIFIED"
+    recorded = summary.get("verdict")
+    if isinstance(recorded, str) and recorded:
+        verdict, source = recorded, "recorded"
     else:
-        verdict = "MISMATCHED"
+        # Schema 0 artifacts never wrote a verdict; derived the way verify's
+        # own formatter derives it.
+        source = "derived"
+        if summary.get("unsettled"):
+            verdict = "UNSETTLED"
+        elif verified + failed == 0:
+            verdict = "NOTHING CHECKED"
+        elif failed == 0:
+            verdict = "VERIFIED"
+        else:
+            verdict = "MISMATCHED"
+    if verdict == "UNSETTLED":
+        findings.append(
+            Finding(
+                kind="unsettled",
+                detail="the readback never settled; messages not found may still "
+                       "be in flight",
+            )
+        )
 
     return ArtifactSummary(
         verdict=verdict,
-        verdict_source="derived",
-        exit_code=EXIT_OK if failed == 0 else EXIT_FINDING,
+        verdict_source=source,
+        exit_code=EXIT_OK if verdict in ("VERIFIED", "NOTHING CHECKED") else EXIT_FINDING,
         exit_code_source="derived",
         counts=Counts(
             sent=sent, found=found, passed=verified, failed=failed,
             records=len(artifact.get("records") or []),
         ),
-        findings=findings,
+        findings=tuple(findings),
         **_base(artifact, f"verify {mode}"),
     )
 
 
 def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
+    _check_schema(artifact, "ledger")
+    aborted = _read_aborted(artifact, "ledger")
+    if aborted is not None:
+        return aborted
     summary = _summary(artifact)
     findings: List[Finding] = []
 
@@ -322,14 +395,16 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
                 )
             )
     extra = summary.get("extra")
+    extra_count = summary.get("extra_count")
     if extra is None:
         # Not "no strays", but "strays were not searched for". A consumer has
         # to be able to tell those apart, so it is its own finding.
+        reason = summary.get("strays_not_searched_reason")
         findings.append(
             Finding(
                 kind="strays-not-searched",
                 detail="the adapter could not enumerate, so stray records were "
-                       "never looked for",
+                       "never looked for" + (f" ({reason})" if reason else ""),
             )
         )
     else:
@@ -338,6 +413,42 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
                 findings.append(
                     Finding(kind="extra", detail=str(entry.get("ticket") or entry))
                 )
+        if isinstance(extra_count, int) and extra_count > len(extra):
+            findings.append(
+                Finding(
+                    kind="truncated",
+                    detail=f"only the first {len(extra)} of {extra_count} extra "
+                           "records are listed in the artifact",
+                )
+            )
+        if summary.get("strays_partial"):
+            reason = summary.get("strays_not_searched_reason")
+            findings.append(
+                Finding(
+                    kind="strays-partial",
+                    detail="the store was only partly enumerated, so more stray "
+                           "records may exist" + (f" ({reason})" if reason else ""),
+                )
+            )
+    other_runs = summary.get("other_runs_count")
+    if isinstance(other_runs, int) and other_runs:
+        findings.append(
+            Finding(
+                kind="other-runs",
+                detail=f"{other_runs} record(s) carry another run's tag "
+                       "(informational, not counted as extra)",
+            )
+        )
+    if summary.get("verdict") == "UNSETTLED":
+        findings.append(
+            Finding(
+                kind="unsettled",
+                detail="the readback never settled; messages not found may still "
+                       "be in flight",
+            )
+        )
+    if not isinstance(extra_count, int):
+        extra_count = len(extra or [])
 
     return ArtifactSummary(
         # ledger is the one tool that writes its verdict down, so it is read
@@ -352,7 +463,7 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
             passed=summary.get("exactly_once", 0),
             missing=len(summary.get("missing") or []),
             duplicated=len(summary.get("duplicated") or []),
-            extra=len(extra or []),
+            extra=extra_count,
             records=len(artifact.get("records") or []),
         ),
         findings=tuple(findings),
@@ -361,6 +472,10 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
+    _check_schema(artifact, "redeliver")
+    aborted = _read_aborted(artifact, "redeliver")
+    if aborted is not None:
+        return aborted
     summary = _summary(artifact)
     scenarios = artifact.get("scenarios") or []
     findings: List[Finding] = []
@@ -374,11 +489,42 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
                     detail=str(finding),
                 )
             )
+    for entry in summary.get("unattributed_strays") or []:
+        if isinstance(entry, dict):
+            findings.append(
+                Finding(
+                    kind="extra",
+                    detail=f"ticket {entry.get('ticket')} carries this run's tag "
+                           f"prefix ({entry.get('tag')}) but no scenario's",
+                )
+            )
+    other_runs = summary.get("other_runs_count")
+    if isinstance(other_runs, int) and other_runs:
+        findings.append(
+            Finding(
+                kind="other-runs",
+                detail=f"{other_runs} record(s) carry another run's tag "
+                       "(informational)",
+            )
+        )
+    if summary.get("verdict") == "UNSETTLED":
+        findings.append(
+            Finding(
+                kind="unsettled",
+                detail="the readback never settled; messages not found may still "
+                       "be in flight",
+            )
+        )
+    verdict = str(summary.get("verdict", "UNKNOWN"))
 
     return ArtifactSummary(
-        verdict=str(summary.get("verdict", "UNKNOWN")),
+        verdict=verdict,
         verdict_source="recorded",
-        exit_code=EXIT_OK if summary.get("failed", 0) == 0 else EXIT_FINDING,
+        exit_code=(
+            EXIT_OK
+            if summary.get("failed", 0) == 0 and verdict != "UNSETTLED"
+            else EXIT_FINDING
+        ),
         exit_code_source="derived",
         counts=Counts(
             sent=summary.get("deliveries", 0),

@@ -182,15 +182,6 @@ def _add_readback_args(parser) -> None:
             "a minute, and an unpaced poll over many tags exceeds that"
         ),
     )
-    parser.add_argument(
-        "--expect-route",
-        help=(
-            "the route every message should have been routed to, checked "
-            "against what the system recorded. Without it, the expected route "
-            "is the message's own recipient, and with no notion of routing the "
-            "check reports as not-checked rather than passing"
-        ),
-    )
 
 
 #: Default for `resolve_for_send(target_name=...)`: read `--target` from args.

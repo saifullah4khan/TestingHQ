@@ -38,7 +38,6 @@ from testinghq.core import report
 from testinghq.pipeline import expectations
 from testinghq.pipeline import ledger as ledger_tool
 from testinghq.pipeline import redeliver as redeliver_tool
-from testinghq.pipeline import ledger as ledger_tool
 from testinghq.pipeline import verify as verify_tool
 from testinghq.pipeline.adapters import ReadbackConfig
 from testinghq.pipeline.common import EXIT_MISMATCH, EXIT_OK
@@ -230,9 +229,13 @@ def test_a_correct_pipeline_checks_every_one_of_the_six_fields(
     target_config, tmp_path, with_pipeline
 ):
     """Not a smoke test. A tool that quietly stopped checking the sender would
-    keep this file green, and this assertion is the thing that notices."""
-    pipeline = with_pipeline()
-    _code, artifact, _text = _run_verify(pipeline, target_config, tmp_path)
+    keep this file green, and this assertion is the thing that notices. Routing
+    runs only against a declared route, so this pipeline files everything to
+    one queue and the run declares it."""
+    pipeline = with_pipeline(misroute=True)
+    _code, artifact, _text = _run_verify(
+        pipeline, target_config, tmp_path, route="queue:unrouted"
+    )
 
     passed = artifact["summary"]["checks_passed_by_name"]
     for check in ("ticket_created", "sender", "subject", "body", "routing"):
@@ -254,11 +257,15 @@ def test_a_correct_pipeline_skips_nothing_it_could_have_checked(
     grouped = artifact["summary"]["checks_skipped_by_reason"]
     assert set(grouped) == set(expectations.SKIP_REASONS)
     non_empty = {reason for reason, checks in grouped.items() if checks}
-    assert non_empty <= {expectations.SKIP_NOTHING_TO_CHECK}, grouped
+    assert non_empty <= {
+        expectations.SKIP_NOTHING_TO_CHECK, expectations.SKIP_NO_EXPECTED_ROUTE
+    }, grouped
+    assert grouped[expectations.SKIP_NO_EXPECTED_ROUTE] == {"routing": COUNT}
     for record in artifact["records"]:
         by_check = {c["check"]: c["status"] for c in record["verification"]["checks"]}
-        for name in ("ticket_created", "sender", "subject", "body", "routing"):
+        for name in ("ticket_created", "sender", "subject", "body"):
             assert by_check[name] == "passed", f"{name} was {by_check[name]}"
+        assert by_check["routing"] == "skipped"
         # Only the attachment check may skip, and only for a payload with no
         # files to lose.
         wanted = "passed" if record["intended"]["attachments"] else "skipped"
@@ -356,7 +363,9 @@ def test_a_pipeline_that_files_to_the_wrong_queue_is_caught(
     arrived but went to the wrong place is a lost message as far as the person
     waiting for an answer is concerned."""
     pipeline = with_pipeline(misroute=True)
-    code, artifact, text = _run_verify(pipeline, target_config, tmp_path)
+    code, artifact, text = _run_verify(
+        pipeline, target_config, tmp_path, route="queue:support"
+    )
 
     assert code == EXIT_MISMATCH
     assert artifact["summary"]["failed"] == COUNT
@@ -364,11 +373,23 @@ def test_a_pipeline_that_files_to_the_wrong_queue_is_caught(
     assert "queue:unrouted" in text
 
 
-def test_a_declared_expected_route_overrides_the_recipient_default(
+def test_a_misrouting_pipeline_is_not_failed_when_no_route_is_declared(
+    target_config, tmp_path, with_pipeline
+):
+    """No --expect-route, no routing verdict: the recipient address is not a
+    routing decision, and defaulting to it failed every helpdesk run."""
+    pipeline = with_pipeline(misroute=True)
+    code, artifact, text = _run_verify(pipeline, target_config, tmp_path)
+    assert code == EXIT_OK, text
+    grouped = artifact["summary"]["checks_skipped_by_reason"]
+    assert grouped[expectations.SKIP_NO_EXPECTED_ROUTE] == {"routing": COUNT}
+
+
+def test_a_declared_expected_route_is_what_routing_is_checked_against(
     target_config, tmp_path, with_pipeline
 ):
     """A pipeline with its own routing taxonomy declares its routes, and the
-    check must use the declaration rather than the message's recipient."""
+    check uses the declaration."""
     pipeline = with_pipeline(misroute=True)
     code, _artifact, text = _run_verify(
         pipeline, target_config, tmp_path, route="queue:unrouted"
@@ -451,7 +472,7 @@ def test_a_readback_that_cannot_see_a_field_reports_it_as_not_checked(
     An API that returns a ticket list and no bodies is a realistic shape, and
     the report has to say the body was never looked at rather than imply it
     was fine."""
-    from testinghq.pipeline import verify as module_under_test
+    from testinghq.pipeline import common as module_under_test
     from testinghq.pipeline.readback import Readback
 
     pipeline = with_pipeline()
@@ -484,7 +505,7 @@ def test_a_readback_that_cannot_see_a_field_reports_it_as_not_checked(
     assert code == EXIT_OK, text
     grouped = artifact["summary"]["checks_skipped_by_reason"]
     not_visible = grouped[expectations.SKIP_NOT_VISIBLE]
-    assert set(not_visible) >= {"sender", "body", "attachments", "routing"}
+    assert set(not_visible) >= {"sender", "body", "attachments"}
     assert "NOT CHECKED" in text
 
 
@@ -534,7 +555,9 @@ def test_the_report_leads_with_the_answer_and_the_numbers(
     target_config, tmp_path, with_pipeline
 ):
     pipeline = with_pipeline(misroute=True)
-    _code, _artifact, text = _run_verify(pipeline, target_config, tmp_path)
+    _code, _artifact, text = _run_verify(
+        pipeline, target_config, tmp_path, route="queue:support"
+    )
 
     assert text.splitlines()[0].startswith("verify: MISMATCHED")
     assert "found in system:" in text
@@ -547,8 +570,7 @@ def test_the_report_leads_with_not_nothing_checked_when_nothing_ran(
     """A run whose adapter could see no fields at all must not read as a
     success. It exits 0, because the operator chose the adapter, but the
     headline has to say so."""
-    from testinghq.pipeline import verify as module_under_test
-    from testinghq.pipeline.readback import Readback
+    from testinghq.pipeline import common as module_under_test
 
     pipeline = with_pipeline()
     real_build = module_under_test.build_adapter
@@ -566,7 +588,8 @@ def test_the_report_leads_with_not_nothing_checked_when_nothing_ran(
     finally:
         module_under_test.build_adapter = real_build
 
-    assert text.splitlines()[0].startswith("verify: MISMATCHED")
+    # Nothing found means the readback never settled, which is not a pass.
+    assert text.splitlines()[0].startswith("verify: UNSETTLED")
     assert "holds no record" in text
 
 
@@ -646,6 +669,49 @@ def test_a_readback_that_can_enumerate_searches_for_strays(
     _code, artifact, _text = _run_ledger(pipeline, target_config, tmp_path)
     assert artifact["summary"]["strays_searched"] is True
     assert artifact["summary"]["extra"] == []
+
+def test_the_ledger_honours_expect_route(target_config, tmp_path, with_pipeline):
+    """Recorded in the artifact and ignored by the check was the old bug."""
+    pipeline = with_pipeline(misroute=True)
+    code, artifact, text = _run_ledger(
+        pipeline, target_config, tmp_path, route="queue:support"
+    )
+    assert code == EXIT_MISMATCH
+    assert artifact["summary"]["verdict"] == "MISPARSED"
+    assert len(artifact["summary"]["wrong"]) == COUNT
+    assert "routing" in text
+
+    pipeline = with_pipeline(misroute=True)
+    code, artifact, text = _run_ledger(
+        pipeline, target_config, tmp_path, name="ledger2.json", route="queue:unrouted",
+    )
+    assert code == EXIT_OK, text
+    assert artifact["summary"]["verdict"] == "BALANCED"
+
+
+def test_a_second_run_against_the_same_store_is_not_blamed_for_the_first(
+    target_config, tmp_path, with_pipeline
+):
+    """Two runs with different prefixes against one persistent store. The
+    second sees the first's tickets as another run's, not as extra."""
+    pipeline = with_pipeline()
+    first, _first, text = _run_ledger(pipeline, target_config, tmp_path, tag_prefix="run-a")
+    assert first == EXIT_OK, text
+    lines: list = []
+    code = ledger_tool.execute(
+        SEED + 1, COUNT, TARGET, target_config, str(tmp_path / "ledger2.json"),
+        readback=_readback(), tag_prefix="run-b", client=pipeline,
+        readback_client=pipeline, sleep=_VIRTUAL.sleep, clock=_VIRTUAL,
+        printer=lines.append,
+    )
+    text = "\n".join(lines)
+    artifact = _artifact(tmp_path, "ledger2.json")
+    assert code == EXIT_OK, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "BALANCED"
+    assert summary["extra"] == []
+    assert summary["other_runs_count"] == COUNT
+
 
 def test_a_correct_pipeline_ledgers_balanced(target_config, tmp_path, with_pipeline):
     """The baseline for the ledger, and the question it exists to answer."""
@@ -822,6 +888,68 @@ def test_a_correct_pipeline_is_delivery_safe(target_config, tmp_path, with_pipel
     assert [s["scenario"] for s in artifact["scenarios"]] == list(
         redeliver_tool.SCENARIOS
     )
+
+
+def test_redeliver_honours_expect_route(target_config, tmp_path, with_pipeline):
+    pipeline = with_pipeline(misroute=True)
+    code, artifact, text = _run_redeliver(
+        pipeline, target_config, tmp_path, route="queue:support"
+    )
+    assert code == EXIT_MISMATCH
+    assert artifact["config"]["expect_route"] == "queue:support"
+    assert "routing" in text
+
+    pipeline = with_pipeline(misroute=True)
+    code, _artifact, text = _run_redeliver(
+        pipeline, target_config, tmp_path, name="redeliver2.json", route="queue:unrouted"
+    )
+    assert code == EXIT_OK, text
+
+
+def test_the_slow_retry_scenario_waits_once_for_the_whole_batch(
+    target_config, tmp_path, with_pipeline
+):
+    """Default count 3 at 120s was six minutes of sleeping; it is one gap."""
+    pipeline = with_pipeline()
+    waits: list = []
+    clock = _VirtualClock()
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock.sleep(seconds)
+
+    lines: list = []
+    code = redeliver_tool.execute(
+        SEED, 3, TARGET, target_config, str(tmp_path / "slow.json"),
+        readback=_readback(), scenarios=["slow-retry"], retry_after=120.0,
+        client=pipeline, readback_client=pipeline, sleep=sleep, clock=clock,
+        printer=lines.append, quiet_window=0.0,
+    )
+    assert code == EXIT_OK, "\n".join(lines)
+    assert waits.count(120.0) == 1
+    assert sum(w for w in waits if w >= 1.0) < 2 * 120.0
+
+
+def test_the_references_scenario_catches_a_pipeline_that_keeps_only_the_last_reference(
+    target_config, tmp_path, with_pipeline
+):
+    """In-Reply-To right, References cut down to the parent: the thread is
+    linked one level and the conversation's root is gone."""
+    pipeline = with_pipeline()
+    real_send = pipeline.send
+
+    def truncate_references(request):
+        response = real_send(request)
+        for record in pipeline.messages:
+            record.references = record.references[-1:]
+        return response
+
+    pipeline.send = truncate_references
+    code, artifact, text = _run_redeliver(
+        pipeline, target_config, tmp_path, scenarios=["references"]
+    )
+    assert code == EXIT_MISMATCH, text
+    assert "full ancestry" in text
 
 
 def test_a_pipeline_that_splits_a_thread_onto_separate_tickets_is_caught(

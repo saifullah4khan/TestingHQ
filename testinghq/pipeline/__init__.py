@@ -13,7 +13,8 @@ ground truth the tools built on it will check against.
 
 The tools live beside these: `verify`, `ledger`, `redeliver`, `loop` and
 `steady`, one per concern. `verify` owns the clean corpus every tool sends, and
-`ledger` and `redeliver` import it from there by design.
+`ledger` and `redeliver` import it from there by design; `redeliver` also
+imports `ledger`'s stray classification.
 
 Two rules run through all of it, and they are the difference between this
 finding bugs and manufacturing green.

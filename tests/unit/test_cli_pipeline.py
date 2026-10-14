@@ -244,8 +244,74 @@ def test_a_flag_works_even_when_there_is_no_config_file_at_all():
 
 def test_expect_route_defaults_to_none_on_every_tool():
     parser = cli.build_parser()
-    for argv in (["verify", "fire"],):
+    for argv in (
+        ["verify", "fire"], ["verify", "check", "run.json"],
+        ["ledger", "fire"], ["redeliver", "fire"],
+    ):
         assert parser.parse_args(argv).expect_route is None
+
+
+def test_expect_route_exists_only_on_the_tools_that_honour_it():
+    parser = cli.build_parser()
+    for argv in (["loop", "fire"], ["steady", "fire"]):
+        assert not hasattr(parser.parse_args(argv), "expect_route"), argv
+    for argv in (["loop", "fire", "--expect-route", "q"], ["steady", "fire", "--expect-route", "q"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+
+
+def test_the_match_mode_flags_are_on_all_three_checking_tools():
+    parser = cli.build_parser()
+    for argv in (
+        ["verify", "fire"], ["verify", "check", "run.json"],
+        ["ledger", "fire"], ["redeliver", "fire"],
+    ):
+        args = parser.parse_args(argv)
+        assert args.subject_match == "contains"
+        assert args.attachment_match == "exact"
+        assert args.body_exact is False
+        args = parser.parse_args(
+            argv + ["--subject-match", "suffix", "--attachment-match", "loose"]
+        )
+        assert (args.subject_match, args.attachment_match) == ("suffix", "loose")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ledger", "fire", "--subject-match", "fuzzy"])
+
+
+def test_the_ledger_dry_run_carries_the_route_through(target_config, capsys):
+    code = cli.main(
+        ["ledger", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--count", "2", "--expect-route", "queue:support"]
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "route 'queue:support'" in out
+
+
+def test_the_redeliver_dry_run_says_routing_is_skipped_without_a_route(target_config, capsys):
+    code = cli.main(
+        ["redeliver", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--scenario", "slow-retry", "--retry-after", "30"]
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "routing skipped" in out
+    assert out.count("+30s") == 1, "slow-retry waits once for the whole batch"
+
+
+def test_verify_check_on_a_blast_artifact_is_a_one_line_refusal(target_config, tmp_path, capsys):
+    artifact = tmp_path / "blast.json"
+    artifact.write_text(json.dumps({
+        "seed": 1, "config": {"count": 1},
+        "summary": {"by_status_class": {"2xx": 1}, "flags": []},
+        "records": [{"id": "clean-1-0000", "category": "clean"}],
+    }), encoding="utf-8")
+    code = cli.main(
+        ["verify", "check", str(artifact), "--config", target_config, "--readback", "mailbox"]
+    )
+    captured = capsys.readouterr()
+    assert code == EXIT_REFUSED
+    assert captured.out.strip() == "verify check: blast artifacts carry no tags; run verify fire"
 
 
 def test_expect_route_is_carried_through():

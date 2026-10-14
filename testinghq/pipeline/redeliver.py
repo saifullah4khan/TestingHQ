@@ -14,13 +14,13 @@ Four scenarios, each a real thing a provider does, each built from the same
 seeded generator so a run is reproducible:
 
   duplicate    the identical message, same Message-ID, twice back to back.
-  slow-retry   the identical message again after `--retry-after`.
+  slow-retry   every message once, one wait of `--retry-after`, then every
+               message again.
   reply-first  a reply delivered before the message it answers, with correct
                threading headers, so only the order is wrong.
-  references   a three-message thread in order with a growing References chain,
-               so a pipeline that threads only on In-Reply-To and drops the
-               chain still has a chance to pass and one that threads on neither
-               does not.
+  references   a three-message thread in order with a growing References chain.
+               The last reply's stored References must carry the whole
+               ancestry, not just its parent.
 
 `thread_link` and `thread_together` are separate checks because correct headers
 on two separate tickets is the outcome that makes an agent open a duplicate
@@ -38,11 +38,9 @@ the test design was not.
 """
 from __future__ import annotations
 
-import json
 import re
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
@@ -50,7 +48,7 @@ from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target
 from ..core.transport import post
 from . import messages
-from .adapters import ReadbackConfig, build_adapter
+from .adapters import ReadbackConfig
 from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -61,17 +59,32 @@ from .common import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
+    prepare_readback,
     read_back_all,
+    readback_verdict,
     require_synthetic,
 )
 from .expectations import (
+    DEFAULT_ATTACHMENT_MATCH,
+    DEFAULT_SUBJECT_MATCH,
     Expectations,
     check_thread_link,
     check_thread_together,
     evaluate_sequence,
+    match_options,
+    validate_match_modes,
 )
-from .readback import Readback, can_enumerate
-from .verify import DEFAULT_RATE, build_clean_corpus
+from .ledger import MAX_ARTIFACT_STRAYS, classify_strays, enumerate_store, minted_by
+from .readback import Readback
+from .verify import (
+    DEFAULT_RATE,
+    abort_run,
+    artifact_header,
+    build_clean_corpus,
+    readback_note,
+    readback_unsettled,
+    write_artifact,
+)
 
 #: Seconds before the slow-retry redelivery.
 #:
@@ -216,6 +229,17 @@ class Scenario:
             return None
         return self.delivery_for(delivery.in_reply_to_tag or "")
 
+    def ancestry_of(self, tag: str) -> Tuple[str, ...]:
+        """Message-IDs of every ancestor of `tag`, root first."""
+        chain: List[str] = []
+        seen = {tag}
+        parent = self.parent_of(tag)
+        while parent is not None and parent.tag not in seen:
+            chain.append(parent.message_id)
+            seen.add(parent.tag)
+            parent = self.parent_of(parent.tag)
+        return tuple(reversed(chain))
+
 
 # ---------------------------------------------------------------------------
 # Building the scenarios
@@ -269,7 +293,11 @@ def _repeat_twice(
     id_prefix: str,
     gap: float,
 ) -> Tuple[Delivery, ...]:
-    """The identical message delivered twice, the second `gap` seconds later.
+    """The identical message delivered twice.
+
+    With no gap, each message's two copies go back to back. With a gap, every
+    original goes first, then one wait of `gap`, then every retry: one wait for
+    the batch rather than one per message, so a 120s gap costs 120s.
 
     One tag and one Message-ID across both deliveries, which is what makes the
     two the same message. A second delivery with a different tag or a different
@@ -282,12 +310,13 @@ def _repeat_twice(
     Message-ID would make the second scenario's deliveries look like
     redeliveries of the first's.
     """
-    deliveries: List[Delivery] = []
+    originals: List[Delivery] = []
+    retries: List[Delivery] = []
     for index, email in enumerate(corpus):
         tag = messages.make_tag(tag_prefix, seed, index)
         message_id = messages.build_chain_message_id(f"{id_prefix}-{seed}-{index:04d}")
         record_id = f"clean-{seed}-{index:04d}"
-        deliveries.append(
+        originals.append(
             Delivery(
                 email=messages.stamp(email, tag, message_id=message_id),
                 tag=tag,
@@ -295,7 +324,7 @@ def _repeat_twice(
                 message_id=message_id,
             )
         )
-        deliveries.append(
+        retries.append(
             Delivery(
                 # Stamped from the original again rather than from the already
                 # stamped payload, so the two deliveries are byte-identical
@@ -304,10 +333,17 @@ def _repeat_twice(
                 tag=tag,
                 record_id=record_id,
                 message_id=message_id,
-                delay_before=gap,
             )
         )
-    return tuple(deliveries)
+    if gap <= 0:
+        return tuple(d for pair in zip(originals, retries) for d in pair)
+    if retries:
+        first = retries[0]
+        retries[0] = Delivery(
+            email=first.email, tag=first.tag, record_id=first.record_id,
+            message_id=first.message_id, delay_before=gap,
+        )
+    return tuple(originals + retries)
 
 
 def build_duplicate(
@@ -336,9 +372,9 @@ def build_slow_retry(
         name=SCENARIO_SLOW_RETRY,
         deliveries=_repeat_twice(corpus, seed, tag_prefix, id_prefix, retry_after),
         question=(
-            f"the identical message re-sent {retry_after:g}s after a first "
-            f"delivery that succeeded: one ticket. This is the duplicate half "
-            f"of a provider retry, not a failure-driven one"
+            f"every message re-sent after one {retry_after:g}s wait following "
+            f"a first delivery that succeeded: one ticket each. This is the "
+            f"duplicate half of a provider retry, not a failure-driven one"
         ),
     )
 
@@ -457,7 +493,8 @@ def build_references(
         ),
         question=(
             "a three-message thread in order with a growing References chain: one "
-            "conversation, with the full ancestry intact"
+            "conversation, and the last reply's References carries the full "
+            "ancestry"
         ),
     )
 
@@ -554,7 +591,10 @@ def send_scenario(
         if delivery.delay_before > 0:
             sleep(delivery.delay_before)
         bucket.acquire()
-        result = post(delivery.email, url, client=client, wire_format=wire_format)
+        if wire_format is not None:
+            result = post(delivery.email, url, client=client, wire_format=wire_format)
+        else:
+            result = post(delivery.email, url, client=client)
         sent.append(
             SentMessage(
                 index=index,
@@ -588,6 +628,11 @@ class ScenarioResult:
     strays_searched: bool = True
     findings: List[str] = field(default_factory=list)
     records: List[Dict[str, Any]] = field(default_factory=list)
+    #: Tags delivered and not found. Kept apart from `findings` so an unsettled
+    #: readback can be told from a loss.
+    missing: List[str] = field(default_factory=list)
+    #: Records carrying this scenario's tag prefix that it never delivered.
+    strays: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -602,12 +647,20 @@ class ScenarioResult:
             "strays_searched": self.strays_searched,
             "passed": self.passed,
             "findings": list(self.findings),
+            "missing": list(self.missing),
+            "strays": list(self.strays),
             "messages": self.records,
         }
 
 
 def judge_scenario(
-    scenario: Scenario, readbacks: Dict[str, List[Readback]]
+    scenario: Scenario,
+    readbacks: Dict[str, List[Readback]],
+    *,
+    route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
 ) -> ScenarioResult:
     """Grade one scenario's outcome.
 
@@ -621,8 +674,11 @@ def judge_scenario(
       duplicates   every unique message has exactly one record. This is the
                    headline check, and the one both duplicate scenarios exist to
                    trip.
-      thread_link  each reply's In-Reply-To and References name its parent.
+      thread_link  each reply's In-Reply-To names its parent and its
+                   References carries every ancestor.
       thread_together  each reply ended up on the same ticket as its parent.
+
+    Content is graded with the run's match modes and `--expect-route`.
     """
     result = ScenarioResult(
         name=scenario.name,
@@ -650,6 +706,7 @@ def judge_scenario(
         }
 
         if not found:
+            result.missing.append(tag)
             result.findings.append(
                 f"{tag}: delivered and the system holds no record of it"
             )
@@ -661,7 +718,13 @@ def judge_scenario(
                     "a duplicate"
                 )
             first_by_tag[tag] = found[0]
-            expectations = Expectations.from_email(delivery.email)
+            expectations = Expectations.from_email(
+                delivery.email,
+                route=route,
+                body_exact=body_exact,
+                subject_match=subject_match,
+                attachment_match=attachment_match,
+            )
             verification = evaluate_sequence(
                 delivery.email,
                 found,
@@ -687,7 +750,9 @@ def judge_scenario(
                 "That is a build bug in the scenario, not a pipeline failure, and "
                 "it must not be reported as one."
             )
-        link = check_thread_link(first_by_tag.get(tag), parent.message_id)
+        link = check_thread_link(
+            first_by_tag.get(tag), parent.message_id, scenario.ancestry_of(tag)
+        )
         together = check_thread_together(
             first_by_tag.get(tag), first_by_tag.get(parent.tag)
         )
@@ -702,36 +767,94 @@ def judge_scenario(
     return result
 
 
+def scenario_tag_prefix(tag_prefix: str, scenario_name: str) -> str:
+    """The tag prefix a scenario stamps under the run's prefix."""
+    return f"{tag_prefix}-{SCENARIO_TAG_SUFFIX[scenario_name]}"
+
+
 def judge_all(
     scenarios: Sequence[Scenario],
     readbacks: Dict[str, List[Readback]],
     strays: Optional[Sequence[Readback]] = None,
+    **options: Any,
 ) -> List[ScenarioResult]:
+    """`judge_run` without the run-level stray summary."""
+    return judge_run(scenarios, readbacks, strays, **options)[0]
+
+
+def judge_run(
+    scenarios: Sequence[Scenario],
+    readbacks: Dict[str, List[Readback]],
+    strays: Optional[Sequence[Readback]] = None,
+    *,
+    tag_prefix: str = messages.DEFAULT_TAG_PREFIX,
+    route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    strays_partial: bool = False,
+) -> Tuple[List[ScenarioResult], Dict[str, Any]]:
     """Grade every scenario, then hunt for records nobody sent.
 
-    Strays are reported against the run as a whole rather than per scenario,
-    because a ticket that belongs to no scenario is a property of the run and
-    duplicating the same finding into four scenario sections would make four
-    bugs out of one. When the adapter cannot enumerate, every scenario records
-    `strays_searched: False` rather than passing a check that did not run.
+    Returns (results, stray summary). A stray carrying a scenario's tag prefix
+    is a finding on that scenario. A stray with this run's prefix and no
+    scenario's is a run-level finding. Other runs' tags are listed for
+    information and untagged records are ignored. When the adapter cannot
+    enumerate, or the listing was truncated (`strays_partial`), every scenario
+    records `strays_searched: False`; strays a truncated listing did find are
+    still reported.
     """
-    results = [judge_scenario(scenario, readbacks) for scenario in scenarios]
-
-    if strays is None:
+    results = [
+        judge_scenario(
+            scenario, readbacks, route=route, body_exact=body_exact,
+            subject_match=subject_match, attachment_match=attachment_match,
+        )
+        for scenario in scenarios
+    ]
+    summary: Dict[str, Any] = {
+        "strays_searched": strays is not None and not strays_partial,
+        "unattributed": None,
+        "other_runs": None,
+        "other_runs_count": None,
+        "untagged_count": None,
+    }
+    if strays is None or strays_partial:
         for result in results:
             result.strays_searched = False
-        return results
+    if strays is None:
+        return results, summary
 
-    sent_tags = {tag for scenario in scenarios for tag in scenario.tags}
-    unexpected = [r for r in strays if not r.tag or r.tag not in sent_tags]
-    if unexpected:
-        joined = "; ".join(
-            f"ticket {r.ticket_id} (tag {r.tag or 'none'!r})" for r in unexpected
-        )
-        results[0].findings.append(
-            f"the system holds {len(unexpected)} record(s) this run never sent: {joined}"
-        )
-    return results
+    sent_tags = [tag for scenario in scenarios for tag in scenario.tags]
+    own_tickets = [str(r.ticket_id) for found in readbacks.values() for r in found]
+    # The run's family: its own prefix and every scenario prefix under it.
+    by_prefix = {
+        scenario_tag_prefix(tag_prefix, name): name for name in SCENARIOS
+    }
+    family = [tag_prefix, *by_prefix]
+    sorted_strays = classify_strays(strays, sent_tags, own_tickets, family)
+    results_by_name = {result.name: result for result in results}
+    unattributed: List[Dict[str, Any]] = []
+    for entry in sorted_strays["extra"]:
+        owner = results_by_name.get(by_prefix.get(minted_by(entry["tag"], family) or ""))
+        if owner is None:
+            unattributed.append(entry)
+            continue
+        if len(owner.strays) < MAX_ARTIFACT_STRAYS:
+            owner.strays.append(entry)
+            owner.findings.append(
+                f"ticket {entry['ticket']} carries tag {entry['tag']!r}, which "
+                "this scenario never delivered"
+            )
+    summary.update(
+        {
+            "unattributed": unattributed[:MAX_ARTIFACT_STRAYS],
+            "unattributed_count": len(unattributed),
+            "other_runs": sorted_strays["other_runs"][:MAX_ARTIFACT_STRAYS],
+            "other_runs_count": len(sorted_strays["other_runs"]),
+            "untagged_count": sorted_strays["untagged"],
+        }
+    )
+    return results, summary
 
 
 # ---------------------------------------------------------------------------
@@ -747,8 +870,15 @@ def run_config(
     readback: ReadbackConfig,
     retry_after: float,
     selected: Optional[Sequence[str]],
+    *,
+    route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    wire_format: Optional[str] = None,
+    allow_public_target: bool = False,
 ) -> Dict[str, Any]:
-    return {
+    config: Dict[str, Any] = {
         "tool": "redeliver",
         "seed": seed,
         "count": count,
@@ -757,8 +887,36 @@ def run_config(
         "readback": readback.to_json(),
         "retry_after": retry_after,
         "scenarios": list(selected) if selected else list(SCENARIOS),
-        "dry_run": False,
     }
+    config.update(match_options(route, body_exact, subject_match, attachment_match))
+    config.update(
+        {
+            "format": wire_format,
+            "allow_public_target": allow_public_target,
+            "dry_run": False,
+        }
+    )
+    return config
+
+
+def verdict_of(
+    results: Sequence[ScenarioResult],
+    strays: Optional[Dict[str, Any]] = None,
+    unsettled: bool = False,
+) -> str:
+    """DELIVERY-SAFE, DELIVERY-BUGS, or UNSETTLED when the only problems are
+    messages not yet found by a readback that never settled."""
+    unattributed = bool((strays or {}).get("unattributed"))
+    real = unattributed or any(
+        len(r.findings) > len(r.missing) for r in results
+    )
+    if real:
+        return "DELIVERY-BUGS"
+    if unsettled:
+        return "UNSETTLED"
+    if any(r.findings for r in results):
+        return "DELIVERY-BUGS"
+    return "DELIVERY-SAFE"
 
 
 def build_artifact(
@@ -766,25 +924,42 @@ def build_artifact(
     config: Dict[str, Any],
     results: Sequence[ScenarioResult],
     readback_outcome: Optional["ReadbackOutcome"] = None,
+    strays: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     failing = [r for r in results if not r.passed]
+    strays = strays or {}
+    unattributed = strays.get("unattributed") or []
+    unsettled = readback_unsettled(readback_outcome)
     summary: Dict[str, Any] = {
         "scenarios": len(results),
         "passed": len(results) - len(failing),
-        "failed": len(failing),
+        "failed": len(failing) + (1 if unattributed else 0),
         "deliveries": sum(r.deliveries for r in results),
-        "findings": sum(len(r.findings) for r in results),
+        "findings": sum(len(r.findings) for r in results) + len(unattributed),
         "strays_searched": all(r.strays_searched for r in results),
-        "verdict": "DELIVERY-SAFE" if not failing else "DELIVERY-BUGS",
+        "unattributed_strays": unattributed,
+        "unattributed_strays_count": strays.get("unattributed_count", len(unattributed)),
+        "strays_not_searched_reason": strays.get("strays_not_searched_reason"),
+        "other_runs": strays.get("other_runs"),
+        "other_runs_count": strays.get("other_runs_count"),
+        "untagged_count": strays.get("untagged_count"),
+        "unsettled": unsettled,
     }
+    summary["verdict"], summary["verdict_source"] = readback_verdict(
+        verdict_of(results, strays, unsettled), readback_outcome
+    )
     if readback_outcome is not None:
         summary["readback"] = readback_outcome.to_json()
-    return {
-        "seed": seed,
-        "config": config,
-        "summary": summary,
-        "scenarios": [r.to_json() for r in results],
-    }
+    artifact = artifact_header("redeliver")
+    artifact.update(
+        {
+            "seed": seed,
+            "config": config,
+            "summary": summary,
+            "scenarios": [r.to_json() for r in results],
+        }
+    )
+    return artifact
 
 
 def format_redelivery(artifact: Dict[str, Any]) -> str:
@@ -809,7 +984,24 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
             f"  readback: {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
+    note = readback_note(summary)
+    if note:
+        lines.append(f"  {note}")
+    unattributed = summary.get("unattributed_strays") or []
+    if unattributed:
+        lines.append(
+            f"  {summary.get('unattributed_strays_count', len(unattributed))} "
+            "record(s) carry this run's tag prefix but no scenario's:"
+        )
+        for entry in unattributed[:MAX_LISTED]:
+            lines.append(f"    - ticket {entry['ticket']} (tag {entry['tag']!r})")
+    other = summary.get("other_runs_count") or 0
+    if other:
+        lines.append(
+            f"  {other} record(s) carry another run's tag (informational, not a finding)"
+        )
 
+    stray_reason = summary.get("strays_not_searched_reason") or "adapter cannot enumerate"
     for scenario in artifact.get("scenarios") or []:
         lines.append("")
         mark = "ok  " if scenario["passed"] else "FAIL"
@@ -820,7 +1012,7 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
             + (
                 ""
                 if scenario["strays_searched"]
-                else ", strays not searched (adapter cannot enumerate)"
+                else f", strays not searched ({stray_reason})"
             )
         )
         if scenario["findings"]:
@@ -838,7 +1030,13 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
 
 
 def format_dry_run(
-    scenarios: Sequence[Scenario], readback: ReadbackConfig, tag_prefix: str
+    scenarios: Sequence[Scenario],
+    readback: ReadbackConfig,
+    tag_prefix: str,
+    *,
+    route: Optional[str] = None,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
 ) -> str:
     lines = [
         f"dry-run preview: {len(scenarios)} scenario(s), tag prefix {tag_prefix!r}"
@@ -857,6 +1055,11 @@ def format_dry_run(
         lines.append(f"  readback url:     {readback.url}")
     if readback.path:
         lines.append(f"  readback path:    {readback.path}")
+    lines.append(
+        f"  checks:           subject match {subject_match}, attachments "
+        f"{attachment_match}, "
+        + (f"route {route!r}" if route else "routing skipped (no --expect-route)")
+    )
     lines.append("no network calls were made (pass --send to fire for real)")
     return "\n".join(lines)
 
@@ -878,6 +1081,11 @@ def execute(
     tag_prefix: str = messages.DEFAULT_TAG_PREFIX,
     rate: float = DEFAULT_RATE,
     retry_after: float = DEFAULT_RETRY_AFTER,
+    route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    allow_public_target: bool = False,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
     max_wait: float = DEFAULT_MAX_WAIT,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
@@ -886,22 +1094,19 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     printer: Callable[[str], None] = print,
-    allow_public_target: bool = False,
 ) -> int:
     """Run every scenario, read back, report. Never called unless
     `guardrails.evaluate_send` already said yes.
 
-    All guardrails run over every scenario's payloads before the first
-    delivery, not per scenario. A refusal that lands after the duplicate
-    scenario has already been delivered has still hit the operator's endpoint
-    with part of the test, which is the failure mode the three-phase order in
-    `pipeline/common.py` exists to prevent.
+    All guardrails run over every scenario's payloads, and the adapter is
+    built and preflighted, before the first delivery.
     """
     built = build_scenarios(seed, count, tag_prefix, retry_after, scenarios)
     every_delivery = [d for s in built for d in s.deliveries]
 
     try:
         require_synthetic([d.email for d in every_delivery])
+        validate_match_modes(subject_match, attachment_match)
         target = resolve_target(
             target_name, config_path, allow_public_target=allow_public_target
         )
@@ -909,13 +1114,23 @@ def execute(
         printer(f"refused: {exc}")
         return EXIT_REFUSED
 
-    adapter = None
     try:
-        # Inside the try, not before it: an adapter that cannot be built is as
-        # much a refusal as a target that cannot be resolved, and an
-        # unimportable spec left out here escaped as a traceback.
-        adapter = build_adapter(readback, client=readback_client)
-        sent: List[SentMessage] = []
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
+        )
+    except Exception as exc:
+        printer(f"refused: the readback adapter could not be prepared: {exc}")
+        return EXIT_REFUSED
+
+    config = run_config(
+        seed, count, tag_prefix, target_name, readback, retry_after, scenarios,
+        route=route, body_exact=body_exact, subject_match=subject_match,
+        attachment_match=attachment_match, wire_format=target.format_name,
+        allow_public_target=bool(target.public),
+    )
+    sent: List[SentMessage] = []
+    phase = "send"
+    try:
         for scenario in built:
             sent.extend(
                 send_scenario(
@@ -923,6 +1138,7 @@ def execute(
                     clock=clock, wire_format=target.wire_format,
                 )
             )
+        phase = "readback"
         outcome = read_back_all(
             adapter,
             [m.probe for m in sent],
@@ -933,24 +1149,34 @@ def execute(
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks
-        strays: Optional[List[Readback]] = (
-            list(adapter.list_all()) if can_enumerate(adapter) else None
-        )
+        phase = "stray search"
+        strays, strays_reason, strays_partial = enumerate_store(adapter)
+    except KeyboardInterrupt:
+        # Whole scenarios already delivered are listed; a scenario cut off
+        # mid-delivery is not.
+        return abort_run("redeliver", seed, config, phase, sent, out, printer)
     except Exception as exc:
         printer(f"redeliver: could not complete the run: {exc}")
         return EXIT_REFUSED
     finally:
         close_adapter(adapter)
 
-    results = judge_all(built, readbacks, strays)
+    results, stray_summary = judge_run(
+        built, readbacks, strays,
+        tag_prefix=tag_prefix, route=route, body_exact=body_exact,
+        subject_match=subject_match, attachment_match=attachment_match,
+        strays_partial=strays_partial,
+    )
+    stray_summary["strays_not_searched_reason"] = (
+        None if stray_summary["strays_searched"] else strays_reason
+    )
     artifact = build_artifact(
         seed,
-        run_config(seed, count, tag_prefix, target_name, readback, retry_after, scenarios),
+        config,
         results,
         outcome,
+        stray_summary,
     )
-    artifact["config"].update(target.artifact_config())
     printer(format_redelivery(artifact))
-    if out:
-        Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
-    return EXIT_OK if all(r.passed for r in results) else EXIT_MISMATCH
+    write_artifact(out, artifact)
+    return EXIT_OK if artifact["summary"]["verdict"] == "DELIVERY-SAFE" else EXIT_MISMATCH
