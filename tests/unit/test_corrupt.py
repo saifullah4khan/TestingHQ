@@ -119,16 +119,57 @@ def test_structural_noise_can_produce_broken_html():
     assert found_broken
 
 
-def test_encoding_sabotage_declares_mismatched_charset():
-    from testinghq.blast.corrupt import CHARSET_LABELS
+def test_encoding_sabotage_puts_real_non_utf8_bytes_on_the_wire_under_a_utf8_label():
+    from testinghq.blast.corrupt import SABOTAGE_CODEC_PAIRS
+    from testinghq.blast.serialize import to_multipart_parts
 
     email = _clean_email()
-    mutated = encoding_sabotage(email, random.Random(7))
-    changed_fields = [f for f in ("subject", "html") if getattr(mutated, f) != getattr(email, f)]
-    assert changed_fields
-    for field in changed_fields:
-        assert field in mutated.charsets
-        assert mutated.charsets[field] in CHARSET_LABELS.values()
+    seen_fields = set()
+    seen_codecs = set()
+    for seed in range(60):
+        mutated = encoding_sabotage(email, random.Random(seed))
+        (field,) = mutated.raw_fields
+        seen_fields.add(field)
+        raw = mutated.raw_fields[field]
+        assert mutated.charsets[field] == "UTF-8"
+        try:
+            raw.decode("utf-8")
+            is_valid_utf8 = True
+        except UnicodeDecodeError:
+            is_valid_utf8 = False
+        assert not is_valid_utf8, (seed, field, raw)
+        for actual, _declared in SABOTAGE_CODEC_PAIRS:
+            try:
+                raw.decode(actual)
+                seen_codecs.add(actual)
+            except UnicodeDecodeError:
+                pass
+        assert getattr(mutated, field) == raw.decode("utf-8", errors="replace")
+        wire = {p.name: p.value for p in to_multipart_parts(mutated)}
+        assert wire[field] == raw
+    assert seen_fields == {"subject", "text", "html"}
+    assert {"latin-1", "cp1252", "shift_jis"} <= seen_codecs
+
+
+def test_encoding_sabotage_has_no_pair_that_declares_what_it_sends():
+    from testinghq.blast.corrupt import SABOTAGE_CODEC_PAIRS
+
+    assert all(actual != declared for actual, declared in SABOTAGE_CODEC_PAIRS)
+    assert not any(actual == "utf-8" for actual, _ in SABOTAGE_CODEC_PAIRS)
+
+
+def test_a_sabotaged_subject_header_carries_the_same_lying_bytes():
+    import base64
+
+    from testinghq.blast.corrupt import sabotage_field
+
+    mutated = sabotage_field(_clean_email(), random.Random(3), "subject")
+    header = mutated.headers["Subject"]
+    assert header.startswith("=?UTF-8?B?")
+    joined = b"".join(
+        base64.b64decode(word[len("=?UTF-8?B?"):-2]) for word in header.split(" ")
+    )
+    assert joined == mutated.raw_fields["subject"]
 
 
 def test_encoding_sabotage_is_deterministic_for_same_rng_seed():
@@ -138,13 +179,30 @@ def test_encoding_sabotage_is_deterministic_for_same_rng_seed():
     assert first == second
 
 
-def test_encoding_sabotage_only_touches_subject_or_html():
+def test_encoding_sabotage_never_touches_addresses():
     email = _clean_email()
     mutated = encoding_sabotage(email, random.Random(8))
     assert mutated.to == email.to
     assert mutated.from_addr == email.from_addr
-    assert mutated.text == email.text
     assert mutated.envelope == email.envelope
+
+
+def test_structural_noise_produces_outlook_and_apple_mail_shapes():
+    email = _clean_email()
+    texts = [structural_noise(email, random.Random(seed)).text for seed in range(200)]
+    assert any("-----Original Message-----" in t for t in texts)
+    assert any("Subject: FW: " in t for t in texts)
+    assert any("Begin forwarded message:" in t for t in texts)
+    assert any(", at " in t and " wrote:" in t for t in texts)
+    assert any("---------- Forwarded message ---------" in t for t in texts)
+
+
+def test_structural_noise_keeps_html_inside_the_body_element():
+    email = _clean_email()
+    for seed in range(100):
+        html = structural_noise(email, random.Random(seed)).html
+        if html.startswith("<html>") and "</body>" in html:
+            assert html.endswith("</body></html>"), html[-80:]
 
 
 @pytest.mark.parametrize("name", list(MUTATORS))
