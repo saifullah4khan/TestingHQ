@@ -295,7 +295,7 @@ READBACK_FIELDS = Table(
                  "a filename."
              )),
         Key("route", "string", free_form=True,
-             meaning="Compared case-insensitively. Without --expect-route the expected value is the message's own recipient address."),
+             meaning="Compared case-insensitively against --expect-route. Without --expect-route the routing check is skipped (no expected route)."),
         Key("message_id", "string", free_form=True,
              meaning="The RFC 5322 Message-ID, for threading checks."),
         Key("in_reply_to", "string", free_form=True, meaning="For threading checks."),

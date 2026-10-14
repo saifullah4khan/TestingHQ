@@ -73,7 +73,7 @@ Keys are data rather than a fixed set. The fields or headers this table may name
 | `subject` | string | none | no | Compared case- and whitespace-insensitively. |
 | `body` | string | none | no | The payload's substantive text has to APPEAR inside it. A system that reformats the body fails this, which is usually the finding you wanted. Use --body-exact only for a system that stores the field verbatim. |
 | `attachment_names` | string | none | no | A list of names. The only field besides references that accepts a list. A count is not a name: mapping an attachments_count field here raises rather than reading 1 as a filename. |
-| `route` | string | none | no | Compared case-insensitively. Without --expect-route the expected value is the message's own recipient address. |
+| `route` | string | none | no | Compared case-insensitively against --expect-route. Without --expect-route the routing check is skipped (no expected route). |
 | `message_id` | string | none | no | The RFC 5322 Message-ID, for threading checks. |
 | `in_reply_to` | string | none | no | For threading checks. |
 | `references` | string | none | no | A chain of Message-IDs, or a space-separated string, both accepted. |
