@@ -156,7 +156,10 @@ READBACK = Table(
                 "Lines mail sink, or 'module:attribute' to import your own "
                 "adapter. May be given on the command line instead as "
                 "--readback http|mailbox|module:attribute, and the two forms "
-                "produce the same config."
+                "produce the same config. A custom adapter is not checked "
+                "against the readback host guard: TestingHQ cannot see where "
+                "arbitrary code connects, so the operator who wrote it decides "
+                "where it reads from."
             ),
         ),
         Key(
@@ -164,11 +167,13 @@ READBACK = Table(
             "string",
             required="for kind = http",
             meaning=(
-                "The endpoint queried once per payload, with the tag appended "
-                "as a query parameter. Gated by the same guardrail as a firing "
-                "target: a public host is refused unless "
-                "allow_public_hosts is set, because on a real deployment this "
-                "is a ticket store that may hold other people's data."
+                "The endpoint asked once per tag per poll: a GET with the tag "
+                "(or the filled `query` template) in `tag_param`, or a POST of "
+                "the filled `body`. Gated by the same guardrail as a firing "
+                "target: a public host is refused unless allow_public_hosts is "
+                "set, because on a real deployment this is a ticket store that "
+                "may hold other people's data. Every pagination link is gated "
+                "too, and one on a different host is refused."
             ),
         ),
         Key(
@@ -176,10 +181,11 @@ READBACK = Table(
             "string",
             required="for kind = mailbox",
             meaning=(
-                "Path to the JSON Lines sink. Re-read on every lookup rather "
-                "than cached, because the pipeline is still writing to it while "
-                "the run is in flight. A file that does not exist yet reads as "
-                "empty rather than as an error."
+                "Path to the JSON Lines sink, relative to the config file's "
+                "directory. Each poll reads only the bytes appended since the "
+                "last one; a last line still being written is left for the next "
+                "poll. A file that does not exist yet reads as empty, and a "
+                "directory that does not exist is refused before sending."
             ),
         ),
         Key(
@@ -187,9 +193,34 @@ READBACK = Table(
             "string",
             default='"tag"',
             meaning=(
-                "Query parameter carrying the tag, for APIs that expect a "
-                "different name. Set it to 'query' for Zendesk and Freshdesk, "
-                "whose search endpoints both take one."
+                "Query parameter carrying the tag, or the filled `query` "
+                "template. Zendesk and Freshdesk search both take `query`."
+            ),
+        ),
+        Key(
+            "query",
+            "string",
+            meaning=(
+                "A template for the value sent in `tag_param`, with `{tag}` "
+                "where the tag goes: 'type:ticket tags:{tag}' for Zendesk, "
+                "'\"tag:{tag}\"' for Freshdesk. Without it the bare tag is sent."
+            ),
+        ),
+        Key(
+            "method",
+            "string",
+            default='"GET"',
+            meaning=(
+                "GET or POST. POST sends `body` as JSON, for search APIs such as "
+                "HubSpot's or Jira's that take the filter in the request body."
+            ),
+        ),
+        Key(
+            "body",
+            "string",
+            meaning=(
+                "The JSON body of a POST lookup, with `{tag}` where the tag "
+                "goes (JSON-escaped). Only valid with method = \"POST\"."
             ),
         ),
         Key(
@@ -197,16 +228,74 @@ READBACK = Table(
             "string",
             default='"items"',
             meaning=(
-                "The key a list of records is nested under. A bare list, or a "
-                "bare object, also work, so this is only needed when the "
-                "response wraps one."
+                "The dotted path a list of records is nested under. A bare list, "
+                "or a bare object with an identifier, also work. A wrapper whose "
+                "list sits under a different key is refused with that key named."
+            ),
+        ),
+        Key(
+            "next_path",
+            "string",
+            meaning=(
+                "JSON pointer (`/links/next`) or dotted path to the next page's "
+                "url in a response. Pagination stops when it is absent or empty. "
+                "Not combined with page_param."
+            ),
+        ),
+        Key(
+            "page_param",
+            "string",
+            meaning=(
+                "Query parameter carrying a page number, counted from 1, for "
+                "APIs paginated by page. Stops at a page smaller than the "
+                "largest seen, or empty."
+            ),
+        ),
+        Key(
+            "page_size_param",
+            "string",
+            meaning=(
+                "Query parameter carrying the page size (100) alongside "
+                "page_param. A page with fewer records is the last."
+            ),
+        ),
+        Key(
+            "max_pages",
+            "integer",
+            default="10",
+            meaning=(
+                "Most pages one lookup or listing follows. A result cut short "
+                "here is marked partial in the artifact."
             ),
         ),
         Key(
             "timeout",
             "number",
             default="10.0",
-            meaning="Seconds before a lookup gives up.",
+            meaning=(
+                "Seconds before one request gives up, capped by what is left "
+                "of --max-wait."
+            ),
+        ),
+        Key(
+            "retry_max",
+            "integer",
+            default="5",
+            meaning=(
+                "Retries after a 429, a 5xx, a timeout or a connection error, "
+                "with exponential backoff and jitter, honouring Retry-After. "
+                "A failure past the last retry stops the run with the reason."
+            ),
+        ),
+        Key(
+            "retry_base_seconds",
+            "number",
+            default="0.5",
+            meaning=(
+                "The first backoff, doubled per retry, capped at 30 seconds. "
+                "Requests are also paced to --readback-rate per second (default "
+                "4) across lookups, pages and retries."
+            ),
         ),
         Key(
             "allow_public_hosts",
@@ -223,20 +312,22 @@ READBACK = Table(
             "boolean",
             default="true",
             meaning=(
-                "Also call the url with no tag, to look for records that belong "
-                "to no payload at all. Set false if the API cannot list without "
-                "a tag; the report will then say strays were not searched for, "
-                "rather than claiming there were none."
+                "Also list every record, to look for records that belong to no "
+                "payload at all. Set false if the API cannot list; the report "
+                "then says strays were not searched for, rather than claiming "
+                "there were none. A POST search with no list_path cannot list "
+                "either."
             ),
         ),
         Key(
             "list_path",
             "string",
             meaning=(
-                "A separate endpoint for the listing, when it is not the same "
-                "one as the single lookup. Only useful if that endpoint returns "
-                "full records: the adapter cannot follow a second hop to fetch "
-                "each one."
+                "A separate endpoint for the listing, absolute or relative to "
+                "url. Without it the listing is url with the tag parameter "
+                "removed and every other parameter kept. Only useful if that "
+                "endpoint returns full records: the adapter cannot follow a "
+                "second hop to fetch each one."
             ),
         ),
         Key(
@@ -245,9 +336,23 @@ READBACK = Table(
             meaning=(
                 "An import path for a custom adapter. Usually given as "
                 "kind = 'module:attribute' instead, which produces the same "
-                "thing."
+                "thing. A class is instantiated (with the [readback] table if "
+                "its __init__ takes one argument), an object with fetch is used "
+                "as is, and a callable taking one argument is a fetch function. "
+                "An import or construction failure is refused before sending."
             ),
         ),
+    ),
+    notes=(
+        "Before anything is sent, the http adapter makes one lookup and, when "
+        "listing is on, one listing request: a 401 or 403, a 404 list url, a "
+        "response that is not JSON, or records with no identifier are refused "
+        "then rather than discovered after the run.",
+        "A run whose readback has not settled within --max-wait is UNSETTLED, "
+        "not lost. For a pipeline that writes on a queue consumer, make "
+        "--quiet-window longer than the gap between a record being created and "
+        "being filled in; for a search-indexed store (Zendesk, Freshdesk) start "
+        "with --max-wait 300.",
     ),
 )
 
@@ -277,7 +382,11 @@ READBACK_FIELDS = Table(
             ),
         ),
         Key("from_addr", "string", free_form=True,
-             meaning="Normalized before comparison, so a display-name form and a bare address both work."),
+             meaning=(
+                 "Normalized before comparison, so a display-name form and a "
+                 "bare address both work. An object with an `email` or "
+                 "`address` key is read through that key."
+             )),
         Key("subject", "string", free_form=True,
              meaning="Compared case- and whitespace-insensitively."),
         Key("body", "string", free_form=True,
@@ -290,12 +399,17 @@ READBACK_FIELDS = Table(
         Key("attachment_names", "string", free_form=True,
              meaning=(
                  "A list of names. The only field besides references that "
-                 "accepts a list. A count is not a name: mapping an "
-                 "attachments_count field here raises rather than reading 1 as "
-                 "a filename."
+                 "accepts a list. A list of objects is reported NOT CHECKED "
+                 "with its shape and a hint: map `attachments.*.file_name` to "
+                 "read one key from each. A count is not a name, and is "
+                 "reported NOT CHECKED rather than read as one."
              )),
         Key("route", "string", free_form=True,
-             meaning="Compared case-insensitively. Without --expect-route the expected value is the message's own recipient address."),
+             meaning=(
+                 "Compared case-insensitively against --expect-route (verify, "
+                 "ledger, redeliver). Without that flag the routing check is "
+                 "SKIPPED with reason 'no expected route'."
+             )),
         Key("message_id", "string", free_form=True,
              meaning="The RFC 5322 Message-ID, for threading checks."),
         Key("in_reply_to", "string", free_form=True, meaning="For threading checks."),
@@ -303,9 +417,10 @@ READBACK_FIELDS = Table(
              meaning="A chain of Message-IDs, or a space-separated string, both accepted."),
         Key("tag", "string", free_form=True,
              meaning=(
-                 "Must resolve to a STRING. A ticket's tags field is a list, "
-                 "so mapping tag to it is refused at load. Usually unnecessary: "
-                 "the lookup already found the record by the tag."
+                 "Must resolve to one string. A list holding exactly one string "
+                 "is read as that string; a longer list is reported NOT CHECKED. "
+                 "Usually unnecessary: the lookup already found the record by "
+                 "the tag."
              )),
         Key("category", "string", free_form=True,
              meaning=(
@@ -320,7 +435,15 @@ READBACK_FIELDS = Table(
     ),
     notes=(
         "Dotted paths address nested objects (`data.attributes.subject`), and a "
-        "numeric segment addresses a list (`attachments.0.name`).",
+        "numeric segment addresses a list (`attachments.0.name`). One `*` "
+        "segment collects from every element of a list (`attachments.*.name`); "
+        "ticket_id cannot use one.",
+        "A value of `false` unmaps a default, so a field your API carries under "
+        "the default name but with a different meaning is NOT CHECKED rather "
+        "than compared. ticket_id cannot be unmapped.",
+        "A field present in a shape the checks cannot read (an object or a list "
+        "where one value is expected) is NOT CHECKED, and the artifact's "
+        "`field_notes` says what shape was there.",
         "Omit the whole table and you get exactly the defaults, which assume an "
         "API whose fields are named as TestingHQ names them.",
     ),

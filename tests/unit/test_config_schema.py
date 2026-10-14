@@ -60,6 +60,15 @@ READBACK_KEYS = {
     "enumerate": True,
     "list_path": None,
     "spec": None,
+    "query": None,
+    "method": "GET",
+    "body": None,
+    "next_path": None,
+    "page_param": None,
+    "page_size_param": None,
+    "max_pages": 10,
+    "retry_max": 5,
+    "retry_base_seconds": 0.5,
 }
 
 #: File key -> dataclass field, where they differ. `enumerate` is the file name
