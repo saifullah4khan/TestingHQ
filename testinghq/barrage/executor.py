@@ -1,200 +1,134 @@
 """Dispatch executors for Barrage.
 
-Until this module existed, `barrage/runner.py` called `send_fn` inline. One
-request in flight, always, in both modes. That is not a load tester: achieved
-throughput is bounded by the target's response time rather than by the rate you
-asked for, so a p90 over a 200ms target can never exceed 5 requests/second no
-matter what `--rate` says, and no knee is findable because the target is never
-asked for enough simultaneous work to fall over.
+Two strategies behind one small interface, so `runner.py` stays the only thing
+that knows about pacing:
 
-This module provides the two dispatch strategies, behind one interface, so
-`runner.py` can stay the only thing that knows about pacing.
+- `SerialExecutor` runs each task inline on the calling thread. It is the
+  correct implementation for `concurrency == 1` and what hermetic tests with a
+  fake clock get, because one worker has nothing to overlap.
+- `PoolExecutor` is a fixed set of daemon worker threads fed from a queue.
 
-WHY THREADS AND NOT ASYNCIO, since the fix is often reached for with
-asyncio.to_thread and it is worth saying why this is not that.
+Threads rather than asyncio because the transport is a blocking `http.client`
+call and the project takes no runtime dependencies. One thread per in-flight
+request is why `concurrency` is capped (see `runner.check_rate_ceiling`).
 
-The transport is a blocking `urllib.request.urlopen`. Wrapping it in asyncio
-buys nothing without an async HTTP client, and an async client is a new runtime
-dependency for a project that currently has exactly one (`tomli`, and only on
-Python 3.10). `asyncio.to_thread` is a thread pool with an event loop wrapped
-around it, so it would be the same concurrency for a worse dependency story and
-a less obvious shutdown path. A `ThreadPoolExecutor` is the honest instrument
-for a blocking client.
+Interface: `submit(fn) -> Future`, `shutdown(cancel_pending=...)`, and
+`max_in_flight`. The runner waits on the futures itself, with a deadline, so
+an executor never decides how long a run lasts.
 
-The cost of threads is real and is why `concurrency` stays a small number: a
-thread per in-flight request means one interpreter stack per request, so a
-run configured for thousands of concurrent requests would not do what it says.
-That is enforced, not advised: `runner.check_rate_ceiling` refuses a
-`concurrency` above DEFAULT_MAX_CONCURRENCY unless `--allow-high-rate` is
-passed, the same opt-in that raises the rate and duration ceilings.
-
-INTERFACE, and why it exists at all. `SerialExecutor` is not a testing
-convenience bolted on: it is the correct implementation for `concurrency == 1`,
-and it is what keeps every existing hermetic test passing unchanged. A test that
-injects a fake clock and a fake `send_fn` must not need a real thread pool to
-prove what it is proving, and with `concurrency == 1` there is nothing to prove
-about concurrency anyway.
-
-The interface is deliberately tiny: `submit`, `drain`, `shutdown`. `drain` is
-the one that matters and is easy to get wrong. A stage's requests may still be
-in flight when the stage's window closes, and a run that reports before they
-land reports a shorter run than it performed.
+The pool's threads are daemon threads on purpose. A request the run has
+abandoned at its deadline may still be blocked in a socket read, bounded only
+by the transport timeout; a non-daemon thread would hold the interpreter open
+until it returned.
 """
 from __future__ import annotations
 
+import queue
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Callable, List, Optional, Tuple
-
-#: What every executor can do. `submit` returns a Future so the caller can hold
-#: on to a request across a stage boundary; `drain` waits for everything
-#: submitted so far; `shutdown` releases the workers.
-SendFn = Callable[[int], Tuple[object, float]]
+from concurrent.futures import Future
+from typing import Callable, Set
 
 
 class _Completed(Future):
-    """A Future that is already resolved.
+    """A Future that is already resolved, for inline execution."""
 
-    `concurrent.futures.Future` cannot be constructed in a resolved state, so
-    serial dispatch resolves one of these instead. Subclassing rather than
-    wrapping means callers get the same interface from both executors, and
-    `result()` / `exception()` behave identically.
-    """
-
-    def __init__(self, value=None, exception: Optional[BaseException] = None):
+    def __init__(self, value=None, exception=None):
         super().__init__()
         if exception is not None:
             self.set_exception(exception)
         else:
             self.set_result(value)
 
-    def set_running_or_notify_cancel(self):  # pragma: no cover - Future API
-        return None
-
-    def cancel(self):  # pragma: no cover - already done, cannot cancel
-        return False
-
 
 class SerialExecutor:
-    """Runs each request inline, immediately, on the calling thread.
+    """Runs each task inline, immediately, on the calling thread."""
 
-    Correct for `concurrency == 1`, where "one in flight" is the specification
-    rather than a limitation. Also the executor every hermetic test gets by
-    default, because a thread pool would make a fake clock and a fake
-    `send_fn` race each other for no benefit: with one worker there is nothing
-    to overlap.
-    """
-
-    #: Recorded rather than inferred, so a test can assert what actually
-    #: happened instead of trusting that nothing was dispatched in parallel.
     max_in_flight = 1
 
-    def __init__(self) -> None:
-        self._pending: List[Future] = []
-
-    def submit(self, fn, *args) -> Future:
-        # Exception, not BaseException. A KeyboardInterrupt or SystemExit must
-        # stop the run where it happened; recording it on a Future would defer
-        # it to the next drain, and the operator's Ctrl-C would be ignored until
-        # the stage finished sending.
+    def submit(self, fn: Callable[[], object]) -> Future:
+        # Exception, not BaseException: a KeyboardInterrupt must stop the run
+        # where it happened instead of being parked on a Future.
         try:
-            value = fn(*args)
-        except Exception as exc:  # noqa: BLE001 - recorded, re-raised by drain
-            future = _Completed(exception=exc)
-        else:
-            future = _Completed(value=value)
-        self._pending.append(future)
-        return future
+            value = fn()
+        except Exception as exc:  # noqa: BLE001 - surfaced by the runner
+            return _Completed(exception=exc)
+        return _Completed(value=value)
 
-    def drain(self) -> None:
-        for future in self._pending:
-            future.result()
-        self._pending.clear()
-
-    def shutdown(self, wait: bool = True, cancel_pending: bool = False) -> None:
-        if cancel_pending:
-            self._pending.clear()
-            return
-        if wait:
-            self.drain()
+    def shutdown(self, cancel_pending: bool = True) -> None:
+        return None
 
 
 class PoolExecutor:
-    """A fixed pool of worker threads, which is what makes `--concurrency` mean
-    something.
+    """A fixed pool of daemon worker threads.
 
-    `max_workers` is the number of requests in flight at once. The pool's own
-    queue provides the backpressure: when every worker is busy, submitted work
-    waits rather than being rejected, so the caller keeps offering load on
-    schedule and the pool is what limits how much of it is actually in flight.
-    That is the closed-loop property, arrived at by construction instead of by
-    the `free_at` arithmetic that used to simulate it.
-
-    Threads are created lazily and named, so a hung run is diagnosable from a
-    thread dump rather than being a wall of `Thread-N (process)`.
+    `max_workers` is the number of tasks running at once. Work submitted while
+    every worker is busy waits in the queue; the task itself decides what to do
+    about having waited (Barrage drops a request that waited too long).
     """
 
     def __init__(self, max_workers: int, thread_name_prefix: str = "barrage") -> None:
         if max_workers < 1:
             raise ValueError(f"max_workers must be >= 1, got {max_workers!r}")
         self.max_in_flight = max_workers
-        self._pool = ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix=thread_name_prefix
-        )
-        self._pending: List[Future] = []
+        self._queue: "queue.SimpleQueue" = queue.SimpleQueue()
+        self._pending: Set[Future] = set()
         self._lock = threading.Lock()
+        self._closed = False
+        self._threads = [
+            threading.Thread(
+                target=self._work, name=f"{thread_name_prefix}-{i}", daemon=True
+            )
+            for i in range(max_workers)
+        ]
+        for thread in self._threads:
+            thread.start()
 
-    def submit(self, fn, *args) -> Future:
-        future = self._pool.submit(fn, *args)
+    def _work(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            future, fn = item
+            with self._lock:
+                self._pending.discard(future)
+            if not future.set_running_or_notify_cancel():
+                continue
+            try:
+                result = fn()
+            except BaseException as exc:  # noqa: BLE001 - delivered via the Future
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+
+    def submit(self, fn: Callable[[], object]) -> Future:
+        future: Future = Future()
         with self._lock:
-            self._pending.append(future)
+            if self._closed:
+                raise RuntimeError("cannot submit to an executor that was shut down")
+            self._pending.add(future)
+        self._queue.put((future, fn))
         return future
 
-    def drain(self) -> None:
-        """Wait for every submitted request, in submission order.
+    def shutdown(self, cancel_pending: bool = True) -> None:
+        """Stop accepting work and let the workers exit once idle.
 
-        Submission order rather than completion order, deliberately: a future
-        that completes first is not the one whose exception the operator wants
-        first, and waiting in order means the first failure reported is the
-        first request that failed, which is the one whose index is lowest.
+        With `cancel_pending`, work still in the queue is cancelled and never
+        runs. A task already running finishes on its own thread; it is not
+        waited for, because a request on the wire cannot be recalled and the
+        run has already decided what to call it.
         """
-        while True:
-            with self._lock:
-                pending, self._pending = self._pending, []
-            if not pending:
-                return
-            for future in pending:
-                future.result()
-
-    def shutdown(self, wait: bool = True, cancel_pending: bool = False) -> None:
-        """Release the workers.
-
-        `cancel_pending` is the abort path. After an error or a Ctrl-C the run is
-        over, and draining would keep sending every request still in the queue
-        to the target before the process could exit. Cancelled requests are
-        never sent; the ones already in flight finish, because a request on the
-        wire cannot be recalled.
-        """
+        with self._lock:
+            self._closed = True
+            pending, self._pending = self._pending, set()
         if cancel_pending:
-            with self._lock:
-                self._pending = []
-            self._pool.shutdown(wait=wait, cancel_futures=True)
-            return
-        try:
-            if wait:
-                self.drain()
-        finally:
-            self._pool.shutdown(wait=wait)
+            for future in pending:
+                future.cancel()
+        for _ in self._threads:
+            self._queue.put(None)
 
 
-def make_executor(concurrency: int) -> SerialExecutor | PoolExecutor:
-    """The executor a run with this `concurrency` should use.
-
-    `concurrency == 1` gets the serial one, not a pool of one. A pool of one
-    would add a thread, a lock and a Future to every request for no observable
-    difference, and it would break every existing test that injects a fake
-    `send_fn` and asserts on a deterministic sequence.
-    """
+def make_executor(concurrency: int) -> "SerialExecutor | PoolExecutor":
+    """Serial for one worker, a pool otherwise."""
     if concurrency == 1:
         return SerialExecutor()
     return PoolExecutor(concurrency)
