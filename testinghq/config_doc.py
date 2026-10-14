@@ -40,6 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .core import config_schema
 from .core.config import ConfigError, Target, load_config
+from .core.targets import host_is_public
 from .pipeline.adapters import AdapterError, ReadbackConfig, parse_readback_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -97,18 +98,31 @@ def validate(path: Path) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], List
 
 
 def _render_target(target: Target) -> Dict[str, Any]:
-    """One target as the loaders resolved it.
-
-    `wire_format` is read with getattr rather than as an attribute because it
-    arrives with the wire-format layer, which is a separate stack. On a base
-    without that layer the attribute is absent, and the fallback is the value
-    the field would have defaulted to anyway, so the render is correct either
-    way rather than merely not crashing.
-    """
+    """One target as the loaders resolved it, plus whether its host is public
+    (which decides whether firing needs --allow-public-target). Deciding that
+    may need a DNS lookup of the host; nothing is sent."""
     return {
         "url": target.url,
-        "format": getattr(target, "wire_format", "sendgrid"),
+        "format": target.wire_format,
+        "public": target.public,
+        "public_host": host_is_public(target.url),
     }
+
+
+def describe_target(name: str, target: Dict[str, Any]) -> str:
+    """One line for `config validate`: url, format, the `public` key, and what
+    firing at it requires."""
+    head = (
+        f"{name}: {target['url']} (format {target['format']}, "
+        f"public = {'true' if target['public'] else 'false'})"
+    )
+    if not target["public_host"]:
+        return f"{head}; private host, no --allow-public-target needed"
+    barrage = (
+        "barrage allowed with the flag" if target["public"]
+        else "barrage also needs public = true"
+    )
+    return f"{head}; public host, firing needs --allow-public-target; {barrage}"
 
 
 def _render_readback(
@@ -200,7 +214,7 @@ def render_effective(
 
     for name, target in targets.items():
         lines.append(f"[targets.{name}]")
-        for key in ("url", "format"):
+        for key in ("url", "format", "public"):
             if key in target:
                 lines.append(f"{key} = {_toml_value(target[key])}")
         lines.append("")

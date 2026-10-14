@@ -83,11 +83,13 @@ TARGETS = Table(
     name="targets",
     patterned=True,
     summary=(
-        "Named firing targets. Only a target declared here may be fired at: "
-        "`core.guardrails.require_configured_target` refuses any name not "
-        "present, so this table is the whole of what the tool is allowed to "
-        "send to. A target is only required once `--send` is passed; a dry run "
-        "needs no config at all."
+        "Named firing targets. Only a target declared here may be fired at, so "
+        "this table is the whole of what the tool is allowed to send to. A "
+        "target is only required once `--send` is passed; a dry run needs no "
+        "config at all. A target whose host is public (not a reserved test "
+        "domain, an internal name or a private address, and not resolving only "
+        "to private addresses) is refused unless the run passes "
+        "--allow-public-target."
     ),
     keys=(
         Key(
@@ -105,28 +107,29 @@ TARGETS = Table(
             "name",
             "string",
             required="no",
-            meaning=(
-                "Redundant with the table name and ignored if it disagrees. "
-                "Present because the earlier example config had it and removing "
-                "it would have broken a file people had copied."
-            ),
+            meaning="Redundant with the table name and ignored.",
         ),
         Key(
             "format",
             "string",
             default='"sendgrid"',
             meaning=(
-                "Which wire format to serialize this target's messages in. One "
-                "of: sendgrid (multipart/form-data, the SendGrid Inbound Parse "
-                "shape), mailgun, postmark, mime. Absent means sendgrid, so a "
-                "config written before formats were selectable is unchanged, "
-                "and an unknown name is refused at load with the valid ones. "
-                "KNOWN LIMITATION: the value is validated and stored, and no "
-                "send path reads it, so the wire bytes are SendGrid-shaped "
-                "whatever it says. The encoders themselves exist and are "
-                "tested; threading the key through to the transport is the "
-                "outstanding work. Selecting a different format today validates "
-                "and then has no effect."
+                "The wire format every send to this target uses. One of: "
+                "sendgrid (Inbound Parse, parsed mode), sendgrid-raw (Inbound "
+                "Parse, raw mode: the full message in the email field), "
+                "mailgun, postmark, mime (the raw message as message/rfc822). "
+                "An unknown name is refused at load. Field lists are in "
+                "docs/FORMATS.md."
+            ),
+        ),
+        Key(
+            "public",
+            "boolean",
+            default="false",
+            meaning=(
+                "Read only by barrage. A load test at a public host needs both "
+                "this and --allow-public-target on the command line. Other tools "
+                "need only the flag."
             ),
         ),
     ),
