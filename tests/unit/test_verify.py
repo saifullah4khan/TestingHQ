@@ -691,6 +691,38 @@ def test_verify_check_says_how_many_records_it_skipped(
     assert "correct parse" in text
 
 
+def test_verify_check_says_nothing_about_skipping_when_nothing_was_skipped(
+    target_config, tmp_path, spec_probe
+):
+    """"0 non-clean record(s) not verified, because ..." explained a skip that
+    did not happen. An artifact of clean records only prints no such line."""
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    corpus = verify.build_tagged_corpus(SEED, COUNT)
+    held = {t: [_good_for(e, t)] for e, t, _r in corpus}
+    spec_probe["build"] = lambda: FunctionAdapter(lambda probe: held.get(probe.tag, []))
+    records = [
+        {"id": record_id, "category": "clean", "tag": tag,
+         "payload_sha256": report.payload_sha256(email)}
+        for email, tag, record_id in corpus
+    ]
+    (tmp_path / "run.json").write_text(
+        json.dumps({"seed": SEED, "config": {"count": COUNT}, "records": records}),
+        encoding="utf-8",
+    )
+
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "run.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+    )
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "non-clean" not in text
+    assert "correct parse" not in text
+
+
 # ---------------------------------------------------------------------------
 # Dry run
 # ---------------------------------------------------------------------------

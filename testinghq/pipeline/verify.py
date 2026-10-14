@@ -1046,8 +1046,9 @@ def check_saved_run(
     artifact = build_artifact(
         seed, check_config, fake_sent, verifications, readbacks, outcome
     )
-    printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
-            "because a mangled payload has no correct parse to grade against")
+    if skipped_categories:
+        printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
+                "because a mangled payload has no correct parse to grade against")
     printer(format_match_sources(sources))
     printer(format_verification(artifact))
     write_artifact(out, artifact)
