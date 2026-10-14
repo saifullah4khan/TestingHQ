@@ -340,6 +340,22 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
+#: The pipeline tools' verdict for a run whose every readback lookup was a 404
+#: (`testinghq.pipeline.common.READBACK_FAILED`). Written out here, like
+#: UNSETTLED, so reading a report does not import the pipeline package.
+READBACK_FAILED = "READBACK FAILED"
+
+
+def _readback_failed_finding(summary: Dict[str, Any]) -> Finding:
+    """The one finding a READBACK FAILED run carries in place of any loss."""
+    not_checked = summary.get("not_checked")
+    count = len(not_checked) if isinstance(not_checked, list) else not_checked
+    detail = "every lookup was 404: check the readback url"
+    if isinstance(count, int) and not isinstance(count, bool):
+        detail += f"; {count} message(s) not checked, none reported as lost"
+    return Finding(kind="readback-failed", detail=detail)
+
+
 def _read_aborted(artifact: Dict[str, Any], label: str) -> Optional[ArtifactSummary]:
     """A verify, ledger or redeliver run stopped by Ctrl-C, or None.
 
@@ -390,7 +406,9 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
         # Schema 0 artifacts never wrote a verdict; derived the way verify's
         # own formatter derives it.
         source = "derived"
-        if summary.get("unsettled"):
+        if summary.get("readback_failed"):
+            verdict = READBACK_FAILED
+        elif summary.get("unsettled"):
             verdict = "UNSETTLED"
         elif verified + failed == 0:
             verdict = "NOTHING CHECKED"
@@ -406,6 +424,8 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
                        "be in flight",
             )
         )
+    if verdict == READBACK_FAILED:
+        findings.append(_readback_failed_finding(summary))
 
     return ArtifactSummary(
         verdict=verdict,
@@ -427,8 +447,15 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
         return aborted
     summary = _summary(artifact)
     findings: List[Finding] = []
+    readback_failed = (
+        summary.get("readback_failed") is True
+        or summary.get("verdict") == READBACK_FAILED
+    )
 
-    for entry in summary.get("missing") or []:
+    if readback_failed:
+        # Nothing was looked up successfully, so nothing is listed as lost.
+        findings.append(_readback_failed_finding(summary))
+    for entry in [] if readback_failed else summary.get("missing") or []:
         findings.append(Finding(kind="missing", detail=str(entry)))
     for entry in summary.get("duplicated") or []:
         if isinstance(entry, dict):
@@ -515,7 +542,7 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
             sent=summary.get("sent", 0),
             produced=summary.get("produced", 0),
             passed=summary.get("exactly_once", 0),
-            missing=len(summary.get("missing") or []),
+            missing=0 if readback_failed else len(summary.get("missing") or []),
             duplicated=len(summary.get("duplicated") or []),
             extra=extra_count,
             records=len(artifact.get("records") or []),
@@ -569,13 +596,20 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
             )
         )
     verdict = str(summary.get("verdict", "UNKNOWN"))
+    if verdict == READBACK_FAILED:
+        # The summary counts scenarios; the finding counts messages.
+        unchecked = sum(
+            len(s.get("not_checked") or []) for s in scenarios if isinstance(s, dict)
+        )
+        findings.append(_readback_failed_finding({"not_checked": unchecked}))
 
     return ArtifactSummary(
         verdict=verdict,
         verdict_source="recorded",
         exit_code=(
             EXIT_OK
-            if summary.get("failed", 0) == 0 and verdict != "UNSETTLED"
+            if summary.get("failed", 0) == 0
+            and verdict not in ("UNSETTLED", READBACK_FAILED)
             else EXIT_FINDING
         ),
         exit_code_source="derived",
@@ -625,6 +659,8 @@ def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
         kind = "unattributed" if str(line).startswith("outbound, unattributed") else "run"
         if str(line).startswith("UNSETTLED"):
             kind = "unsettled"
+        elif str(line).startswith(READBACK_FAILED):
+            kind = "readback-failed"
         notes.append(Finding(kind=kind, detail=str(line)))
     for message in artifact.get("messages") or []:
         result = message.get("result") if isinstance(message, dict) else None
@@ -660,7 +696,12 @@ def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
             )
         )
 
-    failed = findings_count != 0 or aborted or verdict.startswith("UNSETTLED")
+    failed = (
+        findings_count != 0
+        or aborted
+        or verdict.startswith("UNSETTLED")
+        or verdict.startswith(READBACK_FAILED)
+    )
     return ArtifactSummary(
         verdict=verdict,
         verdict_source=source,

@@ -183,6 +183,15 @@ VERDICT_SOURCE_READBACK = "readback"
 #: The headline line for a run whose every lookup was a 404.
 ALL_404_HEADLINE = "every lookup was 404: check the readback url"
 
+#: The verdict a run gets when every lookup of its readback was a 404. Not a
+#: loss: a store that answers 404 to every tag, including the ones the pipeline
+#: certainly holds, is almost always a wrong url, so the run could not
+#: establish the answer and nothing it sent is reported as lost. Exit 3.
+READBACK_FAILED = "READBACK FAILED"
+
+#: What a tool says in place of its list of lost messages on such a run.
+ALL_404_NOT_CHECKED = "not checked: every lookup was 404"
+
 
 @dataclass(frozen=True)
 class ReadbackOutcome:
@@ -214,6 +223,12 @@ class ReadbackOutcome:
     def unsettled(self) -> bool:
         return not self.stable
 
+    @property
+    def failed(self) -> bool:
+        """True when the readback could not establish anything: every lookup
+        was a 404. Takes precedence over `unsettled`."""
+        return self.all_404
+
     def headline(self) -> Optional[str]:
         """One line for the top of a tool's report, or None when the readback
         settled normally."""
@@ -237,7 +252,11 @@ class ReadbackOutcome:
             "polls": self.polls,
             "stable": self.stable,
             "unsettled": self.unsettled,
-            "verdict": UNSETTLED if self.unsettled else None,
+            "verdict": (
+                READBACK_FAILED if self.failed
+                else UNSETTLED if self.unsettled
+                else None
+            ),
             "budget_exhausted": self.budget_exhausted,
             "missing_tags": list(self.missing),
             "partial_tags": list(self.partial),
@@ -250,16 +269,25 @@ class ReadbackOutcome:
 def readback_verdict(verdict: str, outcome: Optional[ReadbackOutcome]) -> Tuple[str, str]:
     """(verdict, verdict_source) after the readback has had its say.
 
-    An unsettled readback (the store was still changing at --max-wait)
+    A readback whose every lookup was a 404 replaces the tool's verdict with
+    READBACK FAILED: the tool ran and could not establish the answer, so no
+    message is reported as lost and the exit code is 3. An unsettled readback (the store was still changing at --max-wait)
     replaces the tool's own verdict with UNSETTLED, because every absence that
     verdict rests on is unproven. The findings the tool did make still stand
     and are still listed and counted; the exit code stays 3. A settled
     readback leaves the tool's verdict alone, so a message the store went
     quiet without is reported by the tool as the loss it is.
     """
+    if outcome is not None and outcome.failed:
+        return READBACK_FAILED, VERDICT_SOURCE_READBACK
     if outcome is not None and outcome.unsettled:
         return UNSETTLED, VERDICT_SOURCE_READBACK
     return verdict, "tool"
+
+
+def readback_failed(outcome: Optional[ReadbackOutcome]) -> bool:
+    """True when `outcome` is a readback whose every lookup was a 404."""
+    return bool(outcome is not None and outcome.failed)
 
 
 def _signature(readbacks: Sequence[Readback]) -> Tuple[Readback, ...]:
@@ -491,10 +519,12 @@ def status_class(result: TransportResult) -> str:
 
 __all__ = [
     "ALL_404_HEADLINE",
+    "ALL_404_NOT_CHECKED",
     "EXIT_DRY_RUN",
     "EXIT_MISMATCH",
     "EXIT_OK",
     "EXIT_REFUSED",
+    "READBACK_FAILED",
     "ReadbackError",
     "ReadbackOutcome",
     "SETTLING_RULE",
@@ -504,6 +534,7 @@ __all__ = [
     "close_adapter",
     "prepare_readback",
     "read_back_all",
+    "readback_failed",
     "readback_verdict",
     "require_synthetic",
     "resolve_target_url",

@@ -124,22 +124,73 @@ def test_the_reply_first_scenario_pins_correct_threading_headers():
     scenario = _by_name(redeliver.SCENARIO_REPLY_FIRST)
     root = scenario.deliveries[-1]
     for reply in scenario.deliveries[:-1]:
-        assert reply.email.headers["In-Reply-To"] == root.message_id
-        assert root.message_id in reply.email.headers["References"]
+        assert reply.email.headers["In-Reply-To"] == f"<{root.message_id}>"
+        assert reply.email.headers["References"] == f"<{root.message_id}>"
         assert reply.message_id != root.message_id
 
 
 def test_the_references_scenario_builds_a_growing_chain():
     scenario = _by_name(redeliver.SCENARIO_REFERENCES)
     root, first, second = scenario.deliveries
-    assert first.email.headers["In-Reply-To"] == root.message_id
-    assert first.email.headers["References"] == root.message_id
+    assert first.email.headers["In-Reply-To"] == f"<{root.message_id}>"
+    assert first.email.headers["References"] == f"<{root.message_id}>"
     # The second reply answers the first, not the root, and its References
     # carries the whole ancestry. A pipeline that threads only on In-Reply-To
     # gets this right by accident; one that reads only the first Reference does
     # not.
-    assert second.email.headers["In-Reply-To"] == first.message_id
-    assert second.email.headers["References"] == f"{root.message_id} {first.message_id}"
+    assert second.email.headers["In-Reply-To"] == f"<{first.message_id}>"
+    assert second.email.headers["References"] == (
+        f"<{root.message_id}> <{first.message_id}>"
+    )
+
+
+def test_every_message_id_redeliver_writes_is_in_angle_brackets():
+    """RFC 5322 msg-id is `<id-left@id-right>`. The Delivery keeps the bare id
+    the readback compares against."""
+    for scenario in redeliver.build_scenarios(SEED, COUNT, "hq", 5.0):
+        for delivery in scenario.deliveries:
+            headers = delivery.email.headers
+            assert headers["Message-ID"] == f"<{delivery.message_id}>"
+            assert "<" not in delivery.message_id
+            for name in ("In-Reply-To", "References"):
+                if name in headers:
+                    for token in headers[name].split():
+                        assert token.startswith("<") and token.endswith(">"), (name, token)
+
+
+def _threaded(delivery, ticket, in_reply_to=None, references=()):
+    """A record matching `delivery`'s content, carrying the threading headers
+    as a store returned them."""
+    return Readback(
+        exists=True,
+        ticket_id=ticket,
+        from_addr=delivery.email.ground_truth.from_addr,
+        subject=delivery.email.ground_truth.subject,
+        body=delivery.email.text,
+        attachment_names=tuple(a.filename for a in delivery.email.attachments),
+        route=delivery.email.envelope.to[0],
+        in_reply_to=in_reply_to,
+        references=references,
+        fields=ALL_FIELDS,
+    )
+
+
+@pytest.mark.parametrize("bracketed", [True, False])
+def test_the_ancestry_check_matches_stored_ids_with_or_without_brackets(bracketed):
+    scenario = _by_name(redeliver.SCENARIO_REFERENCES)
+    root, first, second = scenario.deliveries
+    wrap = (lambda mid: f"<{mid}>") if bracketed else (lambda mid: mid)
+    stored = {
+        root.tag: [_threaded(root, "T1")],
+        first.tag: [_threaded(first, "T1", wrap(root.message_id), [wrap(root.message_id)])],
+        second.tag: [_threaded(
+            second, "T1", wrap(first.message_id),
+            f"{wrap(root.message_id)} {wrap(first.message_id)}",
+        )],
+    }
+    result = redeliver.judge_scenario(scenario, stored)
+    assert result.findings == []
+    assert scenario.ancestry_of(second.tag) == (root.message_id, first.message_id)
 
 
 def test_a_reply_subject_is_never_double_prefixed():
@@ -767,3 +818,40 @@ def test_the_redelivery_artifact_records_the_target_format(tmp_path, monkeypatch
     config = json.loads(out.read_text(encoding="utf-8"))["config"]
     assert config["format"] == "sendgrid"
     assert config["allow_public_target"] is False
+
+
+def test_every_lookup_a_404_is_readback_failed_and_no_scenario_reports_a_loss():
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.pipeline.common import ReadbackOutcome
+    from testinghq.reporting import summarize
+
+    scenarios = _scenarios()
+    tags = [tag for s in scenarios for tag in s.tags]
+    outcome = ReadbackOutcome(
+        readbacks={tag: [] for tag in tags}, elapsed=1.0, polls=2, stable=True,
+        missing=tuple(tags), all_404=True,
+    )
+    results, strays = redeliver.judge_run(
+        scenarios, outcome.readbacks, None, readback_failed=True
+    )
+    artifact = redeliver.build_artifact(
+        SEED, redeliver.run_config(SEED, COUNT, "hq", "local", _config(), 5.0, None),
+        results, outcome, strays,
+    )
+    summary = artifact["summary"]
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["failed"] == 0 and summary["passed"] == 0
+    assert summary["not_checked"] == len(scenarios)
+    for entry in artifact["scenarios"]:
+        assert entry["findings"] == [] and entry["missing"] == []
+        assert entry["not_checked"]
+    text = redeliver.format_redelivery(artifact)
+    assert text.splitlines()[0].startswith("redeliver: READBACK FAILED")
+    assert "every lookup was 404: check the readback url" in text
+    assert "holds no record" not in text
+    assert "[FAIL]" not in text
+
+    read = summarize(artifact)
+    assert read.exit_code == EXIT_FINDING
+    assert [f.kind for f in read.findings] == ["readback-failed"]

@@ -46,6 +46,7 @@ from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     VERDICT_SOURCE_READBACK,
     close_adapter,
     prepare_readback,
@@ -689,8 +690,12 @@ def summarize(
     outbound_partial: bool = False,
     bait_parent: Optional[Dict[str, Any]] = None,
     unsettled: bool = False,
+    readback_failed: bool = False,
 ) -> Dict[str, Any]:
-    """Counts, and the numbers that decide whether the run proved anything."""
+    """Counts, and the numbers that decide whether the run proved anything.
+
+    `readback_failed` means every ticket lookup was a 404, so "no ticket was
+    opened" is unknown rather than a pass."""
     failing = [r for r in results if not r.passed]
     run_findings: List[str] = []
     if unattributed:
@@ -700,7 +705,12 @@ def summarize(
             "auto-reply that quotes nothing looks exactly like this, so the "
             "auto-reply check cannot pass"
         )
-    if unsettled:
+    if readback_failed:
+        run_findings.append(
+            f"{READBACK_FAILED}: every lookup was 404: check the readback url. "
+            "Whether a ticket was opened for any message is unknown"
+        )
+    elif unsettled:
         run_findings.append(
             "UNSETTLED: the readback was still changing at --max-wait, so this run "
             "cannot say what the pipeline finally did"
@@ -722,6 +732,7 @@ def summarize(
         "loop_bait_answered": sum(1 for r in results if r.is_loop_bait and r.replied),
         "bait_parent": bait_parent,
         "unsettled": unsettled,
+        "readback_failed": readback_failed,
     }
     summary["verdict"] = headline(summary)
     return summary
@@ -732,7 +743,9 @@ def headline(summary: Dict[str, Any]) -> str:
     reads it rather than deriving it again."""
     if summary.get("aborted"):
         return "ABORTED"
-    if summary.get("unsettled"):
+    if summary.get("readback_failed"):
+        verdict = READBACK_FAILED
+    elif summary.get("unsettled"):
         verdict = "UNSETTLED"
     else:
         verdict = "LOOP-SAFE" if summary.get("findings", 0) == 0 else "LOOPS-DETECTED"
@@ -1068,8 +1081,11 @@ def execute(
         results, sent, ticket_policy, unattributed=unattributed,
         outbound_enumerated=None if outbound_adapter is None else can_list,
         outbound_partial=partial, bait_parent=bait_parent, unsettled=unsettled,
+        readback_failed=outcome.failed,
     )
-    summary["verdict_source"] = VERDICT_SOURCE_READBACK if unsettled else "tool"
+    summary["verdict_source"] = (
+        VERDICT_SOURCE_READBACK if unsettled or outcome.failed else "tool"
+    )
     summary["readback"] = outcome.to_json()
     summary["readback_headline"] = outcome.headline()
     artifact = build_artifact(seed, config, [precursor, *judged], results, summary,

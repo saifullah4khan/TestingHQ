@@ -976,3 +976,76 @@ def test_every_lookup_a_404_is_the_report_headline():
     )
     text = ledger.format_ledger(artifact)
     assert "  every lookup was 404: check the readback url" in text.splitlines()
+
+
+# ---------------------------------------------------------------------------
+# Every lookup a 404
+# ---------------------------------------------------------------------------
+
+
+class _Store404(_TicketApi):
+    """A ticket API that answers 404 to every tag it does not hold. With
+    `holds` empty, every lookup of the run is a 404: a wrong readback url."""
+
+    def __init__(self, count, seed, holds=()):
+        super().__init__(count, seed)
+        self.tickets = {tag: t for tag, t in self.tickets.items() if tag in holds}
+
+    def send(self, request):
+        self.requests.append(request.url)
+        query = parse_qs(urlsplit(request.url).query)
+        found = self.tickets.get((query.get("tag") or [""])[0])
+        if found is None:
+            return ClientResponse(status=404, body=b'{"error": "not found"}')
+        return ClientResponse(status=200, body=json.dumps({"items": [found]}).encode())
+
+
+def _store_404_readback():
+    return ReadbackConfig(
+        kind="http", url="http://localhost:8000/tickets", enumerate_records=False
+    )
+
+
+def test_a_store_that_404s_every_lookup_is_readback_failed_not_loss(
+    target_config, tmp_path
+):
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.reporting import summarize
+
+    code, text, artifact, intake = _execute(
+        target_config, tmp_path, _store_404_readback(), _Store404(COUNT, SEED)
+    )
+    assert len(intake.sent) == COUNT
+    assert code == EXIT_FINDING, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["missing"] == []
+    assert len(summary["not_checked"]) == COUNT
+    assert summary["balanced"] is False
+    assert text.splitlines()[0].startswith("ledger: READBACK FAILED")
+    assert "  every lookup was 404: check the readback url" in text.splitlines()
+    assert "not checked: every lookup was 404" in text
+    assert "UNACCOUNTED" not in text
+    assert "holds nothing" not in text
+
+    read = summarize(artifact)
+    assert read.verdict == "READBACK FAILED"
+    assert read.exit_code == EXIT_FINDING
+    assert read.counts.missing == 0
+    assert [f.kind for f in read.findings if f.kind == "missing"] == []
+    assert any(f.kind == "readback-failed" for f in read.findings)
+
+
+def test_a_store_that_404s_some_tags_still_reports_them_lost(target_config, tmp_path):
+    held = [tag for _e, tag, _r in build_tagged_corpus(SEED, COUNT)][1:]
+    code, text, artifact, _intake = _execute(
+        target_config, tmp_path, _store_404_readback(), _Store404(COUNT, SEED, held)
+    )
+    assert code == EXIT_MISMATCH, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "UNACCOUNTED"
+    assert summary["verdict_source"] == "tool"
+    assert summary["missing"] == [make_tag("hq", SEED, 0)]
+    assert summary["not_checked"] == []
+    assert "every lookup was 404" not in text
