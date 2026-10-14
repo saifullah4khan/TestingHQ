@@ -165,6 +165,7 @@ class SendgridFormat(WireFormat):
         parts.extend(
             part for part in to_multipart_parts(payload) if isinstance(part, FormFile)
         )
+        parts.extend(FormField(name, value) for name, value in payload.extra_form_fields)
         return parts
 
     def encode(self, payload: InboundEmail) -> EncodedBody:

@@ -11,9 +11,9 @@ content, filenames included.
 from __future__ import annotations
 
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
-from .payload import Attachment
+from .payload import Attachment, InboundEmail, find_header
 
 # (extension, content type) pairs used for "ordinary" attachments.
 COMMON_TYPES: Tuple[Tuple[str, str], ...] = (
@@ -91,6 +91,10 @@ def oversized_attachment(
     )
 
 
+#: U+202E RIGHT-TO-LEFT OVERRIDE: `invoice<RLO>fdp.exe` displays as
+#: `invoiceexe.pdf` while the real extension is `.exe`.
+RLO = "\u202e"
+
 DEGENERATE_FILENAMES: Tuple[str, ...] = (
     "",
     " ",
@@ -101,6 +105,10 @@ DEGENERATE_FILENAMES: Tuple[str, ...] = (
     "CON.txt",
     "file.tar.gz.exe",
     ".hidden",
+    f"invoice{RLO}fdp.exe",
+    "résumé final (2).pdf",
+    "<script>alert(1)</script>.html",
+    "report.pdf     .exe",
 )
 
 DEGENERATE_CONTENT_TYPES: Tuple[str, ...] = (
@@ -124,11 +132,23 @@ def degenerate_attachment(rng: random.Random) -> Attachment:
     return Attachment(filename=filename, content_type=content_type, content=_seeded_bytes(rng, size))
 
 
+def rtl_override_attachment(rng: random.Random) -> Attachment:
+    """A file named so it displays as a PDF while ending in `.exe`, with a PE
+    header under a PDF content type."""
+    stem = rng.choice(FILE_STEMS)
+    return Attachment(
+        filename=f"{stem}{RLO}fdp.exe",
+        content_type="application/pdf",
+        content=b"MZ" + _seeded_bytes(rng, 254),
+    )
+
+
 GENERATORS = {
     "clean": clean_attachment,
     "zero_byte": zero_byte_attachment,
     "oversized": oversized_attachment,
     "degenerate": degenerate_attachment,
+    "rtl_override": rtl_override_attachment,
 }
 
 DEFAULT_KIND_WEIGHTS: Dict[str, float] = {
@@ -137,6 +157,21 @@ DEFAULT_KIND_WEIGHTS: Dict[str, float] = {
     "oversized": 0.05,
     "degenerate": 0.15,
 }
+
+#: Kinds drawn for `--attachments adversarial`.
+ADVERSARIAL_KIND_WEIGHTS: Dict[str, float] = {
+    "clean": 0.50,
+    "zero_byte": 0.10,
+    "oversized": 0.05,
+    "degenerate": 0.25,
+    "rtl_override": 0.10,
+}
+
+#: The `--attachments` modes.
+ATTACHMENT_MODES: Tuple[str, ...] = ("none", "seeded", "adversarial")
+
+#: Share of payloads that get attachments in the seeded and adversarial modes.
+ATTACHED_SHARE = 1 / 3
 
 
 def generate_attachment(rng: random.Random, kind: str = "clean") -> Attachment:
@@ -167,3 +202,34 @@ def generate_attachments(
         generate_attachment(rng, rng.choices(kinds, weights=kind_weights, k=1)[0])
         for _ in range(count)
     ]
+
+
+def corpus_attachments(rng: random.Random, mode: str) -> Tuple[Attachment, ...]:
+    """Attachments for one corpus payload under `mode`.
+
+    `none` attaches nothing. `seeded` gives about a third of payloads one to
+    three ordinary attachments of 256 bytes to 16 KiB. `adversarial` attaches
+    to the same payloads, drawing kinds from ADVERSARIAL_KIND_WEIGHTS: hostile
+    filenames, zero-byte, 5 MiB and right-to-left override files.
+    """
+    if mode not in ATTACHMENT_MODES:
+        raise ValueError(f"unknown attachments mode: {mode!r}; choose from {list(ATTACHMENT_MODES)}")
+    if mode == "none" or rng.random() >= ATTACHED_SHARE:
+        return ()
+    count = rng.randint(1, 3)
+    if mode == "seeded":
+        return tuple(clean_attachment(rng, rng.randint(256, 16384)) for _ in range(count))
+    return tuple(generate_attachments(rng, count, ADVERSARIAL_KIND_WEIGHTS))
+
+
+def attach(email: InboundEmail, attachments: Sequence[Attachment]) -> InboundEmail:
+    """`email` with `attachments` added to any it has, its Content-Type changed
+    from multipart/alternative to multipart/mixed when there are any."""
+    attachments = tuple(attachments)
+    if not attachments:
+        return email.with_changes(attachments=())
+    headers = dict(email.headers)
+    key = find_header(headers, "Content-Type")
+    if key is not None:
+        headers[key] = headers[key].replace("multipart/alternative", "multipart/mixed", 1)
+    return email.with_changes(attachments=email.attachments + attachments, headers=headers)

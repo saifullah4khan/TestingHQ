@@ -1,21 +1,18 @@
 """Serialize an InboundEmail into SendGrid Inbound Parse multipart fields.
 
-SendGrid's Inbound Parse webhook posts multipart/form-data to your endpoint.
-This module builds that in "parsed mode": the message is split into named
-text fields (headers, to, from, subject, text, html, envelope, charsets,
-attachment count, attachment-info) plus one file part per attachment
-(attachment1, attachment2, ...), matching what SendGrid actually sends. See
+SendGrid's Inbound Parse webhook posts multipart/form-data. This module builds
+the parsed-mode field list: headers, to, from, subject, text, html, envelope,
+charsets, attachments, attachment-info, then one file part per attachment. See
 https://www.twilio.com/docs/sendgrid/for-developers/parsing-email/setting-up-the-inbound-parse-webhook
 
-This module only knows how to build that ordered list of fields; it has no
-opinion about HTTP. testinghq/core/transport.py (a separate backlog item) is
-expected to turn the result into an actual POST body.
+It has no opinion about HTTP; testinghq/core/transport.py encodes the parts.
 
-Determinism: given the same InboundEmail, to_multipart_parts always returns
-the same parts in the same order with the same bytes. JSON fields (envelope,
-charsets, attachment-info) are encoded with sorted keys and compact
-separators so their exact bytes do not depend on Python's dict ordering
-beyond what the caller already fixed when building the InboundEmail.
+A field named in `InboundEmail.raw_fields` is emitted as those exact bytes,
+which is how non-UTF-8 content reaches the wire. `extra_form_fields` are
+appended last, in order.
+
+Determinism: the same InboundEmail always yields the same parts. JSON fields
+use sorted keys and compact separators.
 """
 from __future__ import annotations
 
@@ -28,10 +25,11 @@ from .payload import InboundEmail
 
 @dataclass(frozen=True)
 class FormField:
-    """A plain text multipart/form-data field."""
+    """A plain multipart/form-data field. `value` is text (sent as UTF-8) or
+    exact bytes. An empty `name` is written with no name parameter."""
 
     name: str
-    value: str
+    value: Union[str, bytes]
 
 
 @dataclass(frozen=True)
@@ -48,25 +46,23 @@ FormPart = Union[FormField, FormFile]
 
 
 def _json(value) -> str:
-    """Deterministic, compact JSON: sorted keys, no extra whitespace, so the
-    same input always encodes to the same bytes regardless of dict build
-    order."""
+    """Deterministic, compact JSON: sorted keys, no extra whitespace."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def envelope_json(email: InboundEmail) -> str:
-    """The `envelope` field: valid JSON, `{"to": [...], "from": "..."}`."""
+    """The `envelope` field: `{"to": [...], "from": "..."}`."""
     return _json({"to": list(email.envelope.to), "from": email.envelope.from_addr})
 
 
 def charsets_json(email: InboundEmail) -> str:
-    """The `charsets` field: valid JSON mapping field name to charset."""
+    """The `charsets` field: JSON mapping field name to charset."""
     return _json(dict(email.charsets))
 
 
 def attachment_info_json(email: InboundEmail) -> str:
-    """The `attachment-info` field: valid JSON mapping each attachmentN field
-    name to its filename and content type."""
+    """The `attachment-info` field: JSON mapping each attachmentN field name
+    to its filename and content type."""
     info = {}
     for index, attachment in enumerate(email.attachments, start=1):
         info[f"attachment{index}"] = {
@@ -83,26 +79,30 @@ def headers_text(headers) -> str:
 
 
 def to_multipart_parts(email: InboundEmail) -> List[FormPart]:
-    """Build the ordered list of multipart/form-data parts a SendGrid Inbound
-    Parse webhook would send for this email, in parsed mode.
+    """The ordered multipart/form-data parts SendGrid would post for `email`.
 
-    Field order: headers, to, from, subject, text, html, envelope, charsets,
-    attachments (count), attachment-info (only present when there is at least
-    one attachment), then attachment1..N as file parts in attachment order.
+    Order: headers, to, from, subject, text, html, envelope, charsets,
+    attachments (count), attachment-info (only with at least one attachment),
+    attachment1..N, then any `extra_form_fields`.
     """
+    raw = email.raw_fields
+
+    def text_field(name: str, value: str) -> FormField:
+        return FormField(name, raw[name] if name in raw else value)
+
     parts: List[FormPart] = [
-        FormField("headers", headers_text(email.headers)),
-        FormField("to", email.to),
-        FormField("from", email.from_addr),
-        FormField("subject", email.subject),
-        FormField("text", email.text),
-        FormField("html", email.html),
-        FormField("envelope", envelope_json(email)),
-        FormField("charsets", charsets_json(email)),
+        text_field("headers", headers_text(email.headers)),
+        text_field("to", email.to),
+        text_field("from", email.from_addr),
+        text_field("subject", email.subject),
+        text_field("text", email.text),
+        text_field("html", email.html),
+        text_field("envelope", envelope_json(email)),
+        text_field("charsets", charsets_json(email)),
         FormField("attachments", str(len(email.attachments))),
     ]
     if email.attachments:
-        parts.append(FormField("attachment-info", attachment_info_json(email)))
+        parts.append(text_field("attachment-info", attachment_info_json(email)))
     for index, attachment in enumerate(email.attachments, start=1):
         parts.append(
             FormFile(
@@ -112,4 +112,13 @@ def to_multipart_parts(email: InboundEmail) -> List[FormPart]:
                 content=attachment.content,
             )
         )
+    for name, value in email.extra_form_fields:
+        parts.append(FormField(name, value))
     return parts
+
+
+def part_value_bytes(part: FormField) -> bytes:
+    """The bytes a FormField puts on the wire."""
+    if isinstance(part.value, (bytes, bytearray)):
+        return bytes(part.value)
+    return part.value.encode("utf-8")

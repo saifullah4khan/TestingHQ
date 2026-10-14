@@ -49,6 +49,8 @@ from pathlib import Path
 
 import pytest
 
+from testinghq.core.exit_codes import EXIT_FINDING
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -189,10 +191,9 @@ def test_blast_send_delivers_exactly_what_the_artifact_says(tmp_path):
     every one were the wrong payload, and a wrong payload is the failure this
     test exists to catch.
     """
-    from testinghq.blast.corrupt import DEFAULT_MIX, corrupt_corpus
-    from testinghq.blast.generate import generate_corpus
-    from testinghq.blast.serialize import to_multipart_parts
-    from testinghq.core.transport import encode_multipart
+    from testinghq.blast.corpus import CorpusPlan
+    from testinghq.core.formats import get_format
+    from testinghq.core.transport import DEFAULT_BOUNDARY, build_request
 
     seed, count = 4242, 12
 
@@ -217,13 +218,16 @@ def test_blast_send_delivers_exactly_what_the_artifact_says(tmp_path):
         data = json.loads(artifact.read_text(encoding="utf-8"))
         assert len(data["records"]) == count
 
-        expected = corrupt_corpus(generate_corpus(seed, count), seed, DEFAULT_MIX)
-        # Rebuilt through the transport's own encoder, because that is what
-        # builds the bytes the tool puts on the wire. Comparing against a
-        # hand-rolled reconstruction would test the reconstruction.
+        # Rebuilt from what the artifact records (the corpus plan and the
+        # target's wire format) through the transport's own request builder,
+        # because that is what builds the bytes the tool puts on the wire.
+        # Comparing against a hand-rolled reconstruction would test the
+        # reconstruction.
+        plan = CorpusPlan.from_config(data["seed"], data["config"])
+        wire_format = get_format(data["config"]["format"], DEFAULT_BOUNDARY)
         encoded = [
-            encode_multipart(to_multipart_parts(email))
-            for email, _recipe in expected
+            build_request(email, "http://127.0.0.1/", wire_format=wire_format).body
+            for email, _label in plan.build()
         ]
 
         assert len(sink.bodies) == count, (
@@ -273,11 +277,13 @@ def test_a_failing_endpoint_is_reported_as_a_status_not_a_crash(tmp_path):
             "--seed", "7", "--count", "10", "--out", str(artifact),
             "--config", config,
         )
-        assert result.returncode == 0, result.stderr
+        assert result.returncode == EXIT_FINDING, (
+            "a run that raised flags exits with the finding code\n" + result.stderr
+        )
 
         data = json.loads(artifact.read_text(encoding="utf-8"))
         assert data["summary"]["by_status_class"]["5xx"] == 10
-        assert data["summary"]["flags"], "a 500 should have flagged something"
+        assert len(data["summary"]["flags"]) == 10, "a 500 is a flag in every category"
         assert len(sink.bodies) == 10
         assert sink.only_talked_to_loopback()
 

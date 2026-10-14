@@ -5,10 +5,12 @@ Design notes, since the choices here are not obvious.
 ALIGNMENT. Records are aligned by `id`, which the engine builds as
 `{category}-{seed}-{index:04d}`, and fall back to positional index when an id
 is missing. Positional alignment is the weaker option and is labelled as such
-in the report, because a corpus that changed shape makes position an unreliable
-key and a silent misalignment would manufacture regressions that never
-happened. When ids do not line up at all, the report says the corpora differ
-in shape rather than pretending to compare them.
+in the report. When no record aligns at all there is nothing to compare, and
+that is refused rather than reported as "no regressions".
+
+DRY RUNS. A dry run has no responses, so comparing one against a real run
+would report every flag as a fix or a regression. Either side being a dry run
+is refused.
 
 COMPARABILITY. A diff between two runs that used different seeds is not a diff
 of your change, it is a diff of two different corpora. That is reported as a
@@ -33,7 +35,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from ..core import report
 
@@ -44,7 +46,8 @@ from ..core import report
 # usage error is a refusal (1).
 #
 # The three names stay, because they say what this tool means by each code, but
-# they are the shared values and not a second set of numbers.
+# they are the shared values and not a second set of numbers. They and the
+# shared names are re-exported for cli/barrage.py and for scripts.
 from ..core.exit_codes import (
     EXIT_FINDING,
     EXIT_NO_REGRESSION,
@@ -54,11 +57,25 @@ from ..core.exit_codes import (
     EXIT_USAGE,
 )
 
-# Transitions that mean the candidate is strictly worse than the baseline.
-REGRESSION = "regression"
-FIX = "fix"
-CHANGED = "changed"
-UNCHANGED = "unchanged"
+__all__ = [
+    "EXIT_FINDING",
+    "EXIT_NO_REGRESSION",
+    "EXIT_OK",
+    "EXIT_REFUSED",
+    "EXIT_REGRESSION",
+    "EXIT_USAGE",
+    "MAX_LISTED",
+    "SCHEMA_VERSION",
+    "STATUS_CLASS_KEYS",
+    "CompareError",
+    "compare",
+    "format_diff",
+    "load_artifact",
+    "validate_artifact",
+]
+
+#: The difference report's schema; written as `schema_version`.
+SCHEMA_VERSION = 1
 
 #: Cap on how many individual record transitions are listed. A change that
 #: breaks four hundred payloads is a real finding, not four hundred findings,
@@ -99,6 +116,17 @@ def validate_artifact(data: Any, source: str) -> Dict[str, Any]:
             f"{source!r}: 'config' must be an object carrying at least 'seed' "
             "and 'count'"
         )
+    version = data.get("schema_version", 0)
+    if not isinstance(version, int) or version > report.SCHEMA_VERSION:
+        raise CompareError(
+            f"{source!r}: schema_version {version!r} is newer than this build "
+            f"reads (up to {report.SCHEMA_VERSION})"
+        )
+    if config.get("dry_run") is True:
+        raise CompareError(
+            f"{source!r} is a dry run: nothing was sent, so it has no responses "
+            "to compare"
+        )
     return data
 
 
@@ -121,35 +149,31 @@ def _record_key(record: Dict[str, Any], index: int) -> Tuple[str, int]:
 
 
 def _status_class(record: Dict[str, Any]) -> str:
-    status = (record.get("response") or {}).get("status")
-    if status is None:
-        return "timeout"
-    if 200 <= status < 300:
-        return "2xx"
-    if 400 <= status < 500:
-        return "4xx"
-    if 500 <= status < 600:
-        return "5xx"
-    return f"other({status})"
+    return report.status_class((record.get("response") or {}).get("status"))
 
 
-def _align(
-    records: List[Dict[str, Any]],
-) -> Tuple[Dict[Any, Dict[str, Any]], Dict[Any, int], bool]:
+def _align(records: List[Dict[str, Any]]) -> Tuple[Dict[Any, Dict[str, Any]], bool]:
     """Index records by id where possible, by position otherwise.
 
-    Returns (key -> record, key -> original index, used_positional_fallback).
+    Returns (key -> record, used_positional_fallback).
     """
     keyed: Dict[Any, Dict[str, Any]] = {}
-    positions: Dict[Any, int] = {}
     positional = False
     for index, record in enumerate(records):
         key = _record_key(record, index)
         if key[0] == "index":
             positional = True
         keyed[key] = record
-        positions[key] = index
-    return keyed, positions, positional
+    return keyed, positional
+
+
+def _status_counts(summary: Dict[str, Any]) -> Dict[str, int]:
+    """by_status_class, with a schema 0 artifact's `timeout` read as
+    `no_response`, which is what it counted."""
+    counts = dict(summary.get("by_status_class") or {})
+    if "timeout" in counts and "no_response" not in counts:
+        counts["no_response"] = counts.pop("timeout")
+    return counts
 
 
 def _comparable(baseline: Dict[str, Any], candidate: Dict[str, Any]) -> List[str]:
@@ -168,6 +192,13 @@ def _comparable(baseline: Dict[str, Any], candidate: Dict[str, Any]) -> List[str
         )
     if baseline["config"].get("mix") != candidate["config"].get("mix"):
         warnings.append("category mixes differ")
+    # An artifact from before attachment modes were recorded had none.
+    base_attachments = baseline["config"].get("attachments", "none")
+    cand_attachments = candidate["config"].get("attachments", "none")
+    if base_attachments != cand_attachments:
+        warnings.append(
+            f"attachment modes differ ({base_attachments} vs {cand_attachments})"
+        )
     if baseline["config"].get("target") != candidate["config"].get("target"):
         warnings.append(
             f"targets differ ({baseline['config'].get('target')} vs "
@@ -177,17 +208,8 @@ def _comparable(baseline: Dict[str, Any], candidate: Dict[str, Any]) -> List[str
 
 
 def _delta(baseline_counts: Dict[str, int], candidate_counts: Dict[str, int], keys):
-    """Per-key movement, in the given canonical order so the output is stable
-    between runs rather than dictionary-order dependent.
-
-    `keys` is passed in rather than derived, because this is called twice with
-    two different key sets. An earlier version computed the key list from a
-    category-order constant for both, which emitted the status-class rows
-    twice and left `totals` with duplicate keys. Any consumer that keyed that
-    list by name then read the all-zero second copy, so every status movement
-    silently reported as zero. A test caught it, which is the only reason it is
-    worth mentioning.
-    """
+    """Per-key movement, in the given order (`keys`) so the output is stable.
+    Called once for status classes and once for categories."""
     rows = []
     for key in keys:
         before = baseline_counts.get(key, 0)
@@ -200,7 +222,7 @@ def _delta(baseline_counts: Dict[str, int], candidate_counts: Dict[str, int], ke
 
 #: Status classes in the engine's own canonical order, so this tool's output
 #: ordering matches `core.report`'s.
-STATUS_CLASS_KEYS = ("2xx", "4xx", "5xx", "timeout")
+STATUS_CLASS_KEYS = report.STATUS_CLASSES
 
 
 def compare(
@@ -209,17 +231,25 @@ def compare(
     """Compare two validated artifacts and return a difference report.
 
     The report is a plain dict so it can be written to JSON as readily as it
-    is printed, and so a future `--json` flag needs no reshaping.
+    is printed. Raises CompareError when no record aligns, because a report
+    of zero comparisons would read as "no regressions".
     """
     warnings = _comparable(baseline, candidate)
 
-    base_by_key, _base_pos, base_positional = _align(baseline["records"])
-    cand_by_key, _cand_pos, cand_positional = _align(candidate["records"])
+    base_by_key, base_positional = _align(baseline["records"])
+    cand_by_key, cand_positional = _align(candidate["records"])
     used_positional = base_positional or cand_positional
 
     only_baseline = [k for k in base_by_key if k not in cand_by_key]
     only_candidate = [k for k in cand_by_key if k not in base_by_key]
     shared = [k for k in base_by_key if k in cand_by_key]
+    if not shared:
+        raise CompareError(
+            "nothing to compare: no record in the baseline aligns with one in "
+            f"the candidate ({len(base_by_key)} vs {len(cand_by_key)} record(s)"
+            + (f"; {'; '.join(warnings)}" if warnings else "")
+            + ")"
+        )
 
     regressions: List[Dict[str, Any]] = []
     fixes: List[Dict[str, Any]] = []
@@ -265,8 +295,8 @@ def compare(
     base_summary = baseline["summary"]
     cand_summary = candidate["summary"]
     rows = _delta(
-        base_summary.get("by_status_class", {}),
-        cand_summary.get("by_status_class", {}),
+        _status_counts(base_summary),
+        _status_counts(cand_summary),
         STATUS_CLASS_KEYS,
     )
     rows += _delta(
@@ -276,6 +306,8 @@ def compare(
     )
 
     return {
+        "schema_version": SCHEMA_VERSION,
+        "tool": "compare",
         "comparable": not warnings,
         "warnings": warnings,
         "aligned_by": "index" if used_positional else "id",

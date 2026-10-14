@@ -245,11 +245,11 @@ def _cmd_compare(args) -> int:
     try:
         baseline = compare_runs.load_artifact(args.baseline)
         candidate = compare_runs.load_artifact(args.candidate)
+        diff = compare_runs.compare(baseline, candidate)
     except compare_runs.CompareError as exc:
         print(f"compare: {exc}", file=sys.stderr)
         return compare_runs.EXIT_USAGE
 
-    diff = compare_runs.compare(baseline, candidate)
     print(compare_runs.format_diff(diff))
 
     if args.out:

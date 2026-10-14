@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol
 
 from ..blast.payload import InboundEmail
-from ..blast.serialize import FormField, FormFile, FormPart
+from ..blast.serialize import FormField, FormFile, FormPart, part_value_bytes
 from .formats import WireFormat, get_format
 
 # Fixed multipart boundary. Blast fires at endpoints the operator controls
@@ -105,12 +105,11 @@ def encode_multipart(parts: List[FormPart], boundary: str = DEFAULT_BOUNDARY) ->
             buf.write(part.content)
             buf.write(b"\r\n")
         elif isinstance(part, FormField):
+            disposition = f'; name="{part.name}"' if part.name else ""
             buf.write(
-                f'Content-Disposition: form-data; name="{part.name}"\r\n\r\n'.encode(
-                    "utf-8"
-                )
+                f"Content-Disposition: form-data{disposition}\r\n\r\n".encode("utf-8")
             )
-            buf.write(part.value.encode("utf-8"))
+            buf.write(part_value_bytes(part))
             buf.write(b"\r\n")
         else:  # pragma: no cover - defensive, FormPart is a closed union
             raise TypeError(f"unknown form part type: {type(part).__name__}")

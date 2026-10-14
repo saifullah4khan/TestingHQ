@@ -26,6 +26,7 @@ import pytest
 from testinghq.cli import blast as blast_cli
 from testinghq import cli
 from testinghq.core import guardrails, report
+from testinghq.core.exit_codes import EXIT_FINDING, EXIT_OK
 from testinghq.core.transport import ClientResponse
 
 SEED = 4242
@@ -67,7 +68,8 @@ def config_file(tmp_path):
     return str(path)
 
 
-def _fire(config_file, client, out=None, pairs=None, seed=SEED, count=COUNT):
+def _fire(config_file, client, out=None, pairs=None, seed=SEED, count=COUNT,
+          expect=EXIT_OK):
     """Drive the CLI's real send path with an injected client.
 
     `pairs` defaults to the default-mix corpus the CLI itself builds. Tests
@@ -76,13 +78,15 @@ def _fire(config_file, client, out=None, pairs=None, seed=SEED, count=COUNT):
     are about. `degenerate` carries a 5% default weight, so "did any degenerate
     payload appear" is a coin flip at small corpus sizes and a flake at large
     ones. Zero tolerance for that here.
+
+    `expect` is the exit code: EXIT_FINDING for a run that raises flags.
     """
     if pairs is None:
         pairs = blast_cli._build_corpus(seed, count)
     code = blast_cli._run_fire(
         pairs, seed, count, TARGET_NAME, RATE, out, config_file, client=client
     )
-    assert code == 0, "the send path refused or failed unexpectedly"
+    assert code == expect, "the send path returned an unexpected exit code"
     return pairs
 
 
@@ -156,7 +160,10 @@ def test_the_artifact_records_the_statuses_the_endpoint_actually_returned(
     whether a random draw happened to produce a clean payload."""
     pairs = _single_category_pairs("clean")
     out = tmp_path / "run.json"
-    _fire(config_file, RecordingClient(status=500, body=b"boom"), out=str(out), pairs=pairs)
+    _fire(
+        config_file, RecordingClient(status=500, body=b"boom"), out=str(out),
+        pairs=pairs, expect=EXIT_FINDING,
+    )
 
     artifact = json.loads(out.read_text(encoding="utf-8"))
     assert artifact["summary"]["by_status_class"]["5xx"] == len(pairs)
@@ -172,7 +179,7 @@ def test_the_artifact_records_the_statuses_the_endpoint_actually_returned(
     )
 
 
-def test_a_transport_failure_is_recorded_as_a_timeout_not_a_status(
+def test_a_transport_failure_is_recorded_as_no_response_not_a_status(
     config_file, tmp_path
 ):
     """A client that raises is not a 5xx. Recording it as one would make an
@@ -180,16 +187,16 @@ def test_a_transport_failure_is_recorded_as_a_timeout_not_a_status(
     exactly backwards."""
     pairs = _single_category_pairs("degenerate")
     out = tmp_path / "run.json"
-    _fire(config_file, ExplodingClient(), out=str(out), pairs=pairs)
+    _fire(config_file, ExplodingClient(), out=str(out), pairs=pairs, expect=EXIT_FINDING)
 
     artifact = json.loads(out.read_text(encoding="utf-8"))
-    assert artifact["summary"]["by_status_class"]["timeout"] == len(pairs)
+    assert artifact["summary"]["by_status_class"]["no_response"] == len(pairs)
+    assert artifact["summary"]["transport_errors"]["refused"] == len(pairs)
     for record in artifact["records"]:
         assert record["response"]["status"] is None
-    # Degenerate payloads that timed out are failures, by the product's rules,
-    # while a clean payload that timed out is also a failure. The interesting
-    # half is that a *messy-but-valid* payload timing out is not flagged as
-    # garbage, it just has no verdict to give.
+        assert record["response"]["error"] == "connection refused"
+        assert record["response"]["error_kind"] == "refused"
+    # No response is a failure in every category.
     for record in artifact["records"]:
         assert record["assertion"]["passed"] is False
     assert len(artifact["summary"]["flags"]) == len(pairs)

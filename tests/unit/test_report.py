@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from testinghq.blast.generate import generate_corpus
 from testinghq.core import report
 
@@ -166,7 +168,9 @@ def test_format_summary_contains_counts_and_look_here_list():
     assert "6 payload(s)" in text
     assert "2xx: 1" in text
     assert "5xx: 2" in text
-    assert "timeout: 1" in text
+    assert "no response: 1" in text
+    assert "(refused 0, dns 0, timeout 1, tls 0, other 0)" in text
+    assert "Verdict: FLAGGED" in text
     assert "degenerate: 3" in text
     assert "Look here (3):" in text
     assert "clean payload clean-7-0001 did not 2xx" in text
@@ -279,18 +283,26 @@ def test_build_record_degenerate_4xx_is_pass():
     assert record["assertion"] == {"passed": True, "mismatches": []}
 
 
-def test_build_record_non_clean_degenerate_category_uses_matcher_verdict_directly():
+def test_build_record_flags_a_5xx_on_messy_but_valid():
     corpus = generate_corpus(seed=5, count=1)
     email = corpus[0]
     record = report.build_record(
         email, report.MESSY_BUT_VALID, seed=5, index=0,
         response={"status": 500, "latency_ms": 10.0, "body_snippet": "err"},
     )
-    # No clean/degenerate override applies to messy-but-valid, so the
-    # matcher's own generic verdict stands, and classify_record reports it
-    # as ASSERTION_FAILED (no flag, unlike CLEAN_FAILED/DEGENERATE_FAILED).
-    assert record["assertion"] == {"passed": False, "mismatches": ["response returned 500"]}
-    assert report.classify_record(record) == report.ASSERTION_FAILED
+    flag = "messy-but-valid messy-but-valid-5-0000 returned 500"
+    assert record["assertion"] == {"passed": False, "mismatches": [flag]}
+    assert report.classify_record(record) == report.SERVER_ERROR
+    assert report.flag_for_record(record) == flag
+
+
+def test_build_record_messy_4xx_keeps_the_matcher_verdict():
+    corpus = generate_corpus(seed=5, count=1)
+    record = report.build_record(
+        corpus[0], report.MESSY_BUT_VALID, seed=5, index=0,
+        response={"status": 422, "latency_ms": 10.0, "body_snippet": "no"},
+    )
+    assert record["assertion"] == {"passed": True, "mismatches": []}
     assert report.flag_for_record(record) is None
 
 
@@ -347,3 +359,168 @@ def test_the_fixtures_still_classify_to_the_outcomes_they_record():
             f"{fixture_name}: the flags core/report.py derives from the records "
             "do not match the flags the fixture claims"
         )
+
+
+# ---------------------------------------------------------------------------
+# A crash or no response is a flag in every category
+# ---------------------------------------------------------------------------
+
+
+NON_CLEAN = (
+    report.MESSY_BUT_VALID,
+    report.MULTILINGUAL_GIBBERISH,
+    report.STRUCTURALLY_MALFORMED,
+)
+
+
+@pytest.mark.parametrize("category", NON_CLEAN)
+def test_a_5xx_is_flagged_in_every_category(category):
+    rec = _record(category, 503)
+    assert report.classify_record(rec) == report.SERVER_ERROR
+    assert report.flag_for_record(rec) == f"{category} r-0 returned 503"
+
+
+@pytest.mark.parametrize("category", report.CATEGORIES)
+def test_no_response_is_flagged_in_every_category_with_its_reason(category):
+    rec = _record(category, None)
+    rec["response"].update(
+        error="<urlopen error [Errno 111] Connection refused>", error_kind="refused"
+    )
+    flag = report.flag_for_record(rec)
+    assert flag is not None
+    assert flag.endswith("got no response: connection refused")
+
+
+@pytest.mark.parametrize("category", (report.STRUCTURALLY_MALFORMED, report.DEGENERATE))
+def test_a_4xx_on_garbage_is_recorded_not_flagged(category):
+    rec = _record(category, 400)
+    assert report.flag_for_record(rec) is None
+    summary = report.compute_summary([rec], seed=1, config={})
+    assert summary["by_status_class"]["4xx"] == 1
+    assert summary["flags"] == []
+
+
+def test_ten_500s_on_messy_payloads_are_not_clean():
+    records = [_record(report.MESSY_BUT_VALID, 500, rid=f"m-{i}") for i in range(10)]
+    artifact = report.build_artifact(1, {}, records)
+    assert len(artifact["summary"]["flags"]) == 10
+    assert report.verdict(artifact) == "FLAGGED"
+
+
+@pytest.mark.parametrize(
+    "message, kind",
+    [
+        ("<urlopen error [Errno 111] Connection refused>", "refused"),
+        ("<urlopen error [Errno -2] Name or service not known>", "dns"),
+        ("<urlopen error [Errno 8] nodename nor servname provided, or not known>", "dns"),
+        ("<urlopen error timed out>", "timeout"),
+        ("The read operation timed out", "timeout"),
+        ("<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed>", "tls"),
+        ("Remote end closed connection without response", "other"),
+        (None, "other"),
+    ],
+)
+def test_transport_errors_are_told_apart(message, kind):
+    assert report.transport_error_kind(message) == kind
+
+
+def test_the_summary_counts_no_response_by_reason():
+    def failed(kind):
+        rec = _record(report.CLEAN, None, rid=kind)
+        rec["response"].update(error=kind, error_kind=kind)
+        return rec
+
+    records = [failed("refused"), failed("refused"), failed("dns"), failed("tls")]
+    summary = report.compute_summary(records, seed=1, config={})
+    assert summary["by_status_class"]["no_response"] == 4
+    assert summary["transport_errors"] == {
+        "refused": 2, "dns": 1, "timeout": 0, "tls": 1, "other": 0,
+    }
+    text = report.format_summary(report.build_artifact(1, {}, records))
+    assert "(refused 2, dns 1, timeout 0, tls 1, other 0)" in text
+    assert "timed out" not in text
+
+
+def test_a_record_with_no_reason_reads_as_a_timeout():
+    """An artifact written before reasons were recorded said "timed out" for
+    every missing response; reading it back keeps that."""
+    summary = report.compute_summary([_record(report.CLEAN, None)], seed=1, config={})
+    assert summary["transport_errors"]["timeout"] == 1
+
+
+def test_1xx_and_3xx_get_their_own_buckets():
+    records = [_record(report.CLEAN, 101), _record(report.MESSY_BUT_VALID, 302)]
+    summary = report.compute_summary(records, seed=1, config={})
+    assert summary["by_status_class"]["1xx"] == 1
+    assert summary["by_status_class"]["3xx"] == 1
+    text = report.format_summary(report.build_artifact(1, {}, records))
+    assert "1xx: 1" in text and "3xx: 1" in text
+
+
+# ---------------------------------------------------------------------------
+# --fail-on-body
+# ---------------------------------------------------------------------------
+
+
+class _Result:
+    def __init__(self, status, body="", error=None):
+        self.status = status
+        self.latency_ms = 1.0
+        self.body_snippet = body
+        self.error = error
+
+
+def test_a_2xx_whose_body_matches_the_pattern_is_flagged():
+    pattern = report.compile_body_pattern(r'"status"\s*:\s*"error"')
+    response = report.response_from_transport(_Result(200, '{"status":"error"}'), pattern)
+    assert response["body_failure"] is True
+    rec = _record(report.MESSY_BUT_VALID, 200, rid="m-1")
+    rec["response"] = response
+    assert report.classify_record(rec) == report.BODY_FAILED
+    assert report.flag_for_record(rec) == "messy-but-valid m-1 returned 200 with a failure body"
+
+
+def test_the_body_pattern_ignores_bodies_that_do_not_match_and_non_2xx():
+    pattern = report.compile_body_pattern("error")
+    assert report.response_from_transport(_Result(200, "ok"), pattern)["body_failure"] is False
+    assert report.response_from_transport(_Result(422, "error"), pattern)["body_failure"] is False
+
+
+def test_without_a_body_pattern_a_2xx_body_is_not_inspected():
+    response = report.response_from_transport(_Result(200, '{"status":"error"}'))
+    assert "body_failure" not in response
+    rec = _record(report.CLEAN, 200)
+    rec["response"] = response
+    assert report.flag_for_record(rec) is None
+
+
+def test_an_invalid_body_pattern_is_refused():
+    with pytest.raises(ValueError, match="--fail-on-body"):
+        report.compile_body_pattern("(")
+
+
+def test_a_transport_failure_keeps_its_reason():
+    response = report.response_from_transport(
+        _Result(None, error="<urlopen error [Errno -2] Name or service not known>")
+    )
+    assert response["status"] is None
+    assert response["error_kind"] == "dns"
+    assert "Name or service" in response["error"]
+
+
+# ---------------------------------------------------------------------------
+# Artifact envelope
+# ---------------------------------------------------------------------------
+
+
+def test_the_artifact_carries_schema_version_and_tool():
+    artifact = report.build_artifact(1, {}, [_record(report.CLEAN, 200)])
+    assert artifact["schema_version"] == 1
+    assert artifact["tool"] == "blast"
+    assert artifact["aborted"] is False
+
+
+def test_an_aborted_run_reads_as_aborted():
+    artifact = report.build_artifact(1, {}, [_record(report.CLEAN, 200)], aborted=True)
+    assert report.verdict(artifact) == "ABORTED"
+    assert "Interrupted" in report.format_summary(artifact)

@@ -707,3 +707,36 @@ def test_the_command_needs_no_config_file(tmp_path):
     )
     assert result.returncode == EXIT_OK, result.stderr
     assert "tool:    blast" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# schema_version on blast and compare artifacts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("make", [blast_artifact, compare_artifact])
+def test_a_missing_schema_version_is_read_as_zero(make):
+    artifact = make()
+    artifact.pop("schema_version", None)
+    assert summarize(artifact).tool in ("blast", "compare")
+
+
+@pytest.mark.parametrize("make", [blast_artifact, compare_artifact])
+def test_a_newer_schema_version_is_refused(make):
+    artifact = dict(make(), schema_version=2)
+    with pytest.raises(ArtifactError, match="schema_version 2"):
+        summarize(artifact)
+
+
+def test_the_shipped_blast_fixtures_are_schema_version_1():
+    for name in ("sample_run_clean.json", "sample_run_with_failures.json"):
+        data = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+        assert data["schema_version"] == 1
+        assert data["tool"] == "blast"
+
+
+def test_an_aborted_blast_run_is_a_finding_even_with_no_flags():
+    summary = summarize(dict(blast_artifact(flags=[], dry_run=False), aborted=True))
+    assert summary.verdict == "ABORTED"
+    assert summary.exit_code == EXIT_FINDING
+    assert [f.kind for f in summary.findings] == ["aborted"]
