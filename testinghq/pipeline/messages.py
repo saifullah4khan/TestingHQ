@@ -16,7 +16,12 @@ re-read later and mean the same thing. What makes two runs' tags different is
 the prefix: the CLI default is `run_tag_prefix()`, `hq-<yymmddHHMM>-<4 hex>`,
 drawn once per run, so a second run against a persistent store cannot find the
 first run's records and report them as duplicates. `--tag-prefix` replaces it
-with a fixed value, and the artifact records whichever was used."""
+with a fixed value, and the artifact records whichever was used.
+
+The Message-ID is derived from the tag for the same reason. A pipeline that
+drops a repeated Message-ID, as a correct helpdesk does, would otherwise drop
+every message of a second run with the same seed and the run would report
+them lost."""
 from __future__ import annotations
 
 import os
@@ -159,12 +164,17 @@ def stamp(
     nobody sent. That was not hypothetical: the reply-first scenario stamps
     `Re: ` prefixes, and leaving the ground truth alone made both threaded
     scenarios report a mismatch on a reply's subject.
+
+    Unless the caller pins `message_id`, the Message-ID becomes
+    `<{tag}@hq.example.test>`, replacing the generator's: the generator's id
+    is a function of the seed alone, so two runs with one seed would share it.
     """
 
     headers = dict(email.headers)
     headers[TAG_HEADER] = tag
-    if message_id is not None:
-        headers["Message-ID"] = message_id
+    headers["Message-ID"] = (
+        message_id if message_id is not None else f"<{build_chain_message_id(tag)}>"
+    )
     if in_reply_to is not None:
         headers["In-Reply-To"] = in_reply_to
     if references is not None:
@@ -218,9 +228,9 @@ def message_id_of(email: InboundEmail) -> str:
 
 
 def build_chain_message_id(tag: str) -> str:
-    """A deterministic Message-ID for a message in a thread whose real
-    provider-assigned id is not available to the test. Reserved-domain, so it
-    satisfies the synthetic-content contract."""
+    """The bare Message-ID for the message carrying `tag`: unique wherever
+    the tag is, and reproducible from it. Reserved-domain, so it satisfies the
+    synthetic-content contract."""
     return f"{tag}@{TAG_DOMAIN_SUFFIX}"
 
 

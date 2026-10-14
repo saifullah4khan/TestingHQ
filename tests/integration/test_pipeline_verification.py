@@ -1045,6 +1045,86 @@ def test_the_pipeline_under_test_deduplicates_by_message_id_by_default():
     assert len(pipeline.tickets) == 1
     assert pipeline.tickets[0].deliveries == 2
 
+
+# ---------------------------------------------------------------------------
+# A second run is not a redelivery of the first
+# ---------------------------------------------------------------------------
+
+
+def _two_run_prefixes():
+    """Two per-run prefixes as the CLI default draws them, pinned so the test
+    cannot collide on the random suffix."""
+    from testinghq.pipeline.messages import run_tag_prefix
+
+    return [run_tag_prefix(token="a1b2"), run_tag_prefix(token="c3d4")]
+
+
+def test_two_ledger_runs_with_one_seed_both_balance_against_a_deduplicating_pipeline(
+    target_config, tmp_path, with_pipeline
+):
+    """A correct pipeline drops a repeated Message-ID. Two runs with one seed
+    used to send the same ids, so the second run's messages all landed on the
+    first run's tickets and the second run reported every one missing."""
+    pipeline = with_pipeline()
+    for number, prefix in enumerate(_two_run_prefixes()):
+        code, artifact, text = _run_ledger(
+            pipeline, target_config, tmp_path, name=f"ledger{number}.json",
+            tag_prefix=prefix,
+        )
+        assert code == EXIT_OK, text
+        assert artifact["summary"]["verdict"] == "BALANCED", text
+    assert len(pipeline.tickets) == 2 * COUNT
+
+
+def test_two_redeliver_runs_with_one_seed_are_both_delivery_safe(
+    target_config, tmp_path, with_pipeline
+):
+    """The same, for redeliver: its ids, and the In-Reply-To and References
+    built from them, come from this run's scenario tags."""
+    pipeline = with_pipeline()
+    for number, prefix in enumerate(_two_run_prefixes()):
+        code, artifact, text = _run_redeliver(
+            pipeline, target_config, tmp_path, name=f"redeliver{number}.json",
+            tag_prefix=prefix,
+        )
+        assert code == EXIT_OK, text
+        assert artifact["summary"]["verdict"] == "DELIVERY-SAFE", text
+
+
+def test_two_verify_runs_with_one_seed_both_find_their_records(
+    target_config, tmp_path, with_pipeline
+):
+    pipeline = with_pipeline()
+    for number, prefix in enumerate(_two_run_prefixes()):
+        code, artifact, text = _run_verify(
+            pipeline, target_config, tmp_path, name=f"verify{number}.json",
+            tag_prefix=prefix,
+        )
+        assert code == EXIT_OK, text
+        assert artifact["summary"]["found"] == COUNT, text
+
+
+def test_message_ids_are_reproducible_for_one_prefix_and_differ_across_prefixes():
+    """An explicit prefix rebuilds the same ids, which `verify check` and a
+    replay rely on; the per-run default gives every run its own."""
+    from testinghq.pipeline import messages as pipeline_messages
+
+    def verify_ids(prefix):
+        return [pipeline_messages.message_id_of(email)
+                for email, _t, _r in verify_tool.build_tagged_corpus(SEED, 4, prefix)]
+
+    def redeliver_ids(prefix):
+        return [delivery.email.headers[name]
+                for scenario in redeliver_tool.build_scenarios(SEED, 3, prefix, 0.0)
+                for delivery in scenario.deliveries
+                for name in ("Message-ID", "In-Reply-To", "References")
+                if name in delivery.email.headers]
+
+    first, second = _two_run_prefixes()
+    for build in (verify_ids, redeliver_ids):
+        assert build(first) == build(first)
+        assert not set(build(first)) & set(build(second))
+
 # ---------------------------------------------------------------------------
 # Settling: a loss is a loss, and UNSETTLED means the store was still changing
 # ---------------------------------------------------------------------------
