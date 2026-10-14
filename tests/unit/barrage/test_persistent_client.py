@@ -7,6 +7,8 @@ loopback server cannot provoke on demand.
 from __future__ import annotations
 
 import http.client
+import io
+import json
 
 import pytest
 
@@ -15,6 +17,8 @@ from testinghq.core.transport import (
     PersistentHttpClient,
     PreparedRequest,
 )
+from testinghq.pipeline.adapters import HttpJsonAdapter
+from testinghq.pipeline.messages import Probe
 
 
 class FakeSock:
@@ -180,3 +184,77 @@ def test_connect_measures_setup_separately():
     assert client.connect("http://127.0.0.1:8000/intake", timeout=1.0) == pytest.approx(0.25)
     client.send(_request())
     assert len(opened) == 1, "send reuses the connection connect() opened"
+
+
+# ---------------------------------------------------------------------------
+# Response headers reach the readback adapter
+# ---------------------------------------------------------------------------
+
+
+class _RawSock:
+    """Just enough socket for http.client.HTTPResponse to parse real bytes."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def makefile(self, mode, *args, **kwargs):
+        return io.BytesIO(self._raw)
+
+
+def _parsed(raw: bytes) -> http.client.HTTPResponse:
+    response = http.client.HTTPResponse(_RawSock(raw))
+    response.begin()
+    return response
+
+
+def _http(status_line: str, body: bytes, *extra: str) -> bytes:
+    head = [status_line, f"Content-Length: {len(body)}", "Content-Type: application/json", *extra]
+    return ("\r\n".join(head) + "\r\n\r\n").encode("ascii") + body
+
+
+def test_the_response_headers_are_returned():
+    log, opened = [], []
+    raw = _http("HTTP/1.1 429 Too Many Requests", b"{}", "Retry-After: 7")
+    client = PersistentHttpClient(connection_factory=_factory([[_parsed(raw)]], log, opened))
+    response = client.send(_request())
+    assert response.status == 429
+    assert response.headers["Retry-After"] == "7"
+
+
+def test_a_429_retry_after_through_this_client_sets_the_readback_delay():
+    """The readback adapter uses this client by default. Retry-After has to
+    survive the trip, or a rate-limited endpoint is retried on the adapter's
+    own short backoff instead of when the server asked."""
+    log, opened = [], []
+    scripted = [
+        _parsed(_http("HTTP/1.1 429 Too Many Requests", b"{}", "Retry-After: 7")),
+        _parsed(_http("HTTP/1.1 200 OK", json.dumps([{"id": "T1"}]).encode("utf-8"))),
+    ]
+    client = PersistentHttpClient(connection_factory=_factory([scripted], log, opened))
+    slept = []
+    adapter = HttpJsonAdapter(
+        "http://localhost:8000/tickets",
+        client=client,
+        rate=None,
+        retry_base_seconds=0.01,
+        sleep=slept.append,
+        clock=lambda: 0.0,
+    )
+    probe = Probe(
+        record_id="clean-1-0000",
+        tag="hq-1-0000",
+        payload_sha256="a" * 64,
+        from_addr="alice@example.com",
+        subject="Your order",
+        recipient="support@example.com",
+        message_id="m@widgets.example",
+    )
+    found = adapter.fetch(probe)
+    assert [r.ticket_id for r in found] == ["T1"]
+    assert slept == [7.0]
+    assert len(opened) == 1, "the retry reused the kept-alive connection"
+
+
+def test_the_readback_adapter_reuses_connections_by_default():
+    adapter = HttpJsonAdapter("http://localhost:8000/tickets")
+    assert isinstance(adapter._client, PersistentHttpClient)
