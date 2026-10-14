@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Optional
 
 from ..core import guardrails
 from ..core.config import ConfigError
