@@ -808,12 +808,14 @@ def _pct(value: Optional[float]) -> str:
     return "unavailable" if value is None else format(value, ".1%")
 
 
-def format_stability(report: StabilityReport) -> str:
-    """The report, with the caveat that stability is not correctness."""
+def format_stability(report: StabilityReport, verdict: Optional[str] = None) -> str:
+    """The report, with the caveat that stability is not correctness.
+    `verdict` is the run's final verdict when the readback replaced the
+    measured one (UNSETTLED, READBACK FAILED); None means `verdict_for`."""
     split = report.pair_split()
     states = report.read_states()
     lines = [
-        f"steady: {verdict_for(report)}  (majority dissent {_pct(report.dissent_rate)}, "
+        f"steady: {verdict or verdict_for(report)}  (majority dissent {_pct(report.dissent_rate)}, "
         f"label field {report.label_field!r})",
         "",
         f"  sample:              {report.sample_size()}",
@@ -1006,9 +1008,12 @@ def gate(report: StabilityReport, max_dissent_rate: float,
     return False, f"majority dissent {report.dissent_rate:.1%} is within the {max_dissent_rate:.1%} gate"
 
 
-def format_run(report: StabilityReport, failed: bool, reason: str, max_dissent_rate: float) -> str:
+def format_run(
+    report: StabilityReport, failed: bool, reason: str, max_dissent_rate: float,
+    verdict: Optional[str] = None,
+) -> str:
     return "\n".join([
-        format_stability(report), "",
+        format_stability(report, verdict), "",
         f"  gate ({max_dissent_rate:.1%}): {'FAILED' if failed else 'passed'}",
         f"  {reason}",
     ])
@@ -1181,7 +1186,7 @@ def execute(
             "nothing was measured"
         )
     elif unsettled:
-        failed, reason = True, "UNSETTLED: the readback was still changing at --max-wait; " + reason
+        failed, reason = True, f"{outcome.state_phrase()}; " + reason
     artifact = build_artifact(seed, config, labelled, report)
     summary = artifact["stability"]
     summary["verdict"], summary["verdict_source"] = readback_verdict(verdict_for(report), outcome)
@@ -1192,7 +1197,7 @@ def execute(
     summary["unsettled"] = unsettled
     summary["readback"] = outcome.to_json()
 
-    printer(format_run(report, failed, reason, max_dissent_rate))
+    printer(format_run(report, failed, reason, max_dissent_rate, summary["verdict"]))
     if outcome.headline():
         printer(f"  readback: {outcome.headline()}")
     if out:

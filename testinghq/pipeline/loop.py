@@ -712,7 +712,7 @@ def summarize(
         )
     elif unsettled:
         run_findings.append(
-            "UNSETTLED: the readback was still changing at --max-wait, so this run "
+            "UNSETTLED: the readback did not settle within --max-wait, so this run "
             "cannot say what the pipeline finally did"
         )
     summary = {
