@@ -26,7 +26,6 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from ..blast.payload import Envelope, GroundTruth, InboundEmail
 from ..core.targets import resolve_target
 from .common import (
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     EXIT_MISMATCH,
@@ -36,6 +35,7 @@ from .common import (
     close_adapter,
     prepare_readback,
     read_back_all,
+    readback_poll_settings,
     readback_verdict,
     require_synthetic,
     send_all,
@@ -943,7 +943,7 @@ def load_steady_config(path: Optional[str]) -> Dict[str, Any]:
 def run_config(
     seed: int, count: int, tag_prefix: str, target_name: Optional[str], readback: Any,
     label_field: str, transforms: Sequence[str], repeats: int,
-    max_dissent_rate: float, max_flip_rate: Optional[float], poll: Dict[str, float],
+    max_dissent_rate: float, max_flip_rate: Optional[float], poll: Dict[str, Any],
     intents_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
@@ -1077,7 +1077,7 @@ def execute(
     intents_path: Optional[str] = None,
     rate: float = 5.0,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     allow_public_target: bool = False,
     client: Any = None,
@@ -1132,11 +1132,13 @@ def execute(
         return EXIT_REFUSED
 
     chosen = list(transforms) if transforms else list(TRANSFORM_NAMES)
+    poll = readback_poll_settings(
+        len(items + repeated), readback, quiet_window=quiet_window,
+        max_wait=max_wait, poll_interval=poll_interval,
+    )
     config = run_config(
         seed, count, tag_prefix, target_name, readback, field_name, chosen, repeats,
-        max_dissent_rate, max_flip_rate,
-        {"quiet_window": quiet_window, "max_wait": max_wait, "poll_interval": poll_interval},
-        intents_path,
+        max_dissent_rate, max_flip_rate, poll, intents_path,
     )
     config.update(target.artifact_config())
 
@@ -1153,7 +1155,7 @@ def execute(
         outcome = read_back_all(
             adapter, [probe for _e, _t, _r, probe in items + repeated],
             sleep=sleep, clock=clock, quiet_window=quiet_window,
-            max_wait=max_wait, poll_interval=poll_interval,
+            max_wait=poll["max_wait"], poll_interval=poll_interval,
         )
     except KeyboardInterrupt:
         artifact = build_artifact(

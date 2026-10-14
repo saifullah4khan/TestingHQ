@@ -1079,6 +1079,8 @@ def test_a_store_that_404s_every_lookup_is_readback_failed_not_loss(
     assert summary["verdict_source"] == "readback"
     assert summary["failed"] == 0
     assert summary["not_checked"] == COUNT
+    assert artifact["config"]["readback_poll"]["max_wait"] == 60.0
+    assert artifact["config"]["readback_poll"]["max_wait_source"] == "default"
     assert text.splitlines()[0].startswith("verify: READBACK FAILED")
     assert "  every lookup was 404: check the readback url" in text.splitlines()
     assert "not checked: every lookup was 404" in text

@@ -55,8 +55,19 @@ from ..core.exit_codes import (  # noqa: F401
 #: the reason this polls rather than looks once.
 DEFAULT_QUIET_WINDOW = 5.0
 
-#: How long to keep polling before giving up on a store that is still changing.
+#: How long to keep polling before giving up on a store that is still changing,
+#: at the least. When --max-wait is not given, a plan too big to poll every tag
+#: twice in this long gets more: see `resolve_max_wait`.
 DEFAULT_MAX_WAIT = 60.0
+
+#: The room a plan-sized --max-wait leaves above the time the plan needs to
+#: settle on an instantly consistent store, for a store that is not instant.
+MAX_WAIT_MARGIN = 0.25
+
+#: `max_wait_source` in a run's `readback_poll`: whether --max-wait was the
+#: default (sized to the plan) or given, and so honoured exactly.
+MAX_WAIT_DEFAULT = "default"
+MAX_WAIT_GIVEN = "given"
 
 #: When the readback ends and what its end means. The `--quiet-window` and
 #: `--max-wait` help prints it, and the [readback] notes in
@@ -250,6 +261,110 @@ def adapter_rate(readback: Any) -> Optional[float]:
     return None
 
 
+def settle_time_needed(
+    tags: int,
+    readback_rate: Optional[float],
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+) -> float:
+    """Seconds a readback of `tags` tags needs to settle on an instantly
+    consistent store.
+
+    A readback settles at the earliest after two complete polls, and each poll
+    asks every tag once, paced to `readback_rate` per second. So a run needs
+    about 2 x tags / rate seconds to poll twice, plus the quiet window.
+    `readback_rate` None means lookups are not paced, and only the quiet
+    window counts. The one statement of this arithmetic: the dry-run warning
+    and the plan-sized --max-wait default both use it.
+    """
+    per_poll = tags / readback_rate if readback_rate else 0.0
+    return 2 * per_poll + quiet_window
+
+
+@dataclass(frozen=True)
+class MaxWait:
+    """The --max-wait a run uses, and where it came from.
+
+    `source` is MAX_WAIT_GIVEN for a value the user passed, which is honoured
+    exactly, or MAX_WAIT_DEFAULT for one sized to the plan. `needed` is what
+    the plan needs to settle (`settle_time_needed`).
+    """
+
+    seconds: float
+    source: str
+    needed: float
+    tags: int = 0
+    readback_rate: Optional[float] = None
+
+    @property
+    def raised(self) -> bool:
+        """True when the default was raised above DEFAULT_MAX_WAIT to fit the
+        plan."""
+        return self.source == MAX_WAIT_DEFAULT and self.seconds > DEFAULT_MAX_WAIT
+
+    def describe(self) -> str:
+        """One line for a dry run: the max-wait a real run would use."""
+        if self.source == MAX_WAIT_GIVEN:
+            return f"readback max-wait: {self.seconds:g}s (given)"
+        if not self.raised:
+            return f"readback max-wait: {self.seconds:g}s (default)"
+        cost = (
+            f"{self.tags} tag(s) at --readback-rate {self.readback_rate:g}/s"
+            if self.readback_rate else f"{self.tags} tag(s)"
+        )
+        return (
+            f"readback max-wait: {self.seconds:g}s (the {DEFAULT_MAX_WAIT:g}s "
+            f"default, raised to fit the plan: {cost} need about "
+            f"{self.needed:.1f}s to poll twice plus --quiet-window, and "
+            f"{MAX_WAIT_MARGIN:.0%} more is left for a slower store)"
+        )
+
+
+def resolve_max_wait(
+    max_wait: Optional[float],
+    tags: int,
+    readback: Any,
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+) -> MaxWait:
+    """The --max-wait a run of `tags` tags uses.
+
+    A value given (not None) is honoured exactly, even when it is too short
+    for the plan; the dry run then warns (`settle_time_warning`). None means
+    the user did not pass --max-wait, and the default grows with the plan: the
+    larger of DEFAULT_MAX_WAIT and the plan's settle time plus
+    MAX_WAIT_MARGIN. Without that, a plan above about 110 tags at the default
+    --readback-rate could never poll every tag twice in the default 60s, and a
+    correct pipeline read UNSETTLED. `readback` is a `ReadbackConfig` or an
+    adapter, or None, whose pacing `adapter_rate` reads.
+    """
+    rate = adapter_rate(readback)
+    needed = settle_time_needed(tags, rate, quiet_window)
+    if max_wait is not None:
+        return MaxWait(float(max_wait), MAX_WAIT_GIVEN, needed, tags, rate)
+    seconds = max(DEFAULT_MAX_WAIT, _round_up(needed * (1 + MAX_WAIT_MARGIN)))
+    return MaxWait(seconds, MAX_WAIT_DEFAULT, needed, tags, rate)
+
+
+def readback_poll_settings(
+    tags: int,
+    readback: Any,
+    *,
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+    max_wait: Optional[float] = None,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+) -> Dict[str, Any]:
+    """The readback polling options a run uses, as its artifact records them
+    under `readback_poll`: --max-wait resolved for the plan
+    (`resolve_max_wait`), and whether it was the default or given. Every
+    pipeline tool's real run resolves its polling options here."""
+    resolved = resolve_max_wait(max_wait, tags, readback, quiet_window)
+    return {
+        "quiet_window": quiet_window,
+        "max_wait": resolved.seconds,
+        "max_wait_source": resolved.source,
+        "poll_interval": poll_interval,
+    }
+
+
 def settle_time_warning(
     tags: int,
     readback_rate: Optional[float],
@@ -259,14 +374,12 @@ def settle_time_warning(
     """A warning for a dry run whose real run may end UNSETTLED for lack of
     time, or None when it fits.
 
-    A readback settles at the earliest after two complete polls, and each poll
-    asks every tag once, paced to `readback_rate` per second. So a run needs
-    about 2 x tags / rate seconds to poll twice, plus the quiet window, inside
-    --max-wait. `readback_rate` None means lookups are not paced, and only the
-    quiet window counts. Every pipeline tool's dry run calls this.
+    The run needs `settle_time_needed` seconds inside --max-wait. A default
+    --max-wait is sized to fit (`resolve_max_wait`), so this only fires for a
+    --max-wait the user gave. Every pipeline tool's dry run calls this.
     """
     per_poll = tags / readback_rate if readback_rate else 0.0
-    need = 2 * per_poll + quiet_window
+    need = settle_time_needed(tags, readback_rate, quiet_window)
     if need <= max_wait:
         return None
     if readback_rate:
@@ -761,6 +874,10 @@ __all__ = [
     "EXIT_MISMATCH",
     "EXIT_OK",
     "EXIT_REFUSED",
+    "MAX_WAIT_DEFAULT",
+    "MAX_WAIT_GIVEN",
+    "MAX_WAIT_MARGIN",
+    "MaxWait",
     "READBACK_FAILED",
     "ReadbackError",
     "ReadbackOutcome",
@@ -773,11 +890,14 @@ __all__ = [
     "prepare_readback",
     "read_back_all",
     "readback_failed",
+    "readback_poll_settings",
     "readback_state_phrase",
     "readback_verdict",
     "require_synthetic",
+    "resolve_max_wait",
     "resolve_target_url",
     "send_all",
+    "settle_time_needed",
     "settle_time_warning",
     "status_class",
 ]

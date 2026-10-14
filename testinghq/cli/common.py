@@ -158,15 +158,21 @@ def _add_readback_poll_args(parser) -> None:
             "pipeline, raise it above the pipeline's worst processing latency"
         ),
     )
+    # None means not given: the tool then sizes it to the plan
+    # (`common.resolve_max_wait`), and a value given is honoured exactly.
     group.add_argument(
         "--max-wait",
         type=positive_seconds,
-        default=common.DEFAULT_MAX_WAIT,
+        default=None,
         help=(
-            "seconds to keep polling (default %(default)s). A run whose "
-            "readback is still changing then, or that could not poll every tag "
-            "twice, is UNSETTLED, not lost. Keep it well above --quiet-window, "
-            "and above 2 x tags / --readback-rate"
+            f"seconds to keep polling (default {common.DEFAULT_MAX_WAIT:g}, "
+            "raised to fit a bigger plan: 2 x tags / --readback-rate plus "
+            # %% because argparse %-formats help text.
+            f"--quiet-window, plus {common.MAX_WAIT_MARGIN:.0%}%; the dry run "
+            "prints it). A run whose readback is still changing then, or that "
+            "could not poll every tag twice, is UNSETTLED, not lost. A value "
+            "given is used as is: keep it well above --quiet-window, and above "
+            "2 x tags / --readback-rate"
         ),
     )
     group.add_argument(

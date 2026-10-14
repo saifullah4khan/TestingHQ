@@ -412,8 +412,11 @@ def test_every_send_shaped_command_takes_the_poll_flags():
     parser = cli.build_parser()
     for argv in (["verify", "fire"], ["verify", "check", "run.json"]):
         args = parser.parse_args(argv)
-        for flag in ("quiet_window", "max_wait", "poll_interval"):
+        for flag in ("quiet_window", "poll_interval"):
             assert getattr(args, flag) > 0, f"{argv} lost --{flag.replace('_', '-')}"
+        # Not given: the tool sizes it to the plan.
+        assert args.max_wait is None, f"{argv} lost --max-wait"
+        assert parser.parse_args([*argv, "--max-wait", "7"]).max_wait == 7.0
 
 
 def test_the_poll_defaults_are_ordered_so_a_run_can_settle():

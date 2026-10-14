@@ -172,6 +172,7 @@ def test_a_correct_pipeline_is_loop_safe(target_config, tmp_path, spec_probe):
     code, artifact, text = _run(LoopPipeline(), target_config, tmp_path, spec_probe)
 
     assert code == EXIT_OK, text
+    assert artifact["config"]["readback_poll"]["max_wait_source"] == "default"
     summary = artifact["summary"]
     assert summary["verdict"] == "LOOP-SAFE"
     assert summary["findings"] == 0

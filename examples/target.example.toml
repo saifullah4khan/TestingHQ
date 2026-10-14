@@ -149,8 +149,10 @@ tag = "tag"
 #                   Waiting on the COUNTS rather than on "did it create
 #                   anything" is what catches a duplicate that lands after the
 #                   first sighting.
-#   --max-wait      seconds to keep polling. Default 60. A run whose readback is
-#                   still changing then is UNSETTLED, which is a different claim
-#                   from "lost". Keep it well above --quiet-window.
+#   --max-wait      seconds to keep polling. Default 60, raised to fit a plan
+#                   too big to poll every tag twice in that (the dry run prints
+#                   it). A run whose readback is still changing then is
+#                   UNSETTLED, which is a different claim from "lost". A value
+#                   given is used as is: keep it well above --quiet-window.
 #   --poll-interval seconds between lookups. Default 0.5.
 # ---------------------------------------------------------------------------
