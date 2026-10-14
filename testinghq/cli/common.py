@@ -174,15 +174,6 @@ def _add_readback_args(parser) -> None:
             "mail sink that may hold other people's data"
         ),
     )
-    parser.add_argument(
-        "--expect-route",
-        help=(
-            "the route every message should have been routed to, checked "
-            "against what the system recorded. Without it, the expected route "
-            "is the message's own recipient, and with no notion of routing the "
-            "check reports as not-checked rather than passing"
-        ),
-    )
 
 
 def _resolve_target_url(target_name: Optional[str], config_path: str) -> str:

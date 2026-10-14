@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sys
-from typing import Optional
 
 from ..core import guardrails
 from ..core.config import ConfigError
+from ..pipeline import expectations as pipeline_expectations
 from ..pipeline import ledger as pipeline_ledger
 from ..pipeline import loop as pipeline_loop
 from ..pipeline import messages as pipeline_messages
@@ -19,6 +19,76 @@ from .common import (
     _add_readback_poll_args,
     _resolve_readback,
 )
+
+
+def _add_check_args(parser) -> None:
+    """The match-mode flags verify, ledger and redeliver share, plus
+    `--expect-route`, which only these three honour."""
+    parser.add_argument(
+        "--expect-route",
+        help=(
+            "the route every message should have been filed under, compared "
+            "with what the system recorded. Without it the routing check is "
+            "skipped (no expected route)"
+        ),
+    )
+    parser.add_argument(
+        "--subject-match",
+        choices=list(pipeline_expectations.SUBJECT_MATCH_MODES),
+        default=pipeline_expectations.DEFAULT_SUBJECT_MATCH,
+        help=(
+            "how the stored subject is compared: 'contains' (default) passes a "
+            "helpdesk prefix such as '[Ticket #123]', 'suffix' requires the "
+            "stored subject to end with the sent one, 'exact' requires equality"
+        ),
+    )
+    parser.add_argument(
+        "--attachment-match",
+        choices=list(pipeline_expectations.ATTACHMENT_MATCH_MODES),
+        default=pipeline_expectations.DEFAULT_ATTACHMENT_MATCH,
+        help=(
+            "how attachment names are compared: 'exact' (default) casefolded "
+            "filenames, 'loose' casefolded stems with punctuation removed, for "
+            "systems that sanitise filenames"
+        ),
+    )
+    parser.add_argument(
+        "--body-exact", action="store_true",
+        help=(
+            "require the stored body to equal the whole text part rather than "
+            "contain the substantive text. Off by default because a pipeline "
+            "that reads the HTML part stores an equivalent body, not an "
+            "identical one"
+        ),
+    )
+
+
+def _run_tag_prefix(args) -> str:
+    """The tag prefix this run stamps, decided once and passed everywhere.
+
+    `--tag-prefix` when given. Otherwise a fresh per-run prefix from
+    `messages.run_tag_prefix()` where the readback layer provides it, else the
+    fixed library default."""
+    if args.tag_prefix:
+        return args.tag_prefix
+    minter = getattr(pipeline_messages, "run_tag_prefix", None)
+    if callable(minter):
+        return minter()
+    return pipeline_messages.DEFAULT_TAG_PREFIX
+
+
+def _match_kwargs(args) -> dict:
+    return {
+        "route": getattr(args, "expect_route", None),
+        "body_exact": bool(getattr(args, "body_exact", False)),
+        "subject_match": getattr(
+            args, "subject_match", pipeline_expectations.DEFAULT_SUBJECT_MATCH
+        ),
+        "attachment_match": getattr(
+            args, "attachment_match", pipeline_expectations.DEFAULT_ATTACHMENT_MATCH
+        ),
+    }
+
 
 def _add_verify_parser(sub) -> None:
     """The `verify` subcommand, in two forms.
@@ -53,39 +123,39 @@ def _add_verify_parser(sub) -> None:
         help="max requests per second",
     )
     v_fire.add_argument(
-        "--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX,
+        "--tag-prefix", default=None,
         help=(
-            "prefix for the per-message tag. Change it when two runs hit the "
-            "same system at once, so neither reads the other's records"
-        ),
-    )
-    v_fire.add_argument(
-        "--body-exact", action="store_true",
-        help=(
-            "require the body to match exactly rather than contain the "
-            "substantive text. Off by default because a pipeline that reads the "
-            "HTML part returns an equivalent body, not an identical one"
+            "prefix for the per-message tag, recorded in the artifact. Default: "
+            "a fresh per-run prefix, so a second run against the same store "
+            "never reads the first run's records"
         ),
     )
     v_fire.add_argument("--out", help="path to write the verification artifact JSON")
     v_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(v_fire)
     _add_readback_poll_args(v_fire)
+    _add_check_args(v_fire)
 
     v_check = verify_sub.add_parser(
         "check",
         help="read back a run that already happened, sending nothing",
     )
-    v_check.add_argument("run", help="path to a run artifact written by `verify fire`")
+    v_check.add_argument(
+        "run",
+        help=(
+            "path to an artifact written by `verify fire` or `ledger fire`. "
+            "Blast artifacts carry no tags and are refused"
+        ),
+    )
     v_check.add_argument(
         "--tag-prefix", default=None,
         help="override the tag prefix recorded in the artifact",
     )
-    v_check.add_argument("--body-exact", action="store_true")
     v_check.add_argument("--out", help="path to write the verification artifact JSON")
     v_check.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(v_check)
     _add_readback_poll_args(v_check)
+    _add_check_args(v_check)
 
 
 def _add_ledger_parser(sub) -> None:
@@ -115,11 +185,19 @@ def _add_ledger_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    l_fire.add_argument(
+        "--tag-prefix", default=None,
+        help=(
+            "prefix for the per-message tag, recorded in the artifact. Default: "
+            "a fresh per-run prefix, so a second run against the same store "
+            "never reads the first run's records"
+        ),
+    )
     l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
+    _add_check_args(l_fire)
 
 
 def _add_redeliver_parser(sub) -> None:
@@ -151,20 +229,28 @@ def _add_redeliver_parser(sub) -> None:
     r_fire.add_argument(
         "--retry-after", type=float, default=pipeline_redeliver.DEFAULT_RETRY_AFTER,
         help=(
-            "seconds before the slow-retry redelivery. Deduplication windows "
-            "vary widely, so the default is a starting point to adjust rather "
-            "than a value that suits every pipeline"
+            "seconds the slow-retry scenario waits, once, between sending every "
+            "original and sending every retry. Deduplication windows vary "
+            "widely, so the default is a starting point to adjust"
         ),
     )
     r_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     r_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    r_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    r_fire.add_argument(
+        "--tag-prefix", default=None,
+        help=(
+            "prefix for the per-message tag, recorded in the artifact. Default: "
+            "a fresh per-run prefix, so a second run against the same store "
+            "never reads the first run's records"
+        ),
+    )
     r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
     r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     _add_readback_args(r_fire)
     _add_readback_poll_args(r_fire)
+    _add_check_args(r_fire)
 
 
 def _add_loop_parser(sub) -> None:
@@ -289,6 +375,7 @@ def _add_steady_parser(sub) -> None:
 
 def _cmd_verify_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
+    args.tag_prefix = _run_tag_prefix(args)
 
     try:
         readback = _resolve_readback(args)
@@ -302,7 +389,11 @@ def _cmd_verify_fire(args) -> int:
 
     print(f"verify fire: {decision.reason}")
     if not decision.will_send:
-        print(pipeline_verify.format_dry_run(corpus, readback, args.tag_prefix))
+        print(
+            pipeline_verify.format_dry_run(
+                corpus, readback, args.tag_prefix, **_match_kwargs(args)
+            )
+        )
         return EXIT_DRY_RUN
 
     return pipeline_verify.execute(
@@ -314,11 +405,11 @@ def _cmd_verify_fire(args) -> int:
         readback=readback,
         tag_prefix=args.tag_prefix,
         rate=args.rate,
-        route=args.expect_route,
-        body_exact=args.body_exact,
+        allow_public_target=bool(getattr(args, "allow_public_target", False)),
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        **_match_kwargs(args),
     )
 
 
@@ -336,17 +427,17 @@ def _cmd_verify_check(args) -> int:
         args.config,
         args.out,
         readback=readback,
-        route=args.expect_route,
-        body_exact=args.body_exact,
         tag_prefix=args.tag_prefix,
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        **_match_kwargs(args),
     )
 
 
 def _cmd_ledger_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
+    args.tag_prefix = _run_tag_prefix(args)
 
     try:
         readback = _resolve_readback(args)
@@ -355,10 +446,14 @@ def _cmd_ledger_fire(args) -> int:
         return EXIT_REFUSED
 
     print(f"ledger fire: {decision.reason}")
+    match = _match_kwargs(args)
     if not decision.will_send:
         print(
             pipeline_ledger.format_dry_run(
-                args.count, args.seed, args.tag_prefix, readback
+                args.count, args.seed, args.tag_prefix, readback,
+                route=match["route"],
+                subject_match=match["subject_match"],
+                attachment_match=match["attachment_match"],
             )
         )
         return EXIT_DRY_RUN
@@ -372,10 +467,11 @@ def _cmd_ledger_fire(args) -> int:
         readback=readback,
         tag_prefix=args.tag_prefix,
         rate=args.rate,
-        route=args.expect_route,
+        allow_public_target=bool(getattr(args, "allow_public_target", False)),
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        **match,
     )
 
 
@@ -468,6 +564,7 @@ def _cmd_steady_fire(args) -> int:
 
 def _cmd_redeliver_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
+    args.tag_prefix = _run_tag_prefix(args)
 
     try:
         readback = _resolve_readback(args)
@@ -484,8 +581,16 @@ def _cmd_redeliver_fire(args) -> int:
         return EXIT_REFUSED
 
     print(f"redeliver fire: {decision.reason}")
+    match = _match_kwargs(args)
     if not decision.will_send:
-        print(pipeline_redeliver.format_dry_run(scenarios, readback, args.tag_prefix))
+        print(
+            pipeline_redeliver.format_dry_run(
+                scenarios, readback, args.tag_prefix,
+                route=match["route"],
+                subject_match=match["subject_match"],
+                attachment_match=match["attachment_match"],
+            )
+        )
         return EXIT_DRY_RUN
 
     return pipeline_redeliver.execute(
@@ -499,7 +604,9 @@ def _cmd_redeliver_fire(args) -> int:
         tag_prefix=args.tag_prefix,
         rate=args.rate,
         retry_after=args.retry_after,
+        allow_public_target=bool(getattr(args, "allow_public_target", False)),
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        **match,
     )
