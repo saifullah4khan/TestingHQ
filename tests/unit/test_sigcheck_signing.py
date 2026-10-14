@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from email import policy
 from email.parser import BytesParser
 
@@ -275,6 +276,49 @@ def test_an_enforcing_mailgun_endpoint_passes_and_gets_the_guidance_note(tmp_pat
     assert by["replayed-token"]["status"] == 409 and by["replayed-token"]["verdict"] == "OK"
     assert by["stale-timestamp"]["verdict"] == "INFO" and by["stale-timestamp"]["accepted"]
     assert any("Mailgun's own guidance" in n for n in artifact["summary"]["notes"])
+
+
+class DedupingMailgunEndpoint(MailgunEndpoint):
+    """Also refuses an authenticated request whose Message-ID it has already
+    accepted, as an endpoint that deduplicates at the door does."""
+
+    def __init__(self):
+        super().__init__()
+        self.accepted_ids = set()
+
+    def send(self, request):
+        response = MailgunEndpoint.send(self, request)
+        if response.status != 200:
+            return response
+        found = re.search(rb"<(sigcheck-[^>]+)>", request.body)
+        message_id = found.group(1) if found else b""
+        if message_id in self.accepted_ids:
+            return ClientResponse(status=409, body=b"duplicate message")
+        self.accepted_ids.add(message_id)
+        return response
+
+
+def test_a_second_run_is_not_refused_as_a_repeat_of_the_first(tmp_path):
+    """Every run used to carry one fixed Message-ID, so an endpoint that drops
+    a repeat refused the second run's valid request and sigcheck reported it.
+    Within a run the replay still carries the valid request's id."""
+    endpoint = DedupingMailgunEndpoint()
+    for offset in (0, 60):
+        lines = []
+        code = tool.execute(
+            scheme_name="mailgun", secret=MAILGUN_KEY, secret_ref="env:HOOK_SECRET",
+            target_name="local", config_path=_config(tmp_path, "mailgun"),
+            out=str(tmp_path / "sig.json"), client=endpoint,
+            clock=lambda offset=offset: NOW + offset, printer=lines.append,
+        )
+        artifact = json.loads((tmp_path / "sig.json").read_text(encoding="utf-8"))
+        by = {v["variant"]: v for v in artifact["variants"]}
+        assert code == EXIT_OK, "\n".join(lines)
+        assert by["valid"]["status"] == 200
+    ids = [re.search(rb"<(sigcheck-[^>]+)>", r.body).group(1) for r in endpoint.requests]
+    half = len(ids) // 2
+    assert len(set(ids[:half])) == 1 and len(set(ids[half:])) == 1
+    assert ids[0] != ids[half]
 
 
 def test_an_endpoint_that_accepts_everything_is_caught(tmp_path):

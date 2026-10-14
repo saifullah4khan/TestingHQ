@@ -227,14 +227,18 @@ def test_message_id_of_strips_the_angle_brackets():
     assert messages.message_id_of(email) == "x@y"
 
 
-def test_a_pinned_null_message_id_is_ignored_rather_than_written():
-    """`None` means "do not pin this header", which is different from writing
-    an empty one. A scenario that does not control Message-IDs must not erase
-    the one the generator produced."""
+def test_an_unpinned_message_id_is_derived_from_the_tag():
+    """`None` means "do not pin this header". The generator's id is a function
+    of the seed alone, so keeping it would give two runs with one seed the
+    same Message-ID, and a pipeline that drops a repeat would drop the second
+    run. The stamped id is the tag's, in angle brackets."""
     corpus = generate_corpus(11, 1)
-    generated = messages.message_id_of(corpus[0])
-    email = messages.stamp(corpus[0], messages.make_tag("hq", 11, 0), message_id=None)
-    assert messages.message_id_of(email) == generated
+    tag = messages.make_tag("hq-2610141200-ab12", 11, 0)
+    email = messages.stamp(corpus[0], tag, message_id=None)
+    assert email.headers["Message-ID"] == f"<{tag}@hq.example.test>"
+    assert messages.message_id_of(email) == messages.build_chain_message_id(tag)
+    other = messages.stamp(corpus[0], messages.make_tag("hq-2610141200-cd34", 11, 0))
+    assert messages.message_id_of(other) != messages.message_id_of(email)
 
 
 def test_a_generated_chain_message_id_is_on_a_reserved_domain():

@@ -263,7 +263,7 @@ def test_expect_route_exists_only_on_the_tools_that_honour_it():
 def test_the_match_mode_flags_are_on_all_three_checking_tools():
     parser = cli.build_parser()
     for argv in (
-        ["verify", "fire"], ["verify", "check", "run.json"],
+        ["verify", "fire"],
         ["ledger", "fire"], ["redeliver", "fire"],
     ):
         args = parser.parse_args(argv)
@@ -276,6 +276,86 @@ def test_the_match_mode_flags_are_on_all_three_checking_tools():
         assert (args.subject_match, args.attachment_match) == ("suffix", "loose")
     with pytest.raises(SystemExit):
         parser.parse_args(["ledger", "fire", "--subject-match", "fuzzy"])
+
+
+def test_verify_check_match_flags_default_to_the_artifact():
+    """None means "the mode the artifact recorded"; a flag overrides it, and
+    the --no- forms switch a recorded route or exact body off."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["verify", "check", "run.json"])
+    assert (args.expect_route, args.subject_match, args.attachment_match, args.body_exact) == (
+        None, None, None, None
+    )
+    args = parser.parse_args(
+        ["verify", "check", "run.json", "--subject-match", "suffix",
+         "--attachment-match", "loose", "--no-expect-route", "--no-body-exact"]
+    )
+    assert (args.expect_route, args.subject_match, args.attachment_match, args.body_exact) == (
+        "", "suffix", "loose", False
+    )
+
+
+@pytest.fixture
+def check_store():
+    """A readback published as a `module:attribute` spec: every payload of
+    the run stored correctly, filed under the route the test sets."""
+    import sys
+    import types
+
+    from testinghq.pipeline import messages
+    from testinghq.pipeline.readback import FunctionAdapter, Readback
+
+    state = {"route": "support", "corpus": {}}
+
+    def fetch(probe):
+        email = state["corpus"].get(probe.tag)
+        if email is None:
+            return []
+        return [Readback(
+            exists=True, ticket_id=f"T-{probe.tag}",
+            from_addr=email.ground_truth.from_addr, subject=email.ground_truth.subject,
+            body=email.text, attachment_names=tuple(a.filename for a in email.attachments),
+            route=state["route"], message_id=messages.message_id_of(email),
+            fields=("ticket_id", "from_addr", "subject", "body", "attachment_names", "route"),
+        )]
+
+    module = types.ModuleType("testinghq_cli_check_store")
+    module.build = lambda config: FunctionAdapter(fetch)
+    sys.modules[module.__name__] = module
+    yield state
+    del sys.modules[module.__name__]
+
+
+def test_verify_check_rechecks_a_run_with_the_route_it_was_fired_with(
+    target_config, tmp_path, capsys, check_store
+):
+    from testinghq.pipeline import verify
+
+    corpus = verify.build_tagged_corpus(3, 2, "hq-fixed")
+    check_store["corpus"] = {tag: email for email, tag, _rid in corpus}
+    artifact = tmp_path / "verify.json"
+    artifact.write_text(json.dumps({
+        "schema_version": 1, "tool": "verify", "seed": 3,
+        "config": {"tool": "verify", "count": 2, "tag_prefix": "hq-fixed",
+                   "expect_route": "support", "subject_match": "contains",
+                   "attachment_match": "exact", "body_exact": False},
+        "records": [{"id": rid, "tag": tag, "category": "clean"} for _e, tag, rid in corpus],
+    }), encoding="utf-8")
+    argv = ["verify", "check", str(artifact), "--config", target_config,
+            "--readback", "testinghq_cli_check_store:build",
+            "--quiet-window", "0", "--poll-interval", "0.01"]
+
+    check_store["route"] = "billing"
+    code = cli.main(argv)
+    out = capsys.readouterr().out
+    assert code == 3, out
+    assert "route recorded in the artifact" in out
+    assert "route support" in out
+
+    code = cli.main(argv + ["--no-expect-route"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "route given on the command line" in out
 
 
 def test_the_ledger_dry_run_carries_the_route_through(target_config, capsys):

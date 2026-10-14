@@ -9,6 +9,7 @@ it as prominently as what was.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -900,6 +901,87 @@ def test_verify_check_takes_the_match_modes(target_config, tmp_path, spec_probe)
     checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
     assert checked["config"]["subject_match"] == "exact"
     assert checked["tool"] == "verify" and checked["schema_version"] == 1
+
+
+def _routed(fetch, route):
+    """`fetch`, with every record filed under `route`."""
+    def routed(probe):
+        return [replace(r, route=route) for r in fetch(probe)]
+
+    return routed
+
+
+def _check(target_config, tmp_path, lines, **modes):
+    return verify.check_saved_run(
+        str(tmp_path / "verify.json"), target_config, str(tmp_path / "checked.json"),
+        readback=_config(), printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+        **modes,
+    )
+
+
+def test_verify_check_uses_the_match_modes_the_artifact_recorded(
+    target_config, tmp_path, spec_probe
+):
+    """A run fired with --expect-route and --subject-match exact is re-checked
+    with both; it used to be re-checked with the defaults, so a store that
+    later lost the routing and prefixed every subject still VERIFIED."""
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    code, _client, text, _artifact = _run(
+        target_config, tmp_path, spec_probe, _routed(_perfect(), "support"),
+        route="support", subject_match="exact",
+    )
+    assert code == EXIT_OK, text
+
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = _check(target_config, tmp_path, lines)
+    text = "\n".join(lines)
+    assert code == EXIT_MISMATCH, text
+    assert "route support" in text and "subject exact" in text
+    assert "subject, body, attachments, route recorded in the artifact" in text
+    checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
+    assert checked["config"]["expect_route"] == "support"
+    assert checked["config"]["subject_match"] == "exact"
+    assert set(checked["config"]["match_modes_from"].values()) == {"artifact"}
+
+
+def test_verify_check_flags_override_the_recorded_match_modes(
+    target_config, tmp_path, spec_probe
+):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    _run(target_config, tmp_path, spec_probe, _routed(_perfect(), "support"),
+         route="support", subject_match="exact")
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = _check(target_config, tmp_path, lines, route="", subject_match="contains")
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "subject, route given on the command line" in text
+    checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
+    assert checked["config"]["expect_route"] is None
+    assert checked["config"]["match_modes_from"]["subject_match"] == "flag"
+
+
+def test_verify_check_falls_back_to_the_defaults_for_an_artifact_without_modes(
+    target_config, tmp_path, spec_probe
+):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    path = tmp_path / "verify.json"
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("expect_route", "subject_match", "attachment_match", "body_exact"):
+        artifact["config"].pop(key, None)
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = _check(target_config, tmp_path, lines)
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "the default (the artifact recorded none)" in text
 
 
 # ---------------------------------------------------------------------------

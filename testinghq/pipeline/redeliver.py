@@ -29,12 +29,13 @@ propagation bug and a deduplication bug.
 
 The four scenarios share payload bytes on purpose, so a parse bug shows up four
 ways rather than once plus three unrelated findings. Identity is scoped per
-scenario instead, by a tag prefix and a Message-ID prefix, because shared
-payloads carry shared Message-IDs and a correct pipeline deduplicates on them:
-without the prefixes the slow-retry scenario re-delivered messages the duplicate
-scenario had already sent, the pipeline correctly recognised them as
-redeliveries, and the scenario reported total loss. Every component was correct;
-the test design was not.
+scenario and per run instead: every Message-ID, In-Reply-To and References
+value is derived from the scenario's tag, which carries the run's tag prefix
+and a scenario suffix. A correct pipeline deduplicates on Message-ID, so with a
+shared id the slow-retry scenario re-delivered messages the duplicate scenario
+had already sent, and a second run re-delivered the first run's; the pipeline
+correctly recognised them as redeliveries and the scenario reported total loss.
+Every component was correct; the test design was not.
 """
 from __future__ import annotations
 
@@ -130,8 +131,9 @@ SCENARIOS: Tuple[str, ...] = (
     SCENARIO_REFERENCES,
 )
 
-#: The tag suffix and the Message-ID prefix a scenario stamps, one per scenario.
-#: Both exist for the same reason and it is worth stating plainly, because the
+#: The tag suffix a scenario stamps, one per scenario. Every Message-ID the
+#: scenario sends is derived from its tags, so the suffix scopes both. It exists
+#: for a reason worth stating plainly, because the
 #: alternative was tried first and failed loudly: the four scenarios share the
 #: same generated payloads, and a generated payload carries a Message-ID, and a
 #: correct pipeline deduplicates on Message-ID. So the slow-retry scenario
@@ -142,10 +144,11 @@ SCENARIOS: Tuple[str, ...] = (
 #: tool. The scenarios were contaminating each other through the one field
 #: they have to share to be the same message within a scenario.
 #:
-#: A per-scenario Message-ID prefix fixes it without giving up the shared
-#: payload: the bytes are the same across scenarios, so a parse bug shows up the
-#: same way in all four, and the identity is scoped, so one scenario's
-#: deduplication cannot absorb another's deliveries.
+#: A per-scenario tag, with the Message-ID derived from it, fixes it without
+#: giving up the shared payload: the bytes are the same across scenarios, so a
+#: parse bug shows up the same way in all four, and the identity is scoped, so
+#: one scenario's deduplication cannot absorb another's deliveries. The tag
+#: also carries the run's prefix, so one run's cannot absorb another run's.
 SCENARIO_IDENTITY: Dict[str, str] = {
     SCENARIO_DUPLICATE: "dup",
     SCENARIO_SLOW_RETRY: "rty",
@@ -310,7 +313,6 @@ def _repeat_twice(
     corpus: Sequence[InboundEmail],
     seed: int,
     tag_prefix: str,
-    id_prefix: str,
     gap: float,
 ) -> Tuple[Delivery, ...]:
     """The identical message delivered twice.
@@ -324,17 +326,16 @@ def _repeat_twice(
     Message-ID would be a different message, and a pipeline that correctly
     created two tickets for it would be reported as having duplicated one.
 
-    The Message-ID is pinned from `id_prefix` rather than left as the
-    generator's, for the cross-scenario reason documented on
-    `SCENARIO_IDENTITY`: the four scenarios share payload bytes, and a shared
-    Message-ID would make the second scenario's deliveries look like
-    redeliveries of the first's.
+    The Message-ID is derived from the tag rather than left as the
+    generator's, for the reason documented on `SCENARIO_IDENTITY`: the four
+    scenarios share payload bytes, and a shared Message-ID would make one
+    scenario's deliveries, or one run's, look like redeliveries of another's.
     """
     originals: List[Delivery] = []
     retries: List[Delivery] = []
     for index, email in enumerate(corpus):
         tag = messages.make_tag(tag_prefix, seed, index)
-        message_id = messages.build_chain_message_id(f"{id_prefix}-{seed}-{index:04d}")
+        message_id = messages.build_chain_message_id(tag)
         record_id = f"clean-{seed}-{index:04d}"
         originals.append(
             Delivery(
@@ -367,11 +368,11 @@ def _repeat_twice(
 
 
 def build_duplicate(
-    corpus: Sequence[InboundEmail], seed: int, tag_prefix: str, id_prefix: str = "dup"
+    corpus: Sequence[InboundEmail], seed: int, tag_prefix: str
 ) -> Scenario:
     return Scenario(
         name=SCENARIO_DUPLICATE,
-        deliveries=_repeat_twice(corpus, seed, tag_prefix, id_prefix, 0.0),
+        deliveries=_repeat_twice(corpus, seed, tag_prefix, 0.0),
         question=(
             "the identical message, same Message-ID, delivered twice back to "
             "back: a correct pipeline creates one ticket"
@@ -384,13 +385,12 @@ def build_slow_retry(
     seed: int,
     tag_prefix: str,
     retry_after: float,
-    id_prefix: str = "rty",
 ) -> Scenario:
     if retry_after < 0:
         raise ScenarioError(f"--retry-after must be >= 0, got {retry_after}")
     return Scenario(
         name=SCENARIO_SLOW_RETRY,
-        deliveries=_repeat_twice(corpus, seed, tag_prefix, id_prefix, retry_after),
+        deliveries=_repeat_twice(corpus, seed, tag_prefix, retry_after),
         question=(
             f"every message re-sent after one {retry_after:g}s wait following "
             f"a first delivery that succeeded: one ticket each. This is the "
@@ -403,7 +403,6 @@ def build_reply_first(
     corpus: Sequence[InboundEmail],
     seed: int,
     tag_prefix: str,
-    id_prefix: str = "r1st",
 ) -> Scenario:
     """A reply delivered before the message it replies to.
 
@@ -422,7 +421,7 @@ def build_reply_first(
     root_tag = messages.make_tag(tag_prefix, seed, 0)
     reply_one_tag = messages.make_tag(tag_prefix, seed, 1)
     reply_two_tag = messages.make_tag(tag_prefix, seed, 2)
-    root_id = messages.build_chain_message_id(f"{id_prefix}-root-{seed}")
+    root_id = messages.build_chain_message_id(root_tag)
     subject = reply_subject(root_email.ground_truth.subject)
 
     return Scenario(
@@ -433,7 +432,7 @@ def build_reply_first(
                 reply_one_tag,
                 1,
                 seed,
-                message_id=messages.build_chain_message_id(f"{id_prefix}-r1-{seed}"),
+                message_id=messages.build_chain_message_id(reply_one_tag),
                 in_reply_to=root_id,
                 references=root_id,
                 in_reply_to_tag=root_tag,
@@ -444,7 +443,7 @@ def build_reply_first(
                 reply_two_tag,
                 2,
                 seed,
-                message_id=messages.build_chain_message_id(f"{id_prefix}-r2-{seed}"),
+                message_id=messages.build_chain_message_id(reply_two_tag),
                 in_reply_to=root_id,
                 references=root_id,
                 in_reply_to_tag=root_tag,
@@ -463,7 +462,6 @@ def build_references(
     corpus: Sequence[InboundEmail],
     seed: int,
     tag_prefix: str,
-    id_prefix: str = "ref",
 ) -> Scenario:
     """A three-message thread in order, with a growing References chain.
 
@@ -480,8 +478,8 @@ def build_references(
     root_tag = messages.make_tag(tag_prefix, seed, 0)
     reply_one_tag = messages.make_tag(tag_prefix, seed, 1)
     reply_two_tag = messages.make_tag(tag_prefix, seed, 2)
-    root_id = messages.build_chain_message_id(f"{id_prefix}-root-{seed}")
-    reply_one_id = messages.build_chain_message_id(f"{id_prefix}-r1-{seed}")
+    root_id = messages.build_chain_message_id(root_tag)
+    reply_one_id = messages.build_chain_message_id(reply_one_tag)
     subject = reply_subject(root_email.ground_truth.subject)
 
     return Scenario(
@@ -504,7 +502,7 @@ def build_references(
                 reply_two_tag,
                 2,
                 seed,
-                message_id=messages.build_chain_message_id(f"{id_prefix}-r2-{seed}"),
+                message_id=messages.build_chain_message_id(reply_two_tag),
                 in_reply_to=reply_one_id,
                 references=f"{root_id} {reply_one_id}",
                 in_reply_to_tag=reply_one_tag,
@@ -538,10 +536,10 @@ def build_scenarios(
 
     The corpus is generated once, from the seed, and the same payloads feed
     every scenario, so the only thing that varies between them is the delivery
-    semantics. Each scenario's tag prefix and Message-ID prefix are scoped to
-    it, for the reason documented on `SCENARIO_IDENTITY`: sharing the bytes is
-    deliberate, sharing the identity would let one scenario's deduplication
-    swallow another's deliveries.
+    semantics. Each scenario's tags, and the Message-IDs derived from them, are
+    scoped to it, for the reason documented on `SCENARIO_IDENTITY`: sharing
+    the bytes is deliberate, sharing the identity would let one scenario's
+    deduplication swallow another's deliveries.
 
     The threaded scenarios need exactly 3 payloads and take what they need; the
     duplicate scenarios take all `count` of them, because "did a redelivery
@@ -560,12 +558,9 @@ def build_scenarios(
 
     scenarios: List[Scenario] = []
     for name in wanted:
-        identity = SCENARIO_IDENTITY[name]
-        prefix = f"{tag_prefix}-{SCENARIO_TAG_SUFFIX[name]}"
+        prefix = scenario_tag_prefix(tag_prefix, name)
         if name == SCENARIO_SLOW_RETRY:
-            built = build_slow_retry(
-                corpus[:count], seed, prefix, retry_after, identity
-            )
+            built = build_slow_retry(corpus[:count], seed, prefix, retry_after)
         elif name == SCENARIO_DUPLICATE:
             # `corpus[:count]`, not the whole corpus. The first version passed
             # the full three-payload slice to the duplicate scenario and a
@@ -573,9 +568,9 @@ def build_scenarios(
             # "3 messages" for one scenario and "2 messages" for the other, and
             # the two could not be compared. Both duplicate scenarios now cover
             # exactly the messages the operator asked for.
-            built = build_duplicate(corpus[:count], seed, prefix, identity)
+            built = build_duplicate(corpus[:count], seed, prefix)
         else:
-            built = _BUILDERS[name](corpus, seed, prefix, identity)
+            built = _BUILDERS[name](corpus, seed, prefix)
         scenarios.append(built)
     return scenarios
 
