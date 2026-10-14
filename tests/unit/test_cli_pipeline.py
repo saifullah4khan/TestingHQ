@@ -451,7 +451,7 @@ def test_the_tools_share_their_readback_arguments():
 def test_ledger_fire_does_nothing_without_send(target_config, capsys):
     code = cli.main(
         ["ledger", "fire", "--target", TARGET, "--config", target_config,
-         "--readback", "mailbox", "--count", "5"]
+         "--readback", "mailbox", "--count", "5", "--tag-prefix", "hq"]
     )
     out = capsys.readouterr().out
     assert code == EXIT_DRY_RUN
