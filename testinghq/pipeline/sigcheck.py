@@ -877,6 +877,43 @@ def preview(settings: Settings, secret: Any = None, target: Optional[str] = None
                           secret_missing=missing if secret is None else None)
 
 
+def format_mismatch(scheme_name: str, target_name: str, format_name: str) -> Optional[str]:
+    """Why a target in `format_name` cannot carry `scheme_name`, or None.
+
+    One wording for the dry run and the real run, so the preview names the
+    refusal the send would hit."""
+    allowed = SCHEME_FORMATS[scheme_name]
+    if format_name in allowed:
+        return None
+    return (
+        f"target {target_name!r} is configured with format {format_name!r}; "
+        f"the {scheme_name} scheme authenticates {' or '.join(allowed)} requests. "
+        f"Set format = \"{allowed[0]}\" on the target."
+    )
+
+
+def configured_format_mismatch(
+    scheme_name: str, target_name: Optional[str], config_path: Optional[str]
+) -> Optional[str]:
+    """The format refusal a real run against `target_name` would hit, or None.
+
+    Checked before anything is announced, by the dry run as well as the send,
+    so a preview never looks fine for a command `--send` refuses. A dry run
+    does not need the target to exist, so a missing config file, an unknown
+    target or no target at all is not reported here (a real run refuses those
+    when it resolves the target): only a target the config does declare, in a
+    format the scheme cannot authenticate."""
+    from ..core.config import ConfigError, load_config
+
+    if not target_name or not config_path or not Path(config_path).exists():
+        return None
+    try:
+        target = load_config(config_path).get(target_name)
+    except ConfigError:
+        return None
+    return format_mismatch(scheme_name, target.name, target.wire_format)
+
+
 def execute(
     *,
     scheme_name: str,
@@ -899,13 +936,9 @@ def execute(
     try:
         scheme = get_scheme(scheme_name)
         target = resolve_target(target_name, config_path, allow_public_target=allow_public_target)
-        allowed = SCHEME_FORMATS[scheme.name]
-        if target.format_name not in allowed:
-            raise SigcheckError(
-                f"target {target.name!r} is configured with format {target.format_name!r}; "
-                f"the {scheme.name} scheme authenticates {' or '.join(allowed)} requests. "
-                f"Set format = \"{allowed[0]}\" on the target."
-            )
+        mismatch = format_mismatch(scheme.name, target.name, target.format_name)
+        if mismatch is not None:
+            raise SigcheckError(mismatch)
         guardrails.require_synthetic_content(
             [sample_payload().to, sample_payload().from_addr]
         )

@@ -378,3 +378,30 @@ def test_the_config_reference_states_the_real_sigcheck_default():
 
     keys = {k.name: k.default for k in config_schema.table_named("sigcheck").keys}
     assert float(keys["timestamp_window_seconds"]) == tool.DEFAULT_WINDOW
+
+
+def test_the_dry_run_refuses_a_target_whose_format_the_scheme_cannot_sign(
+    tmp_path, capsys, monkeypatch
+):
+    """The dry run says what --send would say. A preview that looked fine for a
+    command --send then refused hid the refusal until the real run."""
+    monkeypatch.setenv("HOOK_SECRET", MAILGUN_KEY)
+    argv = ["sigcheck", "fire", "--scheme", "mailgun", "--secret", "env:HOOK_SECRET",
+            "--target", "local", "--config", _config(tmp_path, "sendgrid")]
+    assert cli.main(argv) == EXIT_REFUSED
+    dry = capsys.readouterr()
+    assert cli.main([*argv, "--send"]) == EXIT_REFUSED
+    sent = capsys.readouterr()
+    assert 'Set format = "mailgun"' in dry.err
+    assert dry.err == sent.err, "the dry run and the send give the same refusal"
+    assert "no network calls were made" not in dry.out
+
+
+def test_the_dry_run_of_a_matching_target_still_previews(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("HOOK_SECRET", MAILGUN_KEY)
+    code = cli.main(["sigcheck", "fire", "--scheme", "mailgun", "--secret", "env:HOOK_SECRET",
+                     "--target", "local", "--config", _config(tmp_path, "mailgun")])
+    captured = capsys.readouterr()
+    assert code == EXIT_DRY_RUN
+    assert "no network calls were made" in captured.out
+    assert captured.err == ""

@@ -68,6 +68,16 @@ def _cmd_sigcheck_fire(args) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_REFUSED
 
+    # Before anything is announced, and for a dry run too: a target whose
+    # format the scheme cannot authenticate is refused by --send, so the
+    # preview reports the same refusal rather than looking fine.
+    mismatch = pipeline_sigcheck.configured_format_mismatch(
+        settings.scheme, args.target, args.config
+    )
+    if mismatch is not None:
+        print(f"refused: {mismatch}", file=sys.stderr)
+        return EXIT_REFUSED
+
     try:
         secret = pipeline_sigcheck.resolve_secret(settings)
         missing = None
