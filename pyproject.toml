@@ -33,6 +33,7 @@ include = ["testinghq*"]
 # checks every non-Python file under testinghq/ is covered by a pattern here.
 [tool.setuptools.package-data]
 "testinghq.pipeline" = ["fixtures/*.json"]
+"testinghq.report_html" = ["template.html", "render.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
