@@ -351,11 +351,19 @@ READBACK = Table(
         "listing is on, one listing request: a 401 or 403, a 404 list url, a "
         "response that is not JSON, or records with no identifier are refused "
         "then rather than discovered after the run.",
-        "A run whose readback has not settled within --max-wait is UNSETTLED, "
-        "not lost. For a pipeline that writes on a queue consumer, make "
-        "--quiet-window longer than the gap between a record being created and "
-        "being filled in; for a search-indexed store (Zendesk, Freshdesk) start "
-        "with --max-wait 300.",
+        # The same paragraph as pipeline.common.SETTLING_RULE, which the
+        # --quiet-window/--max-wait help prints. Copied rather than imported so
+        # this schema keeps no dependency on the pipeline package.
+        "The readback is SETTLED once what it sees (which tags are found, how "
+        "many records each, and the field values the checks read) has not "
+        "changed for --quiet-window seconds; a tag still not found then is "
+        "MISSING and is reported as lost. It is UNSETTLED only when --max-wait "
+        "runs out while that state is still changing, which exits 3 with an "
+        "UNSETTLED headline and keeps every finding already proven. For a slow "
+        "or async pipeline, raise --quiet-window above the pipeline's worst "
+        "processing latency (a search-indexed store such as Zendesk or "
+        "Freshdesk can take minutes to index a new ticket), and keep --max-wait "
+        "well above --quiet-window.",
     ),
 )
 
