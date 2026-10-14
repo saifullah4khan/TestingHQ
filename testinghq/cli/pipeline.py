@@ -18,6 +18,7 @@ from .common import (
     _add_readback_args,
     _add_readback_poll_args,
     _resolve_readback,
+    add_send_args,
 )
 
 
@@ -61,20 +62,6 @@ def _add_check_args(parser) -> None:
             "identical one"
         ),
     )
-
-
-def _run_tag_prefix(args) -> str:
-    """The tag prefix this run stamps, decided once and passed everywhere.
-
-    `--tag-prefix` when given. Otherwise a fresh per-run prefix from
-    `messages.run_tag_prefix()` where the readback layer provides it, else the
-    fixed library default."""
-    if args.tag_prefix:
-        return args.tag_prefix
-    minter = getattr(pipeline_messages, "run_tag_prefix", None)
-    if callable(minter):
-        return minter()
-    return pipeline_messages.DEFAULT_TAG_PREFIX
 
 
 def _match_kwargs(args) -> dict:
@@ -123,15 +110,16 @@ def _add_verify_parser(sub) -> None:
         help="max requests per second",
     )
     v_fire.add_argument(
-        "--tag-prefix", default=None,
+        "--tag-prefix", default=pipeline_messages.run_tag_prefix(),
         help=(
-            "prefix for the per-message tag, recorded in the artifact. Default: "
-            "a fresh per-run prefix, so a second run against the same store "
-            "never reads the first run's records"
+            "prefix for the per-message tag. The default is drawn per run "
+            "(hq-<yymmddHHMM>-<4 hex>), so no two runs share tags; pass a "
+            "fixed value to reproduce an earlier run's tags"
         ),
     )
     v_fire.add_argument("--out", help="path to write the verification artifact JSON")
     v_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(v_fire)
     _add_readback_args(v_fire)
     _add_readback_poll_args(v_fire)
     _add_check_args(v_fire)
@@ -185,16 +173,10 @@ def _add_ledger_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    l_fire.add_argument(
-        "--tag-prefix", default=None,
-        help=(
-            "prefix for the per-message tag, recorded in the artifact. Default: "
-            "a fresh per-run prefix, so a second run against the same store "
-            "never reads the first run's records"
-        ),
-    )
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     l_fire.add_argument("--out", help="path to write the ledger artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
     _add_check_args(l_fire)
@@ -238,16 +220,10 @@ def _add_redeliver_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     r_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    r_fire.add_argument(
-        "--tag-prefix", default=None,
-        help=(
-            "prefix for the per-message tag, recorded in the artifact. Default: "
-            "a fresh per-run prefix, so a second run against the same store "
-            "never reads the first run's records"
-        ),
-    )
+    r_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     r_fire.add_argument("--out", help="path to write the redelivery artifact JSON")
     r_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(r_fire)
     _add_readback_args(r_fire)
     _add_readback_poll_args(r_fire)
     _add_check_args(r_fire)
@@ -282,7 +258,7 @@ def _add_loop_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     l_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    l_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    l_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     l_fire.add_argument("--out", help="path to write the loop artifact JSON")
     l_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
     l_fire.add_argument(
@@ -302,6 +278,7 @@ def _add_loop_parser(sub) -> None:
             "something real. Read from [loop].reply_address when set here"
         ),
     )
+    add_send_args(l_fire)
     _add_readback_args(l_fire)
     _add_readback_poll_args(l_fire)
 
@@ -342,7 +319,7 @@ def _add_steady_parser(sub) -> None:
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
     s_fire.add_argument("--rate", type=float, default=pipeline_verify.DEFAULT_RATE)
-    s_fire.add_argument("--tag-prefix", default=pipeline_messages.DEFAULT_TAG_PREFIX)
+    s_fire.add_argument("--tag-prefix", default=pipeline_messages.run_tag_prefix())
     s_fire.add_argument(
         "--repeats", type=int, default=1,
         help=(
@@ -369,13 +346,13 @@ def _add_steady_parser(sub) -> None:
     )
     s_fire.add_argument("--out", help="path to write the stability artifact JSON")
     s_fire.add_argument("--config", default=DEFAULT_TARGET_CONFIG)
+    add_send_args(s_fire)
     _add_readback_args(s_fire)
     _add_readback_poll_args(s_fire)
 
 
 def _cmd_verify_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
-    args.tag_prefix = _run_tag_prefix(args)
 
     try:
         readback = _resolve_readback(args)
@@ -405,7 +382,7 @@ def _cmd_verify_fire(args) -> int:
         readback=readback,
         tag_prefix=args.tag_prefix,
         rate=args.rate,
-        allow_public_target=bool(getattr(args, "allow_public_target", False)),
+        allow_public_target=args.allow_public_target,
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
@@ -437,7 +414,6 @@ def _cmd_verify_check(args) -> int:
 
 def _cmd_ledger_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
-    args.tag_prefix = _run_tag_prefix(args)
 
     try:
         readback = _resolve_readback(args)
@@ -467,7 +443,7 @@ def _cmd_ledger_fire(args) -> int:
         readback=readback,
         tag_prefix=args.tag_prefix,
         rate=args.rate,
-        allow_public_target=bool(getattr(args, "allow_public_target", False)),
+        allow_public_target=args.allow_public_target,
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
@@ -516,6 +492,7 @@ def _cmd_loop_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
@@ -559,12 +536,12 @@ def _cmd_steady_fire(args) -> int:
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,
+        allow_public_target=args.allow_public_target,
     )
 
 
 def _cmd_redeliver_fire(args) -> int:
     decision = guardrails.evaluate_send(args.send)
-    args.tag_prefix = _run_tag_prefix(args)
 
     try:
         readback = _resolve_readback(args)
@@ -604,7 +581,7 @@ def _cmd_redeliver_fire(args) -> int:
         tag_prefix=args.tag_prefix,
         rate=args.rate,
         retry_after=args.retry_after,
-        allow_public_target=bool(getattr(args, "allow_public_target", False)),
+        allow_public_target=args.allow_public_target,
         quiet_window=args.quiet_window,
         max_wait=args.max_wait,
         poll_interval=args.poll_interval,

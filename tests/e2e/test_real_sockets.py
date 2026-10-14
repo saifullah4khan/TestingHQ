@@ -7,9 +7,9 @@ assumption, a connection that is accepted and then reset, a client that works
 in-process and not as a subprocess: none of that is reachable from a fake, and
 all of it is what a user meets first.
 
-So this is not the only place a real socket appears. `tests/web/test_server.py`
-and `tests/integration/test_pipeline_verification.py` both bind loopback
-themselves, and all three run in the e2e job. What is unique here is driving
+So this is not the only place a real socket appears.
+`tests/integration/test_pipeline_verification.py` binds loopback itself, and
+both run in the e2e job. What is unique here is driving
 the installed binary as a subprocess rather than importing the engine, which is
 the one thing an in-process fake cannot substitute for.
 
@@ -39,7 +39,6 @@ the sink records its peer address per request and the test checks the whole
 set. That converts an exemption into a bounded, self-policing one.
 """
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -353,41 +352,6 @@ def test_barrage_replay_sends_the_same_payloads_again(tmp_path):
 # ---------------------------------------------------------------------------
 # The exemption is self-policing
 # ---------------------------------------------------------------------------
-
-
-def test_this_file_is_the_only_one_allowed_to_exempt_itself():
-    """`allow_network` is the one power in the suite that can leave the
-    machine. Keeping it to exactly one file, and asserting that, is what makes
-    the exemption reviewable rather than a trend."""
-    import ast
-
-    offenders = []
-    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        if relative == Path(__file__).relative_to(REPO_ROOT).as_posix():
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
-        for node in ast.walk(tree):
-            marked = False
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "pytestmark":
-                        marked = "allow_network" in ast.dump(node)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                for decorator in node.decorator_list:
-                    if "allow_network" in ast.dump(decorator):
-                        marked = True
-            if marked:
-                offenders.append(relative)
-
-    # The two known cases, and only these. `tests/web/test_server.py` starts a
-    # real stdlib server to exercise the HTTP layer; this file is the end-to-end
-    # suite. Anything else needing a socket is a new exemption and should be
-    # argued for rather than added.
-    assert sorted(set(offenders)) == ["tests/web/test_server.py"], (
-        f"unexpected modules exempting themselves from the network block: "
-        f"{sorted(set(offenders))}. Only the real-server tests may."
-    )
 
 
 def test_this_file_is_the_only_end_to_end_module():

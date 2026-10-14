@@ -16,7 +16,7 @@ import pytest
 from testinghq.pipeline import common
 from testinghq.pipeline.common import read_back_all
 from testinghq.pipeline.messages import build_chain_message_id
-from testinghq.pipeline.readback import FunctionAdapter, Readback
+from testinghq.pipeline.readback import FetchResult, FunctionAdapter, Readback
 
 TAGS = ("hq-1-0000", "hq-1-0001", "hq-1-0002")
 
@@ -206,7 +206,7 @@ def test_each_tag_is_asked_once_per_poll():
     second time, and both would corrupt the accounting."""
     adapter = _Scripted({1: {tag: 1 for tag in TAGS}})
     probes = _probes() + _probes()
-    outcome = read_back_all(
+    read_back_all(
         adapter, probes, sleep=lambda _s: None, clock=_Clock(),
         quiet_window=0.0, max_wait=1.0, poll_interval=0.5,
     )
@@ -329,3 +329,148 @@ def test_the_defaults_are_ordered_the_way_the_phase_needs():
     misconfiguration."""
     assert common.DEFAULT_QUIET_WINDOW < common.DEFAULT_MAX_WAIT
     assert 0 < common.DEFAULT_POLL_INTERVAL < common.DEFAULT_QUIET_WINDOW
+
+
+# ---------------------------------------------------------------------------
+# The --max-wait budget, UNSETTLED, and what the quiet window watches
+# ---------------------------------------------------------------------------
+
+
+class _Slow:
+    """An adapter whose every lookup costs `cost` seconds of the clock."""
+
+    def __init__(self, clock, cost, found=1):
+        self.clock = clock
+        self.cost = cost
+        self.found = found
+        self.lookups = 0
+
+    def fetch(self, probe):
+        self.lookups += 1
+        self.clock.now += self.cost
+        return [
+            Readback(exists=True, ticket_id=f"{probe.tag}#{n}")
+            for n in range(self.found)
+        ]
+
+
+def test_max_wait_is_enforced_between_lookups_inside_one_poll():
+    """Three tags at 25s a lookup is 75s for one poll. The budget is 30s, so
+    the poll stops after the second lookup instead of finishing the pass."""
+    clock = _Clock()
+    adapter = _Slow(clock, cost=25.0)
+    outcome, _clock = _read(adapter, clock=clock, max_wait=30.0)
+    assert adapter.lookups == 2
+    assert outcome.polls == 1
+    assert outcome.budget_exhausted is True
+    assert outcome.unsettled is True
+
+
+def test_a_run_that_never_settles_is_unsettled_not_lost():
+    adapter = _Scripted({1: {"hq-1-0000": 1}})
+    outcome, _clock = _read(adapter, max_wait=3.0)
+    assert outcome.unsettled
+    assert outcome.headline().startswith(common.UNSETTLED)
+    payload = outcome.to_json()
+    assert payload["verdict"] == common.UNSETTLED
+    assert payload["unsettled"] is True
+    assert common.readback_verdict("LOSSY", outcome) == (
+        common.UNSETTLED, common.VERDICT_SOURCE_READBACK,
+    )
+
+
+def test_a_settled_run_keeps_the_tools_own_verdict():
+    adapter = _Scripted({1: {tag: 1 for tag in TAGS}})
+    outcome, _clock = _read(adapter)
+    assert not outcome.unsettled
+    assert outcome.headline() is None
+    assert outcome.to_json()["verdict"] is None
+    assert common.readback_verdict("BALANCED", outcome) == ("BALANCED", "tool")
+    assert common.readback_verdict("BALANCED", None) == ("BALANCED", "tool")
+
+
+def test_a_field_filled_after_the_record_appears_resets_the_window():
+    """An async pipeline creates the ticket first, triages it, then routes it.
+    The count is steady from the first poll, so a window over counts alone
+    closes at t=2.5 on the interim "triage" value. Watching the values resets
+    the window at each change and reports the route the record ended with."""
+
+    class _RoutedLate:
+        def __init__(self):
+            self.polls = 0
+
+        def fetch(self, probe):
+            if probe.tag == TAGS[0]:
+                self.polls += 1
+            route = None
+            if self.polls == 6:
+                route = "triage"
+            elif self.polls >= 7:
+                route = "billing"
+            return [Readback(exists=True, ticket_id=f"{probe.tag}#0", route=route)]
+
+    outcome, _clock = _read(_RoutedLate(), quiet_window=2.0)
+    assert outcome.stable
+    assert outcome.readbacks[TAGS[0]][0].route == "billing"
+    assert outcome.elapsed == pytest.approx(5.5)
+
+
+def test_every_lookup_answering_404_is_named_as_a_wrong_url():
+    def not_found(probe):
+        return FetchResult([], status=404)
+
+    outcome, _clock = _read(FunctionAdapter(not_found), max_wait=2.0)
+    assert outcome.all_404 is True
+    assert outcome.headline() == common.ALL_404_HEADLINE
+    assert outcome.to_json()["all_404"] is True
+
+
+def test_some_404s_among_answers_are_not_all_404():
+    def mixed(probe):
+        if probe.tag == TAGS[0]:
+            return FetchResult(
+                [Readback(exists=True, ticket_id="1")], status=200
+            )
+        return FetchResult([], status=404)
+
+    outcome, _clock = _read(FunctionAdapter(mixed), max_wait=2.0)
+    assert outcome.all_404 is False
+
+
+def test_running_out_of_budget_inside_the_adapter_ends_the_poll_quietly():
+    from testinghq.pipeline.adapters import BudgetExhausted
+
+    def out_of_time(probe):
+        raise BudgetExhausted("would retry past the --max-wait budget")
+
+    outcome, _clock = _read(FunctionAdapter(out_of_time))
+    assert outcome.budget_exhausted is True
+    assert outcome.unsettled is True
+    assert "budget" in outcome.detail
+
+
+def test_an_adapter_with_bind_clock_is_given_the_deadline_then_released():
+    class _Bindable(_Scripted):
+        def __init__(self, script):
+            super().__init__(script)
+            self.bound = []
+
+        def bind_clock(self, clock, sleep, deadline=None):
+            self.bound.append(deadline)
+
+    adapter = _Bindable({1: {tag: 1 for tag in TAGS}})
+    _outcome, _clock = _read(adapter, max_wait=60.0)
+    assert adapter.bound == [60.0, None]
+
+
+def test_a_partial_lookup_is_named_in_the_outcome():
+    def truncated(probe):
+        return FetchResult(
+            [Readback(exists=True, ticket_id=probe.tag)],
+            partial=probe.tag == TAGS[1],
+            status=200,
+        )
+
+    outcome, _clock = _read(FunctionAdapter(truncated))
+    assert outcome.partial == (TAGS[1],)
+    assert outcome.to_json()["partial_tags"] == [TAGS[1]]

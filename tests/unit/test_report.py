@@ -1,8 +1,5 @@
 """Unit tests for testinghq/core/report.py: expectation rules, summary, and
-the artifact builder. Also cross-checks this lane's rules against
-web/expectations.py on both shipped fixtures, per the engine brief: any
-disagreement between the two independently-maintained rule copies is a
-defect that must be reported, not silently reconciled.
+the artifact builder, checked against the two shipped blast fixtures.
 """
 from __future__ import annotations
 
@@ -12,9 +9,7 @@ from pathlib import Path
 from testinghq.blast.generate import generate_corpus
 from testinghq.core import report
 
-FIXTURES_DIR = (
-    Path(__file__).resolve().parents[2] / "web" / "tests" / "fixtures"
-)
+FIXTURES_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 
 
 def _load_fixture(name):
@@ -154,13 +149,6 @@ def test_build_artifact_matches_sample_run_with_failures():
     assert artifact["seed"] == fixture["seed"]
     assert artifact["config"] == fixture["config"]
     assert artifact["records"] == fixture["records"]
-
-
-# ---------------------------------------------------------------------------
-# Cross-check against web/expectations.py: the other lane's independent copy
-# of the same rules. Any disagreement here is a defect to report, not paper
-# over.
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -342,28 +330,6 @@ def test_payload_sha256_deterministic_and_content_sensitive():
     assert hash_a == hash_a_again
     assert hash_a != hash_b
     assert len(hash_a) == 64
-
-
-def test_web_expectations_is_this_module_not_a_second_copy():
-    """This used to be a cross-check: run both implementations over both
-    fixtures and assert they agreed.
-
-    That test was the reason the duplication felt safe, and it was the worst
-    possible shape for the job. A behavioural comparison passes happily while
-    two implementations drift, which is exactly the failure it was meant to
-    catch. It could only ever have gone red on a fixture that happened to
-    exercise a changed rule.
-
-    Now there is one implementation, so the invariant is not "they agree" but
-    "they are the same function". That cannot be satisfied by two correct but
-    separate bodies, which is the point.
-    """
-    from web import expectations as web_expectations
-
-    assert web_expectations.classify_record is report.classify_record
-    assert web_expectations.flag_for_record is report.flag_for_record
-    assert web_expectations.compute_summary is report.compute_summary
-    assert web_expectations.CATEGORIES is report.CATEGORIES
 
 
 def test_the_fixtures_still_classify_to_the_outcomes_they_record():

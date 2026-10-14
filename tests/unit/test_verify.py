@@ -452,12 +452,15 @@ def test_a_run_that_verified_nothing_says_nothing_checked(
 
     spec_probe["build"] = lambda: FunctionAdapter(lambda probe: [])
     lines: list = []
-    verify.execute(
+    code = verify.execute(
         SEED, COUNT, TARGET, target_config, str(tmp_path / "verify.json"),
         readback=_config(), client=_RecordingClient(),
         sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
     )
-    assert "MISMATCHED" in lines[0]
+    # Nothing was ever found, so the readback never settled: the headline is
+    # UNSETTLED, not a pass, and the exit code says something is wrong.
+    assert code == 3
+    assert lines[0].startswith("verify: UNSETTLED")
 
 
 # ---------------------------------------------------------------------------

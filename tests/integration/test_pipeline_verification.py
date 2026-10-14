@@ -588,7 +588,8 @@ def test_the_report_leads_with_not_nothing_checked_when_nothing_ran(
     finally:
         module_under_test.build_adapter = real_build
 
-    assert text.splitlines()[0].startswith("verify: MISMATCHED")
+    # Nothing found means the readback never settled, which is not a pass.
+    assert text.splitlines()[0].startswith("verify: UNSETTLED")
     assert "holds no record" in text
 
 
