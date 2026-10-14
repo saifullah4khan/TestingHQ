@@ -83,8 +83,8 @@ timeout = 10.0
 #               that reformats or truncates the body will fail this, which is
 #               usually the finding you wanted. Use --body-exact only for a
 #               system that stores the field verbatim.
-#   route       compared case-insensitively. Without --expect-route the expected
-#               value is the message's own recipient address.
+#   route       compared case-insensitively, and only when --expect-route is
+#               given. Without it the routing check is skipped.
 
 [readback.fields]
 ticket_id = "id"

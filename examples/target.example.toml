@@ -82,8 +82,8 @@ url = "http://127.0.0.1:8000/tickets"
 #   body       the payload's substantive text has to appear inside it. Use
 #              `body_exact` on the command line only if your system stores one
 #              field verbatim.
-#   route      compared case-insensitively. Without an --expect-route, the
-#              expected value is the message's own recipient address.
+#   route      compared case-insensitively, and only when --expect-route is
+#              given. Without it the routing check is skipped.
 [readback.fields]
 ticket_id = "id"
 from_addr = "from"
