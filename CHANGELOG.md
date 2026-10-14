@@ -38,7 +38,8 @@ is folded in below.
   Postmark basic auth. Up to six variants (`valid`, `wrong-secret`,
   `unsigned`, `stale-timestamp`, `tampered-body`, `replayed-token`); a variant
   the scheme has nothing to vary is not sent. The secret is an `env:NAME`
-  reference and a literal secret is refused. Dry run by default.
+  reference and a literal secret is refused. Dry run by default. The dry run
+  refuses a target whose format the scheme cannot sign, as `--send` does.
 - `compare`: diff two blast runs payload by payload, or two barrage runs on
   load metrics (see Compare below).
 - `report`: read any tool's artifact and summarise it as text, as JSON in one
@@ -59,6 +60,7 @@ is folded in below.
   that mixes a blast run with a barrage run. It says "nothing to compare" when
   no blast records align.
 - `--fail-on-regression` exits 3 on a regression. Without it the exit is 0.
+  The artifact records `fail_on_regression` and the exit code.
 
 **Report**
 
@@ -66,6 +68,12 @@ is folded in below.
   key set for every tool.
 - It reads the artifacts of every tool, including steady, sigcheck and
   compare.
+- `tool` is `verify` for both `verify fire` and `verify check`; the text report
+  shows which.
+- A blast dry-run artifact reads as DRY RUN with exit code 2, and nothing in it
+  counts as sent.
+- A compare artifact reports the exit code the command gave, which depends on
+  `--fail-on-regression`.
 
 **Sending**
 
@@ -86,6 +94,9 @@ is folded in below.
 
 - `--mix clean=20,messy=40,...`, `--catalog [names]` and
   `--attachments none|seeded|adversarial` (default `seeded`).
+- `blast fire --send --catalog` sends every case. The synthetic-address guard
+  skips a field that is deliberately empty, and refuses any other value that
+  holds no address.
 - `--fail-on-body <regex>`: a 2xx whose body matches is a flag.
 - Catalog cases `null_byte_in_body`, `rtl_override_in_filename`,
   `missing_boundary_field`, `duplicate_form_field`, `malformed_envelope_json`
@@ -103,7 +114,10 @@ is folded in below.
   at 64 unless `--allow-high-rate` is passed. A pool too small for the schedule
   shows as achieved throughput falling short, and the run says how many
   requests waited for a free worker and for how long.
-- A real closed loop: N workers each send, wait, and take the next token.
+- A real closed loop: N workers each send, wait, and take the next token. A
+  shortfall that `--concurrency` explains (workers / median latency is below
+  the planned rate) is not reported as an endpoint knee; the summary carries
+  `concurrency_limited` and says to raise `--concurrency`.
 - One keep-alive connection per worker (`--no-keepalive` opens one per
   request), with connection setup time reported separately.
 - `--timeout` (default 10s), `--grace` (default 10s) and
@@ -129,10 +143,20 @@ is folded in below.
 - Settling rule, set by `--quiet-window` (default 5s), `--max-wait` (default
   60s) and `--poll-interval`. The readback is settled once the found tags,
   their record counts and the checked field values have held still for
-  `--quiet-window`. A tag still missing then is lost. Holding still is also
+  `--quiet-window`, counted from the start of the first of two identical
+  complete polls. A tag still missing then is lost. Holding still is also
   what catches a duplicate that lands after the first sighting.
 - UNSETTLED (exit 3) only when `--max-wait` runs out while the store is still
-  changing. Findings already proven stay listed and counted.
+  changing, or before every tag could be polled twice. The headline names which
+  and gives the numbers, with the `--max-wait` or `--readback-rate` that would
+  fit. Findings already proven stay listed and counted.
+- Every readback tool's dry run warns when the plan cannot settle within
+  `--max-wait`: about 2 x tags / `--readback-rate` plus `--quiet-window`.
+- `--max-wait`, `--poll-interval` and `--quiet-window` are checked by the
+  parser, before anything is sent: the first two must be above zero, the last
+  zero or more.
+- Every `--rate` and `--readback-rate` must be a positive number, refused at
+  the parser.
 - READBACK FAILED (exit 3) when every lookup was a 404. The readback url is
   almost certainly wrong, so no message is reported as lost: ledger lists the
   tags under `not_checked`, verify and redeliver say "not checked: every
@@ -144,6 +168,11 @@ is folded in below.
   HandleHQ recipe has not been run against a live deployment.
 - Per-run default tag prefix `hq-<yymmddHHMM>-<4 hex>`; `--tag-prefix`
   overrides it and the artifact records it.
+- Message-IDs are unique per run, so a pipeline that drops a repeated
+  Message-ID does not drop a second run. Verify, ledger, redeliver and steady
+  derive each from the message's tag; sigcheck draws one per run and every
+  variant shares it. One explicit `--tag-prefix` gives the same Message-IDs on
+  every run.
 
 **Checks**
 
@@ -151,7 +180,16 @@ is folded in below.
   `--attachment-match exact|loose`, honoured by verify, ledger and redeliver
   and recorded in the artifact.
 - `--expect-route` honoured by verify, ledger and redeliver.
+- `verify check` re-checks with the match modes the artifact recorded and says
+  where each came from. A flag overrides one; `--no-expect-route` and
+  `--no-body-exact` turn those two off.
 - `[loop].ticket_policy` and `[steady].intents_path` config keys.
+- A key or top-level table the schema does not declare is refused (exit 1)
+  before anything is sent, naming the file, the table, the key and the closest
+  known key. `config validate` reports the same error and checks the key names
+  of `[loop]`, `[steady]` and `[sigcheck]`. The names inside `[readback.headers]`
+  and `[readback.fields]` stay open, and a custom adapter's table may carry its
+  own keys.
 
 **Artifacts and project**
 
@@ -191,7 +229,8 @@ is folded in below.
   Achieved throughput is measured over the real dispatch span. The knee is the
   first of two buckets in a row that shed (error rate of 5% or more), send over
   20% fewer requests than planned, or run at over twice the hold-stage median
-  latency.
+  latency. In a closed loop, fewer requests than planned count only when the
+  workers could have sent more.
 - **Routing is not checked unless `--expect-route` is given**; it reports
   SKIPPED with "no expected route".
 - **Subjects match by containment by default**, so a stored
@@ -207,7 +246,9 @@ is folded in below.
 - **A spec adapter** (`--readback module:attr`) may be a class (instantiated),
   an object with `fetch(probe)`, a one-argument fetch function, or a factory
   taking nothing or `config`. An import error is a refusal before anything is
-  sent.
+  sent. The class or factory gets the table with the adapter's own keys as
+  written (an `env:NAME` value in them arrives unresolved) plus the built-in
+  keys; header names are included and header values are not.
 - **redeliver** slow-retry sends every original, waits once, then sends every
   retry; the references scenario checks the full `References` ancestry. Every
   Message-ID, In-Reply-To and References id it writes is in angle brackets.
