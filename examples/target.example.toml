@@ -78,10 +78,13 @@ url = "http://127.0.0.1:8000/tickets"
 #
 #   from_addr  is normalized, so "Alice <a@example.com>" and "a@example.com"
 #              are both fine.
-#   subject    compared case- and whitespace-insensitively.
+#   subject    compared case- and whitespace-insensitively, by --subject-match:
+#              `contains` (the default) passes a helpdesk prefix such as
+#              "[Ticket #123]", `suffix` requires the stored subject to end
+#              with the sent one, `exact` requires equality.
 #   body       the payload's substantive text has to appear inside it. Use
-#              `body_exact` on the command line only if your system stores one
-#              field verbatim.
+#              `--body-exact` on the command line only if your system stores
+#              the whole text part verbatim.
 #   route      compared case-insensitively, and only when --expect-route is
 #              given. Without it the routing check is skipped.
 [readback.fields]
