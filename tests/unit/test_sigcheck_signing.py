@@ -1,298 +1,373 @@
-"""sigcheck's schemes, checked against each provider's documented construction.
+"""sigcheck: the schemes against each provider's documented construction, the
+plan of variants, the judging, and a run against endpoints that enforce, or do
+not enforce, the authentication.
 
-The Mailgun vector below was computed with `openssl dgst -sha256 -hmac`, an
-implementation independent of this module, over the construction Mailgun
-documents (HMAC-SHA256 of timestamp + token, hex). A test that only checked this
-module against itself could not tell a wrong construction from a right one.
-
-The SendGrid tests use a stand-in primitive, because ECDSA is injected. They pin
-the contract: the header names, and that the signed message is timestamp + body.
+The Mailgun vector was computed with `openssl dgst -sha256 -hmac`, and the
+ECDSA vectors are RFC 6979 appendix A.2.5 (P-256, SHA-256), so neither scheme
+is only checked against itself.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
+import json
+from email import policy
+from email.parser import BytesParser
 
 import pytest
 
+from testinghq import cli, reporting
+from testinghq.core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED
+from testinghq.core.transport import ClientResponse
 from testinghq.pipeline import sigcheck as tool
 
 NOW = 1_700_000_000
-BODY = b"--boundary\r\nContent-Disposition: form-data; name=\"subject\"\r\n\r\nhi\r\n--boundary--\r\n"
+BODY = b"--b\r\nContent-Disposition: form-data; name=\"subject\"\r\n\r\nhi\r\n--b--\r\n"
 MAILGUN_KEY = "key-3ax6xnjp29jd6fds4gc373sgvjxteol0"
 BASIC = "hook-user:hook-pass"
 
+#: RFC 6979 A.2.5.
+RFC_KEY = 0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721
+RFC_PUBLIC = (
+    0x60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6,
+    0x7903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299,
+)
+RFC_VECTORS = {
+    b"sample": (0xEFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716,
+                0xF7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8),
+    b"test": (0xF1ABB023518351CD71D881567B1EA663ED3EFCF6C5132B354F28D3B0B7D38367,
+              0x019F4113742A2B14BD25926B49C649155F267E60D3814B4C0CC84250E46F0083),
+}
+RFC_KEY_HEX = f"{RFC_KEY:064x}"
+
 
 # ---------------------------------------------------------------------------
-# The table
+# The schemes
 # ---------------------------------------------------------------------------
 
 
 def test_the_table_has_the_three_schemes():
-    assert tool.known_schemes() == ("basic-auth", "mailgun", "sendgrid")
-
-
-def test_postmark_is_not_a_signing_scheme():
-    """Postmark does not sign webhooks. A 'postmark' HMAC scheme would test
-    for a signature Postmark never sends; its real mechanism is basic-auth."""
-    with pytest.raises(tool.SigcheckError):
+    assert tool.known_schemes() == ("mailgun", "postmark-basic", "sendgrid")
+    with pytest.raises(tool.SigcheckError, match="known"):
         tool.get_scheme("postmark")
 
 
-def test_an_unknown_scheme_is_refused_and_lists_the_valid_ones():
-    with pytest.raises(tool.SigcheckError) as excinfo:
-        tool.get_scheme("mailgrun")
-    for name in tool.known_schemes():
-        assert name in str(excinfo.value)
-
-
-def test_only_sendgrid_takes_injected_primitives():
-    with pytest.raises(tool.SigcheckError):
-        tool.get_scheme("mailgun", signer=lambda m, k: b"")
-    with pytest.raises(tool.SigcheckError):
-        tool.get_scheme("basic-auth", verifier=lambda m, s, k: True)
-
-
-# ---------------------------------------------------------------------------
-# mailgun
-# ---------------------------------------------------------------------------
-
-
 def test_mailgun_matches_an_independently_computed_vector():
-    """HMAC-SHA256(key, "1529006854" + token), hex, computed with openssl."""
     signature = tool.mailgun_signature(
         MAILGUN_KEY, "1529006854", "a8ce0edb2dd8301dee6c2405235584e45aa91d1e9f979f3de0"
     )
     assert signature == "b63c0701c4f4b614f272106a1b367c5c3369bcdca664ae73ebd52787e45eef07"
 
 
-def test_mailgun_signs_timestamp_and_token_not_the_body():
-    """The mistake this replaced: signing timestamp + body. Mailgun's signature
-    does not cover the body at all."""
-    token = "a8ce0edb2dd8301dee6c2405235584e45aa91d1e9f979f3de0"
-    assert tool.mailgun_signature(MAILGUN_KEY, "1529006854", token) != hmac.new(
-        MAILGUN_KEY.encode(), b"1529006854" + BODY, hashlib.sha256
-    ).hexdigest()
-
-
-def test_mailgun_sends_body_fields_not_headers():
-    signed = tool.get_scheme("mailgun").sign(BODY, MAILGUN_KEY, NOW)
+def test_mailgun_sends_three_form_fields_and_does_not_sign_the_body():
+    scheme = tool.get_scheme("mailgun")
+    signed = scheme.sign(BODY, MAILGUN_KEY, NOW, "v")
     assert signed.headers == {}
     assert set(signed.fields) == {"timestamp", "token", "signature"}
-    assert signed.fields["timestamp"] == str(NOW)
-    assert signed.fields["signature"] == tool.mailgun_signature(
-        MAILGUN_KEY, str(NOW), signed.fields["token"]
-    )
+    assert len(signed.fields["token"]) == 50
+    assert scheme.verify(BODY, MAILGUN_KEY, signed)
+    assert scheme.verify(BODY + b"tampered", MAILGUN_KEY, signed)
+    assert not scheme.verify(BODY, "another-key", signed)
+    assert not scheme.verify(BODY, MAILGUN_KEY, tool.Signed())
 
 
-def test_mailgun_token_is_fifty_characters_and_deterministic():
-    assert len(tool.mailgun_token(NOW)) == 50
-    assert tool.mailgun_token(NOW) == tool.mailgun_token(NOW)
-    assert tool.mailgun_token(NOW) != tool.mailgun_token(NOW + 1)
+def test_each_mailgun_variant_gets_its_own_token():
+    assert tool.mailgun_token(NOW, "a") != tool.mailgun_token(NOW, "b")
+    assert tool.mailgun_token(NOW, "a") == tool.mailgun_token(NOW, "a")
 
 
-def test_mailgun_verifies_its_own_signature():
-    scheme = tool.get_scheme("mailgun")
-    result = scheme.verify(BODY, MAILGUN_KEY, scheme.sign(BODY, MAILGUN_KEY, NOW), now=NOW)
-    assert result.accepted, result.reason
+def test_the_p256_signer_reproduces_the_rfc_6979_vectors():
+    assert tool.p256_public_key(RFC_KEY) == RFC_PUBLIC
+    for message, expected in RFC_VECTORS.items():
+        digest = hashlib.sha256(message).digest()
+        assert tool.p256_sign_digest(RFC_KEY, digest) == expected
+        assert tool.p256_verify_digest(RFC_PUBLIC, digest, *expected)
+        assert not tool.p256_verify_digest(RFC_PUBLIC, hashlib.sha256(b"other").digest(), *expected)
 
 
-def test_mailgun_signature_does_not_protect_the_body():
-    """Stated as a test so nobody reads a green run as body integrity. A
-    tampered body still verifies, because Mailgun does not sign it."""
-    scheme = tool.get_scheme("mailgun")
-    signed = scheme.sign(BODY, MAILGUN_KEY, NOW)
-    assert scheme.verify(BODY + b"tampered", MAILGUN_KEY, signed, now=NOW).accepted
-
-
-def test_mailgun_rejects_a_different_key():
-    scheme = tool.get_scheme("mailgun")
-    signed = scheme.sign(BODY, "some-other-key", NOW)
-    result = scheme.verify(BODY, MAILGUN_KEY, signed, now=NOW)
-    assert not result.accepted and not result.stale
-
-
-def test_mailgun_rejects_missing_fields():
-    result = tool.get_scheme("mailgun").verify(BODY, MAILGUN_KEY, tool.Signed(), now=NOW)
-    assert not result.accepted
-    assert "timestamp" in result.reason
-
-
-def test_mailgun_rejects_a_stale_timestamp_and_says_so():
-    scheme = tool.get_scheme("mailgun")
-    signed = scheme.sign(BODY, MAILGUN_KEY, NOW - 3600)
-    result = scheme.verify(BODY, MAILGUN_KEY, signed, now=NOW)
-    assert not result.accepted and result.stale
-
-
-def test_a_timestamp_in_the_future_is_also_stale():
-    scheme = tool.get_scheme("mailgun")
-    result = scheme.verify(BODY, MAILGUN_KEY, scheme.sign(BODY, MAILGUN_KEY, NOW + 3600), now=NOW)
-    assert result.stale
-
-
-def test_a_timestamp_on_the_window_edge_is_accepted():
-    scheme = tool.get_scheme("mailgun")
-    edge = NOW - int(tool.DEFAULT_TOLERANCE)
-    assert scheme.verify(BODY, MAILGUN_KEY, scheme.sign(BODY, MAILGUN_KEY, edge), now=NOW).accepted
-
-
-def test_an_unparseable_mailgun_timestamp_is_stale_not_a_crash():
-    signed = tool.Signed(fields={"timestamp": "soon", "token": "t", "signature": "00"})
-    result = tool.get_scheme("mailgun").verify(BODY, MAILGUN_KEY, signed, now=NOW)
-    assert not result.accepted and result.stale
-
-
-# ---------------------------------------------------------------------------
-# basic-auth
-# ---------------------------------------------------------------------------
-
-
-def test_basic_auth_sends_a_standard_authorization_header():
-    signed = tool.get_scheme("basic-auth").sign(BODY, BASIC, NOW)
-    assert signed.headers == {
-        "Authorization": "Basic " + base64.b64encode(BASIC.encode()).decode()
-    }
-
-
-def test_basic_auth_rejects_wrong_or_missing_credentials():
-    scheme = tool.get_scheme("basic-auth")
-    wrong = scheme.sign(BODY, "hook-user:nope", NOW)
-    assert not scheme.verify(BODY, BASIC, wrong, now=NOW).accepted
-    assert not scheme.verify(BODY, BASIC, tool.Signed(), now=NOW).accepted
-    assert scheme.verify(BODY, BASIC, scheme.sign(BODY, BASIC, NOW), now=NOW).accepted
-
-
-def test_basic_auth_needs_user_and_password():
+def test_keys_parse_from_hex_sec1_pem_and_spki():
+    assert tool.parse_private_key(RFC_KEY_HEX) == RFC_KEY
+    sec1 = (b"\x30\x31\x02\x01\x01\x04\x20" + RFC_KEY.to_bytes(32, "big")
+            + b"\xa0\x0a\x06\x08" + bytes.fromhex("2a8648ce3d030107"))
+    pem = ("-----BEGIN EC PRIVATE KEY-----\n" + base64.b64encode(sec1).decode()
+           + "\n-----END EC PRIVATE KEY-----\n")
+    assert tool.parse_private_key(pem) == RFC_KEY
+    spki = base64.b64encode(tool.spki_der(RFC_PUBLIC)).decode()
+    assert tool.parse_public_key(spki) == RFC_PUBLIC
     with pytest.raises(tool.SigcheckError):
-        tool.get_scheme("basic-auth").sign(BODY, "no-colon", NOW)
+        tool.parse_private_key("not a key")
 
 
-def test_basic_auth_has_no_replay_variant():
-    """A replay would be byte-identical to the live request, so building one
-    would test nothing while reporting that it had."""
-    names = [v.name for v in tool.build_variants(
-        tool.get_scheme("basic-auth"), BODY, BASIC, timestamp=NOW, now=NOW)]
-    assert names == [tool.VARIANT_CORRECT, tool.VARIANT_WRONG_SECRET, tool.VARIANT_UNSIGNED]
+def test_sendgrid_signs_timestamp_then_raw_body_in_the_documented_headers():
+    scheme = tool.get_scheme("sendgrid")
+    signed = scheme.sign(BODY, RFC_KEY_HEX, NOW)
+    assert set(signed.headers) == {tool.SENDGRID_SIGNATURE_HEADER, tool.SENDGRID_TIMESTAMP_HEADER}
+    r, s = tool.parse_der_signature(base64.b64decode(signed.headers[tool.SENDGRID_SIGNATURE_HEADER]))
+    digest = hashlib.sha256(str(NOW).encode() + BODY).digest()
+    assert tool.p256_verify_digest(RFC_PUBLIC, digest, r, s)
+    assert scheme.verify(BODY, RFC_KEY_HEX, signed)
+    assert not scheme.verify(BODY + b"x", RFC_KEY_HEX, signed)
 
 
-# ---------------------------------------------------------------------------
-# sendgrid (contract, with a stand-in primitive)
-# ---------------------------------------------------------------------------
-
-
-def _stand_in(key=b"k"):
-    """HMAC standing in for ECDSA. It checks the contract (which bytes are
-    signed, which headers carry the result), not the curve."""
-    seen = []
-
-    def signer(message, secret):
-        seen.append(message)
-        return hmac.new(secret, message, hashlib.sha256).digest()
-
-    def verifier(message, signature, secret):
-        return hmac.compare_digest(signer(message, secret), signature)
-
-    return signer, verifier, seen
-
-
-def test_sendgrid_uses_the_documented_headers():
-    signer, verifier, _ = _stand_in()
-    signed = tool.get_scheme("sendgrid", signer=signer, verifier=verifier).sign(BODY, b"k", NOW)
-    assert set(signed.headers) == {
-        "X-Twilio-Email-Event-Webhook-Signature",
-        "X-Twilio-Email-Event-Webhook-Timestamp",
-    }
-    assert signed.fields == {}
-
-
-def test_sendgrid_signs_timestamp_then_raw_body():
-    signer, verifier, seen = _stand_in()
-    tool.get_scheme("sendgrid", signer=signer, verifier=verifier).sign(BODY, b"k", NOW)
-    assert seen[0] == str(NOW).encode() + BODY
-
-
-def test_sendgrid_without_a_primitive_refuses_and_says_what_to_pass():
-    with pytest.raises(tool.SigcheckError) as excinfo:
-        tool.get_scheme("sendgrid").sign(BODY, b"k", NOW)
-    assert "signer=" in str(excinfo.value)
-
-
-def test_sendgrid_reports_a_missing_header_before_asking_for_a_primitive():
-    result = tool.get_scheme("sendgrid").verify(BODY, b"k", tool.Signed(), now=NOW)
-    assert not result.accepted
-
-
-def test_sendgrid_rejects_a_non_base64_signature():
-    signer, verifier, _ = _stand_in()
-    signed = tool.Signed(headers={
-        tool.SENDGRID_SIGNATURE_HEADER: "not base64!!",
-        tool.SENDGRID_TIMESTAMP_HEADER: str(NOW),
-    })
-    result = tool.get_scheme("sendgrid", verifier=verifier).verify(BODY, b"k", signed, now=NOW)
-    assert not result.accepted
-
-
-def test_sendgrid_detects_a_tampered_body():
-    """Unlike Mailgun, SendGrid's signature covers the body."""
-    signer, verifier, _ = _stand_in()
-    scheme = tool.get_scheme("sendgrid", signer=signer, verifier=verifier)
-    signed = scheme.sign(BODY, b"k", NOW)
-    assert scheme.verify(BODY, b"k", signed, now=NOW).accepted
-    assert not scheme.verify(BODY + b"x", b"k", signed, now=NOW).accepted
+def test_postmark_basic_is_an_authorization_header():
+    scheme = tool.get_scheme("postmark-basic")
+    signed = scheme.sign(BODY, BASIC, NOW)
+    assert signed.headers == {"Authorization": "Basic " + base64.b64encode(BASIC.encode()).decode()}
+    assert scheme.verify(BODY, BASIC, signed)
+    assert not scheme.verify(BODY, BASIC, scheme.sign(BODY, scheme.wrong_secret(BASIC), NOW))
+    with pytest.raises(tool.SigcheckError, match="user:password"):
+        scheme.sign(BODY, "no-colon", NOW)
 
 
 # ---------------------------------------------------------------------------
-# Variants
+# The plan
 # ---------------------------------------------------------------------------
 
 
-def _schemes():
-    signer, verifier, _ = _stand_in()
-    return [
-        (tool.get_scheme("mailgun"), MAILGUN_KEY, "wrong-key"),
-        (tool.get_scheme("sendgrid", signer=signer, verifier=verifier), b"k", b"other"),
-        (tool.get_scheme("basic-auth"), BASIC, "hook-user:nope"),
-    ]
+def _plan(name, secret):
+    return {p.variant: p for p in tool.plan(
+        tool.get_scheme(name), secret, now=NOW, window=300,
+        encode=lambda payload, signed: payload.subject.encode(),
+    )}
 
 
-def test_only_the_correct_variant_verifies_for_every_scheme():
-    for scheme, secret, wrong in _schemes():
-        outcomes = tool.check_variants(
-            scheme, BODY, secret, timestamp=NOW, now=NOW, wrong_secret=wrong)
-        accepted = [o.variant for o in outcomes if o.accepted]
-        assert accepted == [tool.VARIANT_CORRECT], (scheme.name, outcomes)
-        assert all(o.correct for o in outcomes), scheme.name
+def test_every_scheme_plans_the_six_variants_in_order():
+    for name, secret in (("mailgun", MAILGUN_KEY), ("sendgrid", RFC_KEY_HEX),
+                         ("postmark-basic", BASIC)):
+        planned = tool.plan(tool.get_scheme(name), secret, now=NOW, window=300,
+                            encode=lambda p, s: b"")
+        assert [p.variant for p in planned] == list(tool.VARIANTS), name
 
 
-def test_timestamped_schemes_get_the_replay_variant():
-    for scheme, secret, wrong in _schemes()[:2]:
-        names = [v.name for v in tool.build_variants(
-            scheme, BODY, secret, timestamp=NOW, now=NOW, wrong_secret=wrong)]
-        assert names == list(tool.VARIANTS), scheme.name
+def test_mailgun_replay_resends_the_valid_token_and_stale_is_separate():
+    """Mailgun's defence is caching the token, so the replay is the valid
+    request again; the stale timestamp is informational, not a finding."""
+    plan = _plan("mailgun", MAILGUN_KEY)
+    assert plan["valid"].expect == tool.EXPECT_ACCEPT
+    assert plan["replayed-token"].expect == tool.EXPECT_REJECT
+    assert plan["replayed-token"].signed == plan["valid"].signed
+    assert plan["stale-timestamp"].expect == tool.EXPECT_INFO
+    assert plan["stale-timestamp"].signed.fields["token"] != plan["valid"].signed.fields["token"]
+    assert int(plan["stale-timestamp"].signed.fields["timestamp"]) < NOW - 300
+    assert plan["tampered-body"].expect == tool.EXPECT_INFO
 
 
-def test_a_receiver_that_accepts_everything_would_be_caught():
-    for scheme, secret, wrong in _schemes():
-        variants = tool.build_variants(
-            scheme, BODY, secret, timestamp=NOW, now=NOW, wrong_secret=wrong)
-        outcomes = [
-            tool.VariantOutcome(scheme.name, v.name, v.expected_accepted, True, "accepted")
-            for v in variants
-        ]
-        assert [o.variant for o in outcomes if not o.correct] == [
-            v.name for v in variants if not v.expected_accepted
-        ]
+def test_sendgrid_tampered_body_carries_the_original_signature():
+    plan = _plan("sendgrid", RFC_KEY_HEX)
+    tampered = plan["tampered-body"]
+    assert tampered.expect == tool.EXPECT_REJECT
+    assert tampered.fixed_headers == plan["valid"].signed.headers
+    assert tampered.payload.subject != plan["valid"].payload.subject
+    assert plan["stale-timestamp"].expect == tool.EXPECT_REJECT
+    assert plan["replayed-token"].expect == tool.EXPECT_INFO
 
 
-def test_the_variants_are_deterministic():
-    scheme = tool.get_scheme("mailgun")
-    first = tool.build_variants(scheme, BODY, MAILGUN_KEY, timestamp=NOW, now=NOW)
-    second = tool.build_variants(scheme, BODY, MAILGUN_KEY, timestamp=NOW, now=NOW)
-    assert first == second
+def test_postmark_has_nothing_to_replay_or_make_stale():
+    plan = _plan("postmark-basic", BASIC)
+    assert plan["stale-timestamp"].expect == tool.EXPECT_NA
+    assert plan["replayed-token"].expect == tool.EXPECT_NA
 
 
-def test_an_outcome_serializes_for_the_report():
-    outcome = tool.VariantOutcome("mailgun", tool.VARIANT_UNSIGNED, False, True, "accepted")
-    assert outcome.to_json()["verdict"] == "FINDING"
+# ---------------------------------------------------------------------------
+# Judging
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("expect,status,verdict", [
+    (tool.EXPECT_ACCEPT, 200, tool.VERDICT_OK),
+    (tool.EXPECT_ACCEPT, 401, tool.VERDICT_FINDING),
+    (tool.EXPECT_REJECT, 403, tool.VERDICT_OK),
+    (tool.EXPECT_REJECT, 204, tool.VERDICT_FINDING),
+    (tool.EXPECT_REJECT, 500, tool.VERDICT_FINDING),
+    (tool.EXPECT_INFO, 200, tool.VERDICT_INFO),
+    (tool.EXPECT_INFO, 401, tool.VERDICT_INFO),
+    (tool.EXPECT_REJECT, None, tool.VERDICT_FINDING),
+])
+def test_judging(expect, status, verdict):
+    planned = tool.Planned("v", expect, "why")
+    assert tool.judge(planned, status, None if status else "refused").verdict == verdict
+
+
+def test_accepting_stale_but_refusing_replay_is_mailguns_own_guidance():
+    def outcome(variant, status):
+        return tool.Outcome(variant, tool.EXPECT_INFO, "", status, None, tool.VERDICT_INFO, "")
+
+    notes = tool.notes_for([outcome("stale-timestamp", 200), outcome("replayed-token", 401)],
+                           "mailgun")
+    assert any("Mailgun's own guidance" in n and "Informational" in n for n in notes)
+
+
+# ---------------------------------------------------------------------------
+# A run against fake endpoints
+# ---------------------------------------------------------------------------
+
+
+def _fields(request):
+    raw = (f"Content-Type: {request.headers['Content-Type']}\r\n\r\n").encode() + request.body
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    return {part.get_param("name", header="content-disposition"): part.get_content()
+            for part in message.iter_parts()}
+
+
+class MailgunEndpoint:
+    """Verifies the signature, refuses a token it has seen; lenient on age,
+    as Mailgun's guidance allows."""
+
+    def __init__(self, enforce=True):
+        self.enforce = enforce
+        self.seen = set()
+        self.requests = []
+
+    def send(self, request):
+        self.requests.append(request)
+        if not self.enforce:
+            return ClientResponse(status=200, body=b"ok")
+        fields = _fields(request)
+        signed = tool.Signed(fields={k: fields.get(k, "") for k in tool.MAILGUN_FIELDS})
+        if not all(signed.fields.values()) or not tool.MailgunScheme().verify(b"", MAILGUN_KEY, signed):
+            return ClientResponse(status=401, body=b"bad signature")
+        if signed.fields["token"] in self.seen:
+            return ClientResponse(status=409, body=b"replayed")
+        self.seen.add(signed.fields["token"])
+        return ClientResponse(status=200, body=b"ok")
+
+
+class SendgridEndpoint:
+    def __init__(self, window=300, now=NOW):
+        self.window, self.now = window, now
+
+    def send(self, request):
+        timestamp = request.headers.get(tool.SENDGRID_TIMESTAMP_HEADER)
+        signature = request.headers.get(tool.SENDGRID_SIGNATURE_HEADER)
+        if not timestamp or not signature or abs(self.now - int(timestamp)) > self.window:
+            return ClientResponse(status=403, body=b"")
+        r, s = tool.parse_der_signature(base64.b64decode(signature))
+        digest = hashlib.sha256(timestamp.encode() + request.body).digest()
+        ok = tool.p256_verify_digest(RFC_PUBLIC, digest, r, s)
+        return ClientResponse(status=200 if ok else 403, body=b"")
+
+
+def _config(tmp_path, fmt):
+    path = tmp_path / "target.toml"
+    path.write_text(f'[targets.local]\nurl = "http://localhost:9/hook"\nformat = "{fmt}"\n',
+                    encoding="utf-8")
+    return str(path)
+
+
+def _execute(tmp_path, scheme, secret, client, fmt):
+    lines = []
+    code = tool.execute(
+        scheme_name=scheme, secret=secret, secret_ref="env:HOOK_SECRET",
+        target_name="local", config_path=_config(tmp_path, fmt),
+        out=str(tmp_path / "sig.json"), client=client, clock=lambda: NOW,
+        printer=lines.append,
+    )
+    path = tmp_path / "sig.json"
+    artifact = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    return code, artifact, "\n".join(lines)
+
+
+def test_an_enforcing_mailgun_endpoint_passes_and_gets_the_guidance_note(tmp_path):
+    code, artifact, text = _execute(tmp_path, "mailgun", MAILGUN_KEY, MailgunEndpoint(), "mailgun")
+    assert code == EXIT_OK, text
+    assert artifact["summary"]["verdict"] == "ENFORCED"
+    by = {v["variant"]: v for v in artifact["variants"]}
+    assert by["replayed-token"]["status"] == 409 and by["replayed-token"]["verdict"] == "OK"
+    assert by["stale-timestamp"]["verdict"] == "INFO" and by["stale-timestamp"]["accepted"]
+    assert any("Mailgun's own guidance" in n for n in artifact["summary"]["notes"])
+
+
+def test_an_endpoint_that_accepts_everything_is_caught(tmp_path):
+    code, artifact, text = _execute(
+        tmp_path, "mailgun", MAILGUN_KEY, MailgunEndpoint(enforce=False), "mailgun"
+    )
+    assert code == EXIT_FINDING
+    assert artifact["summary"]["verdict"] == "GAPS"
+    failing = {v["variant"] for v in artifact["variants"] if v["verdict"] == "FINDING"}
+    assert failing == {"wrong-secret", "unsigned", "replayed-token"}
+    assert "GAPS" in text
+
+
+def test_a_sendgrid_endpoint_that_verifies_the_body_catches_the_tampered_one(tmp_path):
+    code, artifact, text = _execute(tmp_path, "sendgrid", RFC_KEY_HEX, SendgridEndpoint(), "sendgrid")
+    assert code == EXIT_OK, text
+    by = {v["variant"]: v for v in artifact["variants"]}
+    assert by["valid"]["status"] == 200
+    assert by["tampered-body"]["status"] == 403
+    assert by["stale-timestamp"]["status"] == 403
+    assert by["replayed-token"]["verdict"] == "INFO"
+
+
+def test_the_artifact_records_the_secret_reference_never_the_value(tmp_path):
+    _code, artifact, _text = _execute(tmp_path, "mailgun", MAILGUN_KEY, MailgunEndpoint(), "mailgun")
+    assert artifact["schema_version"] == 1
+    assert artifact["tool"] == "sigcheck"
+    assert artifact["config"]["tool"] == "sigcheck"
+    assert artifact["config"]["secret"] == "env:HOOK_SECRET"
+    assert artifact["config"]["format"] == "mailgun"
+    assert artifact["config"]["allow_public_target"] is False
+    assert MAILGUN_KEY not in json.dumps(artifact)
+
+
+def test_a_scheme_at_a_target_of_another_format_is_refused_before_sending(tmp_path):
+    endpoint = MailgunEndpoint()
+    code, artifact, text = _execute(tmp_path, "mailgun", MAILGUN_KEY, endpoint, "sendgrid")
+    assert code == EXIT_REFUSED
+    assert artifact is None and endpoint.requests == []
+    assert 'Set format = "mailgun"' in text
+
+
+def test_report_reads_a_sigcheck_artifact(tmp_path):
+    _execute(tmp_path, "mailgun", MAILGUN_KEY, MailgunEndpoint(enforce=False), "mailgun")
+    summary = reporting.load(tmp_path / "sig.json")
+    assert summary.tool == "sigcheck"
+    assert summary.verdict == "GAPS" and summary.verdict_source == "recorded"
+    assert summary.exit_code == EXIT_FINDING
+    assert summary.counts.failed == 3
+    assert {"wrong-secret", "unsigned", "replayed-token"} <= {f.kind for f in summary.findings}
+
+
+# ---------------------------------------------------------------------------
+# The command line
+# ---------------------------------------------------------------------------
+
+
+def test_sigcheck_fire_is_registered_and_dry_runs_by_default(tmp_path, capsys):
+    code = cli.main(["sigcheck", "fire", "--scheme", "mailgun",
+                     "--config", str(tmp_path / "absent.toml")])
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    for variant in tool.VARIANTS:
+        assert variant in out
+    assert "no network calls were made" in out
+
+
+def test_a_literal_secret_is_refused(tmp_path, capsys):
+    code = cli.main(["sigcheck", "fire", "--scheme", "mailgun", "--secret", "plain-text",
+                     "--target", "local", "--config", _config(tmp_path, "mailgun"), "--send"])
+    assert code == EXIT_REFUSED
+    assert "env:NAME" in capsys.readouterr().err
+
+
+def test_the_sigcheck_table_supplies_scheme_secret_and_window(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("HOOK_KEY", RFC_KEY_HEX)
+    path = tmp_path / "target.toml"
+    path.write_text('[sigcheck]\nscheme = "sendgrid"\nsecret = "env:HOOK_KEY"\n'
+                    'timestamp_window_seconds = 120\n', encoding="utf-8")
+    code = cli.main(["sigcheck", "fire", "--config", str(path)])
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "scheme 'sendgrid'" in out and "timestamp window:  120s" in out
+    assert base64.b64encode(tool.spki_der(RFC_PUBLIC)).decode() in out
+
+
+def test_a_literal_secret_in_the_table_is_refused(tmp_path, capsys):
+    path = tmp_path / "target.toml"
+    path.write_text('[sigcheck]\nscheme = "mailgun"\nsecret = "key-abc"\n', encoding="utf-8")
+    assert cli.main(["sigcheck", "fire", "--config", str(path)]) == EXIT_REFUSED
+    assert "never a literal" in capsys.readouterr().err
+
+
+def test_no_scheme_is_refused(tmp_path, capsys):
+    assert cli.main(["sigcheck", "fire", "--config", str(tmp_path / "absent.toml")]) == EXIT_REFUSED
+    assert "--scheme" in capsys.readouterr().err
