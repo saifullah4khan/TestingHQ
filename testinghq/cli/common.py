@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
+from pathlib import Path
 from typing import Optional
 
 from ..core import guardrails
@@ -84,34 +86,38 @@ def _resolve_readback(args):
     false green this package was built to eliminate.
     """
     spec = getattr(args, "readback", None)
-    override = getattr(args, "allow_public_readback", False)
+    override = bool(getattr(args, "allow_public_readback", False))
+    config_path = getattr(args, "config", DEFAULT_TARGET_CONFIG)
 
     try:
-        config = load_config(getattr(args, "config", DEFAULT_TARGET_CONFIG))
+        config = load_config(config_path)
     except ConfigError:
         config = None
     raw = config.readback_table() if config is not None else None
 
     if spec:
-        if isinstance(raw, dict):
-            merged = dict(raw)
-            merged["kind"] = spec
-            merged.setdefault("allow_public_hosts", override)
-            return pipeline_adapters.parse_readback_config(merged)
-        return pipeline_adapters.parse_readback_config(
-            {"kind": spec, "allow_public_hosts": override}
-        )
-
-    if raw is None:
+        raw = dict(raw) if isinstance(raw, dict) else {}
+        raw["kind"] = spec
+    elif raw is None:
         raise AdapterError(
             "no readback adapter configured. Pass --readback http, --readback "
             "mailbox, or --readback module:attribute, or declare a [readback] "
             "table in the target config."
         )
     if override and isinstance(raw, dict):
+        # The flag wins over the file in both directions it can be read: a
+        # table that says false does not cancel a flag that says true.
         raw = dict(raw)
         raw["allow_public_hosts"] = True
-    return pipeline_adapters.parse_readback_config(raw)
+    readback = pipeline_adapters.parse_readback_config(raw)
+
+    changes = {}
+    rate = getattr(args, "readback_rate", None)
+    if rate is not None:
+        changes["rate"] = rate
+    if config is not None:
+        changes["config_dir"] = str(Path(config_path).resolve().parent)
+    return dataclasses.replace(readback, **changes) if changes else readback
 
 
 def _add_readback_poll_args(parser) -> None:
@@ -128,16 +134,21 @@ def _add_readback_poll_args(parser) -> None:
         type=float,
         default=common.DEFAULT_QUIET_WINDOW,
         help=(
-            "seconds the record counts must hold steady before a read is "
-            "believed. Not a timeout: a longer window costs a slower run, not a "
-            "wrong one"
+            "seconds the records (their count and the field values the "
+            "checks read) must hold steady before a read is believed "
+            "(default %(default)s). For an async pipeline make it longer than "
+            "the gap between a record being created and being filled in"
         ),
     )
     parser.add_argument(
         "--max-wait",
         type=float,
         default=common.DEFAULT_MAX_WAIT,
-        help="seconds to keep polling before reporting whatever was seen",
+        help=(
+            "seconds to keep polling (default %(default)s). A run that has not "
+            "settled by then is UNSETTLED, not lost. A search-indexed store "
+            "such as Zendesk or Freshdesk needs about 300"
+        ),
     )
     parser.add_argument(
         "--poll-interval",
@@ -157,6 +168,16 @@ def _add_readback_args(parser) -> None:
     names an import path is the only way to bring your own, because a Python
     object cannot be spelled on a command line.
     """
+
+    def positive_rate(text: str) -> float:
+        try:
+            value = float(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+        if not value > 0:
+            raise argparse.ArgumentTypeError(f"must be > 0, got {text}")
+        return value
+
     parser.add_argument(
         "--readback",
         help=(
@@ -172,6 +193,16 @@ def _add_readback_args(parser) -> None:
             "allow the readback URL to be a public host. Refused by default, "
             "because on a real deployment the readback is a ticket store or a "
             "mail sink that may hold other people's data"
+        ),
+    )
+    parser.add_argument(
+        "--readback-rate",
+        type=positive_rate,
+        default=pipeline_adapters.DEFAULT_READBACK_RATE,
+        help=(
+            "most readback requests per second, across every lookup, page and "
+            "retry (default %(default)s). Vendor APIs allow 40 to 700 requests "
+            "a minute, and an unpaced poll over many tags exceeds that"
         ),
     )
     parser.add_argument(
