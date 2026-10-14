@@ -124,29 +124,14 @@ def test_rejects_non_positive_rate_or_capacity():
 
 
 # ---------------------------------------------------------------------------
-# Regression: the float-residue spin in acquire().
+# Rates whose reciprocal is not exact in binary.
 #
-# acquire() used to recompute the wait on every pass and re-accumulate it. For
-# a rate whose reciprocal is not exactly representable in binary (1/3, 1/6,
-# 1/7, 1/10) the refill rounded to just under the deficit, so the next computed
-# wait was about 1e-17, and adding 1e-17 to a clock reading around 0.67 is a
-# no-op at float precision. Elapsed became zero, no refill happened, and the
-# loop never exited. Rates 1, 2 and 4 are exact and never trip it, which is why
-# the blocking-acquire tests above pass.
-#
-# Every test guarding this module used to pass for a reason unrelated to
-# whether it worked: the blocking tests drive rates 1 and 2 only, and the one
-# test using a non-representable rate (10) drives it through the non-blocking
-# try_acquire(), which cannot spin. Nobody chose 1 and 2 for any reason at all.
-# The sweep below is the correction: the rate is a parameter of the test, not
-# a coincidence of it.
+# For a rate like 3 or 10, a refill can land a float residue short of the
+# deficit, leaving a wait of about 1e-17s that an additive clock cannot
+# advance by. acquire() must round that off instead of spinning on it. Powers
+# of two never produce the residue, so the rate is a parameter here.
 # ---------------------------------------------------------------------------
 
-# 3, 5, 6, 7, 9, 10 and 11. Measured against the pre-fix module, one
-# blocking process per rate: every one of these hangs, and the only rates
-# that did not are 1, 2, 4, 8, 16 (the powers of two) plus 0.5 and 0.1. So the
-# dividing line is exactly representability of the reciprocal, and the
-# existing tests sat entirely on the safe side of it.
 NON_BINARY_EXACT_RATES = [3.0, 5.0, 6.0, 7.0, 9.0, 10.0, 11.0]
 
 
