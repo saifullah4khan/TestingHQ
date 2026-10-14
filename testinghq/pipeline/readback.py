@@ -9,9 +9,15 @@ A `ReadbackAdapter` has `fetch(probe) -> Sequence[Readback]`, and the sequence i
 the point. Zero is a loss, one is normal, several is a duplicated message, which
 is a real bug and not an error condition. `list_all` is optional, because not
 every system can be enumerated, and the tools say "not searched" rather than
-reporting none found when it is absent. A plain function taking a Probe is a
-complete adapter, which is what makes writing one for a one-off system a lambda
-rather than a project.
+reporting none found when it is absent. `preflight()` is optional too: when an
+adapter has it, it is called once before anything is sent, and raising there is
+a refusal rather than a finding. A plain function taking a Probe is a complete
+adapter, which is what makes writing one for a one-off system a lambda rather
+than a project.
+
+A fetch or list result may be a `FetchResult`: a list that also says whether
+pagination was cut short (`partial`) and what HTTP status the lookup got
+(`status`). Plain lists are still accepted everywhere.
 
 `Readback` is deliberately a flat bag of the generic facts every intake system has
 some record of (a ticket id, a sender, a subject, a body, attachment names, a
@@ -151,9 +157,17 @@ class Readback:
     category: Optional[str] = None
     priority: Optional[str] = None
     fields: Tuple[str, ...] = field(default_factory=tuple)
+    #: (field, detail) pairs for fields the adapter found but could not read,
+    #: such as a list of objects where names were expected. Such a field is
+    #: absent from `fields`, so its check is SKIPPED, and the detail says what
+    #: shape was actually there.
+    field_notes: Tuple[Tuple[str, str], ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         unknown = [name for name in self.fields if name not in READBACK_FIELDS]
+        unknown += [
+            name for name, _detail in self.field_notes if name not in READBACK_FIELDS
+        ]
         if unknown:
             raise ReadbackError(
                 f"readback names fields that do not exist: {unknown}; "
@@ -169,6 +183,14 @@ class Readback:
 
     def value_of(self, name: str) -> Any:
         return getattr(self, name)
+
+    def note_for(self, name: str) -> Optional[str]:
+        """Why `name` could not be read, when the adapter saw it but could not
+        use its shape. None when there is no such note."""
+        for field_name, detail in self.field_notes:
+            if field_name == name:
+                return detail
+        return None
 
     def has(self, name: str) -> bool:
         """True if this readback actually carried `name`.
@@ -201,7 +223,29 @@ class Readback:
         payload["fields"] = sorted(self.fields) if self.fields else sorted(
             name for name in CHECKABLE_FIELDS if self.has(name)
         )
+        if self.field_notes:
+            payload["field_notes"] = {name: detail for name, detail in self.field_notes}
         return payload
+
+
+class FetchResult(list):
+    """A list of readbacks that also carries how it was obtained.
+
+    `partial` is True when pagination stopped at `max_pages` with more pages
+    left, so the list is known to be incomplete. `status` is the HTTP status
+    of the first request, where there was one, which is what lets a run tell
+    "every lookup was 404" apart from "nothing was found"."""
+
+    def __init__(
+        self,
+        items: Sequence[Readback] = (),
+        *,
+        partial: bool = False,
+        status: Optional[int] = None,
+    ) -> None:
+        super().__init__(items)
+        self.partial = partial
+        self.status = status
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +262,14 @@ class ReadbackAdapter(Protocol):
     pipeline that creates two tickets both look exactly like this returning two
     items, and both are what the ledger and redelivery tools are built to find.
 
-    `list_all` is optional. Adapters that cannot enumerate should not define it;
-    callers check with `getattr` and the tools then report stray-record
-    hunting as unavailable rather than as having found nothing.
+    `list_all` is optional. Adapters that cannot enumerate should not define it,
+    or should set a boolean `can_enumerate = False`; callers ask through
+    `can_enumerate()` and the tools then report stray-record hunting as
+    unavailable rather than as having found nothing.
+
+    `preflight()` is optional. It raises `ReadbackError` when the adapter can
+    already tell it will not work (credentials refused, a path that does not
+    exist), and it is called once before any message is sent.
     """
 
     def fetch(self, probe: Probe) -> Sequence[Readback]: ...
@@ -258,7 +307,9 @@ class FunctionAdapter:
                         f"a readback adapter returned {type(item).__name__} "
                         "where a Readback was expected"
                     )
-            return list(result)
+            # A FetchResult is kept as is, so `partial` and `status` reach
+            # the poll.
+            return result if isinstance(result, FetchResult) else list(result)
         raise ReadbackError(
             f"a readback adapter must return a Readback, a sequence of them, "
             f"or None; got {type(result).__name__}"
@@ -287,20 +338,26 @@ class MultiAdapter:
         # building a MultiAdapter and throwing it away. A MultiAdapter that
         # always claimed to be able to enumerate would let a partial search be
         # reported as complete, which is how stray records go missing.
-        self.can_enumerate = all(
-            callable(getattr(adapter, "list_all", None)) for adapter in self._adapters
-        )
+        self.can_enumerate = all(can_enumerate(adapter) for adapter in self._adapters)
+
+    def preflight(self) -> None:
+        for adapter in self._adapters:
+            check = getattr(adapter, "preflight", None)
+            if callable(check):
+                check()
 
     def fetch(self, probe: Probe) -> List[Readback]:
-        found: List[Readback] = []
+        found = FetchResult()
         for adapter in self._adapters:
-            found.extend(adapter.fetch(probe))
+            result = adapter.fetch(probe)
+            found.partial = found.partial or bool(getattr(result, "partial", False))
+            found.extend(result)
         return found
 
     def list_all(self) -> List[Readback]:
         if not self._adapters:
             return []
-        results = []
+        results = FetchResult()
         for adapter in self._adapters:
             lister = getattr(adapter, "list_all", None)
             if lister is None:
@@ -309,7 +366,9 @@ class MultiAdapter:
                     "enumerate its records; partial enumeration reported as "
                     "complete would hide stray records"
                 )
-            results.extend(lister())
+            listed = lister()
+            results.partial = results.partial or bool(getattr(listed, "partial", False))
+            results.extend(listed)
         return results
 
     def close(self) -> None:
@@ -320,10 +379,11 @@ class MultiAdapter:
 def can_enumerate(adapter: ReadbackAdapter) -> bool:
     """True if `adapter` can list every record it holds, not just look one up.
 
-    A declared `can_enumerate` attribute wins over duck-typing on `list_all`,
-    because a composite adapter such as `MultiAdapter` has a `list_all` method
-    that is only correct when all of its delegates can enumerate. A method's
-    mere existence would have answered yes to a partial search.
+    A declared boolean `can_enumerate` attribute wins over duck-typing on
+    `list_all`. A composite such as `MultiAdapter` is only enumerable when every
+    delegate is, and the http adapter keeps its `list_all` method when
+    `enumerate = false` but declares False, so a caller asks here first and
+    never calls a listing that would raise after the messages are sent.
     """
     declared = getattr(adapter, "can_enumerate", None)
     if isinstance(declared, bool):

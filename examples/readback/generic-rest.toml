@@ -1,5 +1,8 @@
 # Readback recipe: any REST API
 #
+# STATUS: RUN by this repository's own tests over loopback, not against a
+# third-party API.
+#
 # WHAT IS VERIFIED AND WHAT IS NOT
 #
 #   This one WAS run. The record shape below is what
@@ -117,3 +120,21 @@ priority = "priority"
 
 # enumerate = true
 # list_path = "https://api.example.com/v1/records"
+
+# ---------------------------------------------------------------------------
+# Search syntax, POST searches and pagination
+# ---------------------------------------------------------------------------
+#
+# `query` wraps the tag in your API's search syntax before it goes in
+# tag_param. `method = "POST"` with a `body` template sends the search as JSON
+# instead. A paginated API is followed through `next_path` (a JSON pointer to
+# the next page's url) or `page_param` (and `page_size_param`), at most
+# `max_pages` pages; a result cut short there is marked partial.
+
+# query = "tag:{tag}"
+# method = "POST"
+# body = '{"filter": {"tag": "{tag}"}}'
+# next_path = "/links/next"
+# page_param = "page"
+# page_size_param = "per_page"
+# max_pages = 10

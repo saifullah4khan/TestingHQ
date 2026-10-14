@@ -1,21 +1,24 @@
 # Readback recipe: Freshdesk API
 #
-# WHAT IS VERIFIED AND WHAT IS NOT
-#
-#   The TOML parses with the real loader, and the field paths are checked
-#   against sample records in tests/test_readback_recipes.py, modelled on the
-#   shapes in Freshdesk's published API documentation.
-#
-#   It has NOT been run against a live Freshdesk account. Nobody on this project
-#   has one. Treat the field paths as "what their documentation says", not as
-#   "this was seen to work".
+# STATUS: NOT RUN against a live Freshdesk account. Written from Freshdesk's
+# published API documentation (Search Tickets, Tickets). Treat the field paths
+# as "what the documentation says", not as "this was seen to work".
 #
 # Copy to target.toml, fill in your domain, and pass --config.
 #
-#   export FRESHDESK_TOKEN="..."     # API key, Admin > Settings > API Keys
-#   testinghq verify fire --target freshdesk --send --config target.toml
+#   export FRESHDESK_AUTH="Basic $(printf '%s:X' "$FRESHDESK_API_KEY" | base64 | tr -d '\n')"
+#   testinghq verify fire --target freshdesk --send --config target.toml --max-wait 300
 #
-# Never put the token in this file.
+# AUTH. Freshdesk uses Basic auth with the API key as the username and any
+# password ("X" by convention), base64 encoded behind a "Basic " prefix. The
+# shell line above builds exactly that. Never put the key in this file: a
+# [readback.headers] value that is not an `env:` reference is refused.
+#
+# WAITING. Freshdesk search is index-backed and lags ticket creation, so start
+# with --max-wait 300. A slow index reads as UNSETTLED, not as loss.
+#
+# RATE. Freshdesk plans allow 50 to 700 API calls a minute. The default
+# --readback-rate of 4 a second is 240 a minute; lower it on a small plan.
 
 [targets.freshdesk]
 name = "freshdesk"
@@ -25,98 +28,68 @@ url = "http://127.0.0.1:8000/intake"
 # Readback
 # ---------------------------------------------------------------------------
 #
-# Freshdesk filters with a `query` string on the ticket list endpoint, and
-# TestingHQ appends the tag as a query parameter, so `tag_param = "query"` gives
+# The lookup is the filter endpoint:
 #
-#   /api/v2/tickets?query=hq-1-0000
+#   GET /api/v2/search/tickets?query="tag:'<tag>'"
 #
-# The tag has to be findable in the searchable text. Freshdesk's `query`
-# parameter searches subject, description, and the requester's email, so a
-# message TestingHQ sent to a pipeline which put the tag in the body will match.
-# If your pipeline strips the tag from the body before creating the ticket, this
-# will find nothing: that is a finding, not a configuration error, and the
-# report will say no record was found.
+# Freshdesk's search query is a quoted expression over structured fields only,
+# not full text, so the ticket has to carry the TestingHQ tag as a Freshdesk
+# tag: the pipeline copies the X-TestingHQ-Tag header (or the [testinghq:<tag>]
+# body marker) into the ticket's tags when it creates the ticket. A pipeline
+# that does not will find nothing, and the report will say no record was found.
 #
-# Auth is a header, not a query parameter. Freshdesk's API key goes in
-# Authorization as a Basic credential with any username and the key as the
-# password. That encoding is done in the shell when you export the variable, so
-# the value never has to be assembled in this file:
+# Results come under `results`, 30 to a page, at most 10 pages, paged with
+# `page`.
 #
-#   export FRESHDESK_TOKEN="$(printf ':%s' "$FRESHDESK_KEY" | base64)"
-#
-# The guardrail refuses a literal value in [readback.headers], so the only
-# thing this file can contain is the name of the variable.
+# `allow_public_hosts` is REQUIRED for a real Freshdesk, which is a public
+# host. Remove the line and pass --allow-public-readback per run if you would
+# rather the decision be made every time.
 
 [readback]
 kind = "http"
-url = "https://your-domain.freshdesk.com/api/v2/tickets"
+url = "https://your-domain.freshdesk.com/api/v2/search/tickets"
 tag_param = "query"
-items_key = "items"
+query = "\"tag:'{tag}'\""
+items_key = "results"
+page_param = "page"
+max_pages = 10
 timeout = 20.0
 allow_public_hosts = true
 
+# Freshdesk search cannot list every ticket, so stray detection is off here and
+# the ledger reports strays as not searched rather than as none.
+enumerate = false
+
 [readback.headers]
-Authorization = "env:FRESHDESK_TOKEN"
+Authorization = "env:FRESHDESK_AUTH"
 
 # ---------------------------------------------------------------------------
 # Field map
 # ---------------------------------------------------------------------------
 #
-# A Freshdesk ticket is flatter than a Zendesk one, so more of it is checkable.
-# `requester_id` is an integer id rather than an address, which is why
-# from_addr is not mapped to it below: the checks normalize addresses, and an
-# integer compared against an email address fails every time. See the note
-# further down.
-#
-# Skip reasons you should expect for this recipe:
-#   "adapter cannot see field" for from_addr, which is a deliberate choice
-#     rather than a gap. See below.
-#   "no record found" when a message never became a ticket.
+# A Freshdesk ticket is flat. `description_text` is the plain-text body; if
+# your plan's search results omit it, the body check reports NOT CHECKED.
 
 [readback.fields]
 ticket_id = "id"
 subject = "subject"
-body = "description"
+body = "description_text"
 route = "group_id"
 priority = "priority"
 category = "type"
 
-# NOT MAPPED: tag. A Freshdesk ticket's `tags` is a LIST, and this adapter
-# accepts a list only for attachment_names and references, so tag = "tags" is
-# refused at load with "a readback field must be a string or null, got list".
-# The search already found the ticket BY the tag, so nothing needs to carry it
-# back. If your pipeline copies the tag into a single-valued custom field, map
-# that field's API name here instead.
-
-# ---------------------------------------------------------------------------
-# What this recipe cannot check, and why
-# ---------------------------------------------------------------------------
+# NOT MAPPED, each for a reason:
 #
-#   from_addr        Freshdesk records the requester as `requester_id`, an
-#                    integer, not an address. The address needs a second GET to
-#                    /api/v2/contacts/{id}, which a single-GET adapter cannot
-#                    follow. Mapping `requester_id` to from_addr would produce
-#                    a check comparing "42" against "alice@example.com", which
-#                    fails on every ticket and reads like a broken pipeline
-#                    rather than a missing lookup. So it is left unmapped and
-#                    reported as NOT CHECKED.
-#
-#   attachment_names  A ticket's attachments are not in the list payload, only
-#                     a count. Same reasoning as the Zendesk recipe: a count is
-#                     not a name, and mapping it would let a check pass by
-#                     accident.
-#
-#   in_reply_to       Freshdesk has no RFC 5322 threading headers. A threading
-#   references        check here would be comparing a different system's idea
-#                     of the same concept.
-#
-#   message_id        Not exposed on a ticket. A pipeline that records it in a
-#                     custom field can map that field's API name here and get
-#                     threading coverage.
-#
-# To get a sender check against Freshdesk, write a custom adapter:
-#
-#   testinghq verify fire --send --readback mypkg.adapters:freshdesk
-#
-# where build_freshdesk does the second GET and returns a Readback with
-# from_addr filled in. A plain function taking a Probe is a complete adapter.
+#   from_addr         Freshdesk records the requester as `requester_id`, an
+#                     integer, not an address. The address needs a second GET
+#                     to /api/v2/contacts/{id}, which this adapter does not
+#                     make. Mapping `requester_id` would compare "42" against
+#                     an address and fail on every ticket. Write a custom
+#                     adapter (`--readback mypkg.adapters:freshdesk`) for a
+#                     sender check.
+#   attachment_names  Not in a search result.
+#   message_id,       Freshdesk does not expose RFC 5322 threading headers on a
+#   in_reply_to,      ticket.
+#   references
+#   tag               `tags` is a list of every tag on the ticket, and the
+#                     search already found the ticket by the tag.
