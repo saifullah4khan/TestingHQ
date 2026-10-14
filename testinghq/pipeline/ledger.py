@@ -51,7 +51,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from ..core.targets import resolve_target
 from . import messages
-from .adapters import ReadbackConfig, build_adapter
+from .adapters import ReadbackConfig
 from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -62,8 +62,11 @@ from .common import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
+    prepare_readback,
     read_back_all,
+    readback_verdict,
     require_synthetic,
+    send_all,
 )
 from .expectations import (
     DEFAULT_ATTACHMENT_MATCH,
@@ -80,10 +83,8 @@ from .verify import (
     artifact_header,
     build_items,
     build_tagged_corpus,
-    open_adapter,
-    readback_summary,
+    readback_note,
     readback_unsettled,
-    send_messages,
     write_artifact,
 )
 
@@ -419,12 +420,15 @@ def build_artifact(
             }
         )
 
-    summary = dict(accounting, verdict=verdict(accounting))
+    summary = dict(accounting)
+    summary["verdict"], summary["verdict_source"] = readback_verdict(
+        verdict(accounting), readback_outcome
+    )
     if readback_outcome is not None:
         # The accounting is only as settled as the read it came from. A run
         # that gave up before the counts held steady is reported as such rather
         # than as a balance it has not established.
-        summary["readback"] = readback_summary(readback_outcome)
+        summary["readback"] = readback_outcome.to_json()
     artifact = artifact_header("ledger")
     artifact.update(
         {"seed": seed, "config": config, "summary": summary, "records": records}
@@ -490,11 +494,9 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
             f"  extra:           NOT SEARCHED ({reason}, so a ticket this run "
             "never sent could have been missed)"
         )
-    if summary.get("unsettled"):
-        lines.append(
-            "  the readback never settled, so a message not found yet may still "
-            "be in flight; raise --max-wait or --quiet-window and rerun"
-        )
+    note = readback_note(summary)
+    if note:
+        lines.append(f"  {note}")
 
     def _section(title: str, items: Sequence[Any], render) -> None:
         lines.append("")
@@ -732,9 +734,8 @@ def execute(
         return EXIT_REFUSED
 
     try:
-        adapter = open_adapter(
-            readback, client=readback_client, config_path=config_path,
-            builder=build_adapter,
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
         )
     except Exception as exc:
         printer(f"refused: the readback adapter could not be prepared: {exc}")
@@ -753,9 +754,9 @@ def execute(
     sent: Optional[List[SentMessage]] = None
     phase = "send"
     try:
-        sent = send_messages(
-            items, target.url, rate, wire_format=target.wire_format, client=client,
-            sleep=sleep, clock=clock,
+        sent = send_all(
+            items, target.url, rate, client=client, sleep=sleep, clock=clock,
+            wire_format=target.wire_format,
         )
         phase = "readback"
         outcome = read_back_all(

@@ -22,7 +22,6 @@ not, 1 a refusal, 2 a dry run. A run that returns 0 has told you the pipeline
 parsed correctly, which is the thing no status code could tell you."""
 from __future__ import annotations
 
-import inspect
 import json
 import random
 import time
@@ -37,7 +36,7 @@ from ..core import report
 from ..core.targets import resolve_target
 from ..core.transport import TransportResult
 from . import messages
-from .adapters import ReadbackConfig, build_adapter
+from .adapters import ReadbackConfig
 from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -48,7 +47,9 @@ from .common import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
+    prepare_readback,
     read_back_all,
+    readback_verdict,
     require_synthetic,
     send_all,
 )
@@ -102,86 +103,23 @@ ARTIFACT_SCHEMA_VERSION = 1
 # ---------------------------------------------------------------------------
 
 
-def open_adapter(
-    readback: ReadbackConfig,
-    *,
-    client: Any = None,
-    config_path: Optional[str] = None,
-    builder: Optional[Callable[..., Any]] = None,
-) -> Any:
-    """Build the readback adapter and run its `preflight()` when it has one.
-
-    Called before anything is sent, so an auth or path failure is a refusal
-    rather than a lost run. A relative mailbox path resolves against the
-    directory holding the target config.
-    """
-    if builder is None:
-        builder = build_adapter  # looked up per call, so it can be swapped in tests
-    kwargs: Dict[str, Any] = {"client": client}
-    if config_path and _accepts(builder, "config_dir"):
-        kwargs["config_dir"] = str(Path(config_path).resolve().parent)
-    adapter = builder(readback, **kwargs)
-    preflight = getattr(adapter, "preflight", None)
-    if callable(preflight):
-        try:
-            preflight()
-        except Exception:
-            close_adapter(adapter)
-            raise
-    return adapter
+def readback_unsettled(outcome: Optional[ReadbackOutcome]) -> bool:
+    """True when the readback phase ran out of --max-wait before settling."""
+    return bool(outcome is not None and outcome.unsettled)
 
 
-def _accepts(func: Callable[..., Any], name: str) -> bool:
-    """True when `func` takes a keyword argument called `name`."""
-    try:
-        parameters = inspect.signature(func).parameters
-    except (TypeError, ValueError):
-        return False
-    return name in parameters or any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()
-    )
-
-
-def send_messages(
-    items: Sequence[Tuple[InboundEmail, str, str, messages.Probe]],
-    url: str,
-    rate: float,
-    *,
-    wire_format: Any = None,
-    client: Any = None,
-    sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.monotonic,
-) -> List[SentMessage]:
-    """`common.send_all`, passing the target's wire format when it accepts one."""
-    kwargs: Dict[str, Any] = {}
-    if wire_format is not None and _accepts(send_all, "wire_format"):
-        kwargs["wire_format"] = wire_format
-    return send_all(items, url, rate, client=client, sleep=sleep, clock=clock, **kwargs)
-
-
-def readback_unsettled(outcome: Any) -> bool:
-    """True when the readback phase reports it never settled.
-
-    Read from the outcome's own `unsettled` flag, or a `status`/`verdict` of
-    "UNSETTLED", so a readback layer that does not distinguish the case keeps
-    the old behaviour (missing tags are losses).
-    """
-    if outcome is None:
-        return False
-    flag = getattr(outcome, "unsettled", None)
-    if isinstance(flag, bool):
-        return flag
-    for name in ("status", "verdict", "state"):
-        value = getattr(outcome, name, None)
-        if isinstance(value, str):
-            return value.upper() == "UNSETTLED"
-    return False
-
-
-def readback_summary(outcome: Any) -> Dict[str, Any]:
-    payload = dict(outcome.to_json())
-    payload["unsettled"] = readback_unsettled(outcome)
-    return payload
+def readback_note(summary: Dict[str, Any]) -> Optional[str]:
+    """The readback's own headline (UNSETTLED, or every lookup a 404), or a
+    plain unsettled note for an artifact that recorded no headline."""
+    headline = (summary.get("readback") or {}).get("headline")
+    if headline:
+        return str(headline)
+    if summary.get("unsettled"):
+        return (
+            "the readback never settled, so a message not found yet may still "
+            "be in flight; raise --max-wait or --quiet-window and rerun"
+        )
+    return None
 
 
 def artifact_header(tool: str) -> Dict[str, Any]:
@@ -435,7 +373,7 @@ def summarize(
     }
     summary["unsettled"] = readback_unsettled(readback_outcome)
     if readback_outcome is not None:
-        summary["readback"] = readback_summary(readback_outcome)
+        summary["readback"] = readback_outcome.to_json()
     return summary
 
 
@@ -508,7 +446,9 @@ def build_artifact(
         )
 
     summary = summarize(verifications, sent, readback_outcome)
-    summary["verdict"] = verdict_of(summary)
+    summary["verdict"], summary["verdict_source"] = readback_verdict(
+        verdict_of(summary), readback_outcome
+    )
     artifact = artifact_header("verify")
     artifact.update(
         {"seed": seed, "config": config, "summary": summary, "records": records}
@@ -530,7 +470,7 @@ def format_verification(artifact: Dict[str, Any]) -> str:
 
     failed = summary.get("failed", 0)
     checked = summary.get("verified", 0) + failed
-    verdict = verdict_of(summary)
+    verdict = summary.get("verdict") or verdict_of(summary)
 
     lines = [
         f"verify: {verdict}  ({checked} payload(s) checked, seed="
@@ -560,11 +500,9 @@ def format_verification(artifact: Dict[str, Any]) -> str:
             lines.append(
                 f"                    still missing {len(readback['missing_tags'])}"
             )
-    if summary.get("unsettled"):
-        lines.append(
-            "  the readback never settled, so a message not found yet may still "
-            "be in flight; raise --max-wait or --quiet-window and rerun"
-        )
+    note = readback_note(summary)
+    if note:
+        lines.append(f"  {note}")
 
     unanswered = summary.get("transport_unanswered", 0)
     non_2xx = summary.get("transport_non_2xx", 0)
@@ -731,7 +669,9 @@ def execute(
         return EXIT_REFUSED
 
     try:
-        adapter = open_adapter(readback, client=readback_client, config_path=config_path)
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
+        )
     except Exception as exc:
         printer(f"refused: the readback adapter could not be prepared: {exc}")
         return EXIT_REFUSED
@@ -748,9 +688,9 @@ def execute(
     sent: Optional[List[SentMessage]] = None
     phase = "send"
     try:
-        sent = send_messages(
-            items, target.url, rate, wire_format=target.wire_format, client=client,
-            sleep=sleep, clock=clock,
+        sent = send_all(
+            items, target.url, rate, client=client, sleep=sleep, clock=clock,
+            wire_format=target.wire_format,
         )
         phase = "readback"
         outcome = read_back_all(
@@ -921,7 +861,9 @@ def check_saved_run(
     match = match_options(route, body_exact, subject_match, attachment_match)
     try:
         validate_match_modes(subject_match, attachment_match)
-        adapter = open_adapter(readback, client=readback_client, config_path=config_path)
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED

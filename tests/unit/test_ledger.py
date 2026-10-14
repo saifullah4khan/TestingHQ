@@ -25,6 +25,7 @@ import pytest
 from testinghq.core.transport import ClientResponse, TransportResult
 from testinghq.pipeline.adapters import ReadbackConfig
 from testinghq.pipeline.common import EXIT_MISMATCH, EXIT_OK, EXIT_REFUSED
+from testinghq.pipeline import common as pipeline_common
 from testinghq.pipeline import ledger
 from testinghq.pipeline.common import SentMessage
 from testinghq.pipeline.messages import build_chain_message_id, make_tag
@@ -686,7 +687,7 @@ def test_an_enumeration_that_fails_after_sending_is_reported_not_refused(
             fields=("from_addr", "subject", "body", "attachment_names"),
         )] if found else []
 
-    monkeypatch.setattr(ledger, "build_adapter", lambda config, **kw: _ListFails(fetch))
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _ListFails(fetch))
     code, text, artifact, _intake = _execute(
         target_config, tmp_path, ReadbackConfig(kind="mailbox", path="x.jsonl"), None
     )
@@ -759,7 +760,6 @@ def test_a_per_run_prefix_family_is_exact():
     is extra, a different run's prefix is another run, never extra."""
     run = "hq-2610141200-ab12"
     sent = _sent()
-    readbacks = {m.tag: [_good(m)] for m in sent}
     mine = make_tag(run, SEED, 77)
     earlier = make_tag("hq-2610141100-cd34", SEED, 0)
     sorted_strays = ledger.classify_strays(
@@ -824,7 +824,7 @@ def test_a_can_enumerate_method_returning_false_is_unverified_strays(
             calls.append("list_all")
             raise AssertionError("list_all called although can_enumerate() is False")
 
-    monkeypatch.setattr(ledger, "build_adapter", lambda config, **kw: _NoEnumerate())
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _NoEnumerate())
     code, text, artifact, intake = _execute(
         target_config, tmp_path, ReadbackConfig(kind="mailbox", path="x.jsonl"), None
     )
@@ -852,7 +852,7 @@ def test_a_truncated_enumeration_is_not_a_searched_store(
         def list_all(self):
             return _Listing([_stray(make_tag("hq", SEED, 50), "STRAY")])
 
-    monkeypatch.setattr(ledger, "build_adapter", lambda config, **kw: _Truncated())
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Truncated())
     code, text, artifact, _intake = _execute(
         target_config, tmp_path, ReadbackConfig(kind="mailbox", path="x.jsonl"), None
     )
@@ -880,7 +880,7 @@ def test_a_truncated_enumeration_with_nothing_extra_is_unverified(
         def list_all(self):
             return _Listing()
 
-    monkeypatch.setattr(ledger, "build_adapter", lambda config, **kw: _Truncated())
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Truncated())
     code, _text, artifact, _intake = _execute(
         target_config, tmp_path, ReadbackConfig(kind="mailbox", path="x.jsonl"), None
     )
@@ -910,7 +910,7 @@ def test_ctrl_c_during_the_readback_writes_what_it_has_and_exits_3(
         def fetch(self, probe):
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(ledger, "build_adapter", lambda config, **kw: _Interrupted())
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Interrupted())
     code, text, artifact, intake = _execute(
         target_config, tmp_path, ReadbackConfig(kind="mailbox", path="x.jsonl"), None
     )
@@ -924,3 +924,55 @@ def test_ctrl_c_during_the_readback_writes_what_it_has_and_exits_3(
         tag for _e, tag, _r in build_tagged_corpus(SEED, COUNT)
     ]
     assert "ABORTED" in text
+
+
+def _outcome(readbacks, **kwargs):
+    from testinghq.pipeline.common import ReadbackOutcome
+
+    return ReadbackOutcome(readbacks=readbacks, elapsed=1.0, polls=2, **kwargs)
+
+
+def test_an_unsettled_readback_makes_the_ledger_unsettled_from_the_readback():
+    """A duplicate seen before the readback settled is still listed, but the
+    headline says the run never settled and where that verdict came from."""
+    sent = _sent()
+    readbacks = {m.tag: [_good(m)] for m in sent}
+    readbacks[sent[0].tag] = [_good(sent[0], "T1"), _good(sent[0], "T2")]
+    outcome = _outcome(readbacks, stable=False)
+    accounting = ledger.account(sent, readbacks, [], unsettled=True)
+    artifact = ledger.build_artifact(
+        SEED,
+        ledger.run_config(SEED, COUNT, "hq", "local", _readback_config(), None, _POLL),
+        sent, accounting, readbacks, outcome,
+    )
+    summary = artifact["summary"]
+    assert summary["verdict"] == "UNSETTLED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["duplicated"][0]["tag"] == sent[0].tag
+    assert "did not settle within --max-wait" in ledger.format_ledger(artifact)
+
+
+def test_a_settled_ledger_records_that_the_tool_decided_the_verdict():
+    sent = _sent()
+    readbacks = {m.tag: [_good(m, f"T{m.index}")] for m in sent}
+    accounting = ledger.account(sent, readbacks, [])
+    artifact = ledger.build_artifact(
+        SEED,
+        ledger.run_config(SEED, COUNT, "hq", "local", _readback_config(), None, _POLL),
+        sent, accounting, readbacks, _outcome(readbacks, stable=True),
+    )
+    assert artifact["summary"]["verdict"] == "BALANCED"
+    assert artifact["summary"]["verdict_source"] == "tool"
+
+
+def test_every_lookup_a_404_is_the_report_headline():
+    sent = _sent()
+    outcome = _outcome({m.tag: [] for m in sent}, stable=False, all_404=True)
+    accounting = ledger.account(sent, outcome.readbacks, None, unsettled=True)
+    artifact = ledger.build_artifact(
+        SEED,
+        ledger.run_config(SEED, COUNT, "hq", "local", _readback_config(), None, _POLL),
+        sent, accounting, outcome.readbacks, outcome,
+    )
+    text = ledger.format_ledger(artifact)
+    assert "  every lookup was 404: check the readback url" in text.splitlines()

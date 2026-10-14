@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 
 from testinghq.core import report
+from testinghq.pipeline import common as pipeline_common
 from testinghq.pipeline import messages as pipeline_messages
 from testinghq.pipeline import redeliver
 from testinghq.pipeline.readback import Readback
@@ -717,7 +718,7 @@ def test_ctrl_c_during_the_slow_retry_wait_writes_what_it_has_and_exits_3(
         def fetch(self, probe):
             raise AssertionError("an aborted run must not read back")
 
-    monkeypatch.setattr(redeliver, "build_adapter", lambda config, **kw: _Never())
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Never())
 
     now = [0.0]
 
@@ -752,7 +753,7 @@ def test_the_redelivery_artifact_records_the_target_format(tmp_path, monkeypatch
         def fetch(self, probe):
             return []
 
-    monkeypatch.setattr(redeliver, "build_adapter", lambda config, **kw: _Empty())
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Empty())
     out = tmp_path / "redeliver.json"
     redeliver.execute(
         SEED, COUNT, "local", _target_config(tmp_path), str(out),

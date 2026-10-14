@@ -48,7 +48,7 @@ from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target
 from ..core.transport import post
 from . import messages
-from .adapters import ReadbackConfig, build_adapter
+from .adapters import ReadbackConfig
 from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -59,7 +59,9 @@ from .common import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
+    prepare_readback,
     read_back_all,
+    readback_verdict,
     require_synthetic,
 )
 from .expectations import (
@@ -79,8 +81,7 @@ from .verify import (
     abort_run,
     artifact_header,
     build_clean_corpus,
-    open_adapter,
-    readback_summary,
+    readback_note,
     readback_unsettled,
     write_artifact,
 )
@@ -943,10 +944,12 @@ def build_artifact(
         "other_runs_count": strays.get("other_runs_count"),
         "untagged_count": strays.get("untagged_count"),
         "unsettled": unsettled,
-        "verdict": verdict_of(results, strays, unsettled),
     }
+    summary["verdict"], summary["verdict_source"] = readback_verdict(
+        verdict_of(results, strays, unsettled), readback_outcome
+    )
     if readback_outcome is not None:
-        summary["readback"] = readback_summary(readback_outcome)
+        summary["readback"] = readback_outcome.to_json()
     artifact = artifact_header("redeliver")
     artifact.update(
         {
@@ -981,11 +984,9 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
             f"  readback: {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
-    if summary.get("unsettled"):
-        lines.append(
-            "  the readback never settled, so a message not found yet may still "
-            "be in flight; raise --max-wait or --quiet-window and rerun"
-        )
+    note = readback_note(summary)
+    if note:
+        lines.append(f"  {note}")
     unattributed = summary.get("unattributed_strays") or []
     if unattributed:
         lines.append(
@@ -1114,9 +1115,8 @@ def execute(
         return EXIT_REFUSED
 
     try:
-        adapter = open_adapter(
-            readback, client=readback_client, config_path=config_path,
-            builder=build_adapter,
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
         )
     except Exception as exc:
         printer(f"refused: the readback adapter could not be prepared: {exc}")

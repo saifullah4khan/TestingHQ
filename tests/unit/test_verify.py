@@ -461,6 +461,7 @@ def test_a_run_that_verified_nothing_says_nothing_checked(
     # UNSETTLED, not a pass, and the exit code says something is wrong.
     assert code == 3
     assert lines[0].startswith("verify: UNSETTLED")
+    assert "UNSETTLED: the readback did not settle" in lines[0]
 
 
 # ---------------------------------------------------------------------------

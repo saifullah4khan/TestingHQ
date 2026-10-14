@@ -472,7 +472,7 @@ def test_a_readback_that_cannot_see_a_field_reports_it_as_not_checked(
     An API that returns a ticket list and no bodies is a realistic shape, and
     the report has to say the body was never looked at rather than imply it
     was fine."""
-    from testinghq.pipeline import verify as module_under_test
+    from testinghq.pipeline import common as module_under_test
     from testinghq.pipeline.readback import Readback
 
     pipeline = with_pipeline()
@@ -570,7 +570,7 @@ def test_the_report_leads_with_not_nothing_checked_when_nothing_ran(
     """A run whose adapter could see no fields at all must not read as a
     success. It exits 0, because the operator chose the adapter, but the
     headline has to say so."""
-    from testinghq.pipeline import verify as module_under_test
+    from testinghq.pipeline import common as module_under_test
 
     pipeline = with_pipeline()
     real_build = module_under_test.build_adapter
