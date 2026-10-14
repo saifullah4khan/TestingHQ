@@ -457,11 +457,14 @@ def test_a_run_that_verified_nothing_says_nothing_checked(
         readback=_config(), client=_RecordingClient(),
         sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
     )
-    # Nothing was ever found, so the readback never settled: the headline is
-    # UNSETTLED, not a pass, and the exit code says something is wrong.
+    # Nothing was ever found and nothing changed, so the readback settled on
+    # an empty store: every message is missing, which is a loss and not an
+    # UNSETTLED run, and the exit code says something is wrong.
     assert code == 3
-    assert lines[0].startswith("verify: UNSETTLED")
-    assert "UNSETTLED: the readback did not settle" in lines[0]
+    assert lines[0].startswith("verify: MISMATCHED"), lines[0]
+    text = "\n".join(lines)
+    assert "UNSETTLED" not in text
+    assert "holds no record of this message" in text
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ taken, which `test_the_pipeline_under_test_module_stays_in_process` enforces.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import types
@@ -588,8 +589,11 @@ def test_the_report_leads_with_not_nothing_checked_when_nothing_ran(
     finally:
         module_under_test.build_adapter = real_build
 
-    # Nothing found means the readback never settled, which is not a pass.
-    assert text.splitlines()[0].startswith("verify: UNSETTLED")
+    # Nothing found and nothing changing: the readback settled on an empty
+    # store, so every message is missing. That is a loss, not a pass and not
+    # UNSETTLED.
+    assert text.splitlines()[0].startswith("verify: MISMATCHED")
+    assert "UNSETTLED" not in text
     assert "holds no record" in text
 
 
@@ -1040,6 +1044,206 @@ def test_the_pipeline_under_test_deduplicates_by_message_id_by_default():
 
     assert len(pipeline.tickets) == 1
     assert pipeline.tickets[0].deliveries == 2
+
+# ---------------------------------------------------------------------------
+# Settling: a loss is a loss, and UNSETTLED means the store was still changing
+# ---------------------------------------------------------------------------
+
+
+class _AsyncStore:
+    """The pipeline under test, read back through a store that takes time.
+
+    Wraps a real `PipelineUnderTest`, so the parse and the ticket model are the
+    ones under test everywhere else, and adds only timing, against the virtual
+    clock the run is given (no real sleeps):
+
+      arrive_every   the n-th record (in creation order) becomes visible
+                     n * arrive_every seconds after the first lookup, the way a
+                     queue consumer works through a backlog
+      fill_body_at   every body reads as empty until this many seconds after
+                     the first lookup, the way a pipeline that creates the
+                     ticket first and fills it in afterwards looks
+      duplicate      tags that show a second ticket from the first lookup on
+    """
+
+    def __init__(self, inner, *, arrive_every=None, fill_body_at=None, duplicate=()):
+        self.inner = inner
+        self.send = inner.send
+        self.arrive_every = arrive_every
+        self.fill_body_at = fill_body_at
+        self.duplicate = set(duplicate)
+        self.started = None
+
+    def _elapsed(self):
+        if self.started is None:
+            self.started = _VIRTUAL()
+        return _VIRTUAL() - self.started
+
+    def _visible(self):
+        elapsed = self._elapsed()
+        records = []
+        for position, record in enumerate(self.inner.messages):
+            if self.arrive_every is not None and elapsed < position * self.arrive_every:
+                continue
+            readback = record.to_readback()
+            if self.fill_body_at is not None and elapsed < self.fill_body_at:
+                readback = dataclasses.replace(readback, body="")
+            records.append(readback)
+            if record.tag in self.duplicate:
+                records.append(
+                    dataclasses.replace(readback, ticket_id=f"{record.ticket_id}-dup")
+                )
+        return records
+
+    def fetch(self, probe):
+        return [r for r in self._visible() if r.tag == probe.tag]
+
+    def list_all(self):
+        return self._visible()
+
+    def close(self):
+        return None
+
+
+def _doomed(index: int):
+    """The Message-ID and record id of one corpus message, so a pipeline can be
+    told to drop exactly that one."""
+    from testinghq.pipeline import messages as pipeline_messages
+
+    email, _tag, record_id = verify_tool.build_tagged_corpus(SEED, COUNT)[index]
+    return pipeline_messages.message_id_of(email), record_id
+
+
+def _tag_of_record(artifact, record_id):
+    return next(r["tag"] for r in artifact["records"] if r["id"] == record_id)
+
+
+def test_a_pipeline_that_drops_one_message_is_unaccounted_not_unsettled(
+    target_config, tmp_path, with_pipeline
+):
+    """The case ledger exists for. One message of COUNT is answered 200 and
+    never becomes a record. The store goes quiet without it, so the readback
+    settles on the quiet window and ledger reports the loss: UNACCOUNTED, the
+    tag listed as missing, exit 3, decided by the tool. It used to poll to
+    --max-wait and call this UNSETTLED, so a loss was never reported as one."""
+    doomed, record_id = _doomed(5)
+    pipeline = with_pipeline(drop_message_ids=(doomed,))
+    code, artifact, text = _run_ledger(pipeline, target_config, tmp_path)
+
+    summary = artifact["summary"]
+    tag = _tag_of_record(artifact, record_id)
+    assert code == EXIT_MISMATCH, text
+    assert summary["verdict"] == "UNACCOUNTED", text
+    assert summary["verdict_source"] == "tool"
+    assert summary["missing"] == [tag]
+    assert summary["exactly_once"] == COUNT - 1
+    assert summary["readback"]["stable"] is True
+    assert summary["readback"]["elapsed_s"] < 60, "settled on the window, not on --max-wait"
+    assert "UNSETTLED" not in text
+    assert f"{tag}: sent, and the system holds nothing" in text
+
+
+def test_a_pipeline_still_writing_at_max_wait_is_unsettled(
+    target_config, tmp_path, with_pipeline
+):
+    """A queue consumer that makes one record every three seconds: the store
+    never holds still for the five-second window, and 24 records take 69s
+    against a 60s budget. The run is UNSETTLED, from the readback, exit 3, and
+    the records it had not seen yet are named as not seen, not as lost."""
+    store = _AsyncStore(PipelineUnderTest(), arrive_every=3.0)
+    with_pipeline.publish(store)
+    code, artifact, text = _run_ledger(store, target_config, tmp_path)
+
+    summary = artifact["summary"]
+    assert code == EXIT_MISMATCH, text
+    assert summary["verdict"] == "UNSETTLED", text
+    assert summary["verdict_source"] == "readback"
+    assert summary["readback"]["stable"] is False
+    assert summary["missing"], "the last records had not arrived by --max-wait"
+    assert len(summary["missing"]) < COUNT
+    assert text.splitlines()[0].startswith("ledger: UNSETTLED")
+    assert "UNSETTLED: the readback did not settle within --max-wait" in text
+    assert "not seen yet" in text
+    assert "the system holds nothing" not in text
+
+
+def test_a_body_filled_late_inside_the_window_is_still_seen(
+    target_config, tmp_path, with_pipeline
+):
+    """Absence no longer holds the window open, so the window has to keep
+    watching values on its own. The pipeline creates every ticket with an empty
+    body and fills it in 3s later, inside the 5s window, and drops one message
+    outright. verify settles on the filled bodies, passes every body check, and
+    reports exactly the dropped message as missing."""
+    doomed, record_id = _doomed(7)
+    store = _AsyncStore(PipelineUnderTest(drop_message_ids=(doomed,)), fill_body_at=3.0)
+    with_pipeline.publish(store)
+    code, artifact, text = _run_verify(store, target_config, tmp_path)
+
+    summary = artifact["summary"]
+    assert code == EXIT_MISMATCH, text
+    assert summary["verdict"] == "MISMATCHED", text
+    assert summary["readback"]["stable"] is True
+    assert summary["found"] == COUNT - 1
+    failed = [r["id"] for r in artifact["records"] if not r["assertion"]["passed"]]
+    assert failed == [record_id], "only the dropped message fails; every late body was seen"
+    assert summary["checks_passed_by_name"].get("body") == COUNT - 1
+    assert summary["readback"]["elapsed_s"] >= 3.0 + 5.0
+
+
+def test_a_proven_duplicate_survives_an_unsettled_readback(
+    target_config, tmp_path, with_pipeline
+):
+    """A duplicate seen is proven whatever else the store is doing. Here the
+    first message has two tickets from the first lookup while the rest are
+    still arriving at --max-wait. The headline is UNSETTLED, and the duplicate
+    is still listed and counted, in the report and through `report`; the
+    records not seen yet are not reported as lost."""
+    from testinghq import reporting
+
+    first_tag = verify_tool.build_tagged_corpus(SEED, COUNT)[0][1]
+    store = _AsyncStore(PipelineUnderTest(), arrive_every=3.0, duplicate=(first_tag,))
+    with_pipeline.publish(store)
+    code, artifact, text = _run_ledger(store, target_config, tmp_path)
+
+    summary = artifact["summary"]
+    assert code == EXIT_MISMATCH, text
+    assert summary["verdict"] == "UNSETTLED", text
+    assert [d["tag"] for d in summary["duplicated"]] == [first_tag]
+    assert summary["duplicated"][0]["count"] == 2
+    assert f"{first_tag}: 2 tickets" in text
+    assert "not seen yet" in text
+    assert "the system holds nothing" not in text
+
+    read = reporting.summarize(artifact)
+    assert read.verdict == "UNSETTLED"
+    assert read.exit_code == 3
+    assert read.counts.duplicated == 1
+    assert any(f.kind == "duplicated" for f in read.findings)
+
+
+def test_a_proven_duplicate_and_a_loss_on_a_quiet_store_are_both_reported(
+    target_config, tmp_path, with_pipeline
+):
+    """The settled counterpart: a duplicate and a dropped message, and a store
+    that goes quiet. UNACCOUNTED, both listed. Under the old rule the missing
+    tag kept the readback open, and UNSETTLED replaced the proven duplicate's
+    verdict."""
+    doomed, record_id = _doomed(3)
+    first_tag = verify_tool.build_tagged_corpus(SEED, COUNT)[0][1]
+    store = _AsyncStore(
+        PipelineUnderTest(drop_message_ids=(doomed,)), duplicate=(first_tag,)
+    )
+    with_pipeline.publish(store)
+    code, artifact, text = _run_ledger(store, target_config, tmp_path)
+
+    summary = artifact["summary"]
+    assert code == EXIT_MISMATCH, text
+    assert summary["verdict"] == "UNACCOUNTED", text
+    assert summary["verdict_source"] == "tool"
+    assert [d["tag"] for d in summary["duplicated"]] == [first_tag]
+    assert summary["missing"] == [_tag_of_record(artifact, record_id)]
+
 
 # ---------------------------------------------------------------------------
 # The helpers themselves stay honest

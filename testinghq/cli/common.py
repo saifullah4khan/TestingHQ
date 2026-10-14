@@ -102,32 +102,37 @@ def _add_readback_poll_args(parser) -> None:
 
     A fixed sleep before looking once is wrong in both directions: too short and
     a queue consumer's output is reported as a loss, too long and every run pays
-    for the slowest pipeline that ever was. Polling until the counts stop moving
-    is the version that adapts, and the counts rather than the messages are what
-    it waits on, so a duplicate that lands late is still caught.
+    for the slowest pipeline that ever was. Polling until what it sees stops
+    changing is the version that adapts, and it watches the record counts and
+    field values rather than "did it create anything", so a duplicate that
+    lands late is still caught. The flags sit in their own help group whose
+    description is `common.SETTLING_RULE`, the one statement of when the poll
+    ends and what a tag still missing then means.
     """
-    parser.add_argument(
+    group = parser.add_argument_group("readback polling", common.SETTLING_RULE)
+    group.add_argument(
         "--quiet-window",
         type=float,
         default=common.DEFAULT_QUIET_WINDOW,
         help=(
-            "seconds the records (their count and the field values the "
-            "checks read) must hold steady before a read is believed "
-            "(default %(default)s). For an async pipeline make it longer than "
-            "the gap between a record being created and being filled in"
+            "seconds what the readback sees (which tags are found, their "
+            "record counts and the field values the checks read) must hold "
+            "steady before the read is settled; a tag still not found then is "
+            "reported as lost (default %(default)s). For a slow or async "
+            "pipeline, raise it above the pipeline's worst processing latency"
         ),
     )
-    parser.add_argument(
+    group.add_argument(
         "--max-wait",
         type=float,
         default=common.DEFAULT_MAX_WAIT,
         help=(
-            "seconds to keep polling (default %(default)s). A run that has not "
-            "settled by then is UNSETTLED, not lost. A search-indexed store "
-            "such as Zendesk or Freshdesk needs about 300"
+            "seconds to keep polling (default %(default)s). A run whose "
+            "readback is still changing then is UNSETTLED, not lost. Keep it "
+            "well above --quiet-window"
         ),
     )
-    parser.add_argument(
+    group.add_argument(
         "--poll-interval",
         type=float,
         default=common.DEFAULT_POLL_INTERVAL,

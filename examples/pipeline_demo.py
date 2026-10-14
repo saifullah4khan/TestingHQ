@@ -409,14 +409,12 @@ def main() -> int:
             failures.append(f"{label}: exit {code}, expected {expected}")
         return code
 
-    # Poll settings for the runs that are meant to find losses. A run where a
-    # record never appears can never satisfy "every probe found", so the readback
-    # polls until it gives up, and waiting out the real 60s default twice over
-    # would make this demo take two and a half minutes to teach a lesson that is
-    # about the losses rather than the waiting. They report "GAVE UP before
-    # settling" rather than "settled", which is the honest description of what
-    # happened and is itself worth seeing.
-    lossy_poll = ("--max-wait", "3", "--poll-interval", "0.2")
+    # Poll settings for the runs that are meant to find losses. A record that
+    # never appears does not hold the readback open: once the store has held
+    # still for the quiet window the run settles, and a tag still missing is
+    # reported as lost. The short window keeps the demo quick; --max-wait stays
+    # well above it so the run settles rather than ending UNSETTLED.
+    lossy_poll = ("--quiet-window", "1", "--max-wait", "10", "--poll-interval", "0.2")
     # A one-second quiet window for the runs that are meant to settle. The
     # default is 5s because a real pipeline deserves the patience; a demo
     # running seven times in CI does not, and the loop it exercises is the same

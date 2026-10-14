@@ -131,13 +131,16 @@ tag = "tag"
 # ---------------------------------------------------------------------------
 # How long to keep asking: three flags, on the command line rather than here.
 #
-#   --quiet-window  seconds the record counts must hold steady before a read is
-#                   believed. Default 5. Waiting on the COUNTS rather than on
-#                   "did it create anything" is what catches a duplicate that
-#                   lands after the first sighting.
-#   --max-wait      seconds to keep polling before reporting whatever was seen.
-#                   Default 60. A run that stops there reports GAVE UP before
-#                   settling, which is a different claim from "everything was
-#                   found".
+#   --quiet-window  seconds what the readback sees (which tags are found, their
+#                   record counts, the field values the checks read) must hold
+#                   steady before the read is settled. Default 5. A tag still
+#                   not found then is reported as lost, so for a slow or async
+#                   pipeline raise it above the worst processing latency.
+#                   Waiting on the COUNTS rather than on "did it create
+#                   anything" is what catches a duplicate that lands after the
+#                   first sighting.
+#   --max-wait      seconds to keep polling. Default 60. A run whose readback is
+#                   still changing then is UNSETTLED, which is a different claim
+#                   from "lost". Keep it well above --quiet-window.
 #   --poll-interval seconds between lookups. Default 0.5.
 # ---------------------------------------------------------------------------
