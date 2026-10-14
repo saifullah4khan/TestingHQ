@@ -24,7 +24,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.exit_codes import EXIT_FINDING, EXIT_OK
+# Re-exported, as the shared objects, for callers that import them from here.
+from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED  # noqa: F401
 from ..core.targets import BARRAGE, resolve_target
 from ..core.transport import PersistentHttpClient, TransportResult, UrllibHttpClient, post
 from . import report as barrage_report
