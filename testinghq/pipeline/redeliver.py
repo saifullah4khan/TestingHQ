@@ -50,9 +50,11 @@ from ..core.transport import post
 from . import messages
 from .adapters import ReadbackConfig
 from .common import (
+    ALL_404_NOT_CHECKED,
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     SentMessage,
     close_adapter,
     DEFAULT_MAX_WAIT,
@@ -61,6 +63,7 @@ from .common import (
     ReadbackOutcome,
     prepare_readback,
     read_back_all,
+    readback_failed,
     readback_verdict,
     require_synthetic,
 )
@@ -631,12 +634,15 @@ class ScenarioResult:
     #: Tags delivered and not found. Kept apart from `findings` so an unsettled
     #: readback can be told from a loss.
     missing: List[str] = field(default_factory=list)
+    #: Tags delivered and never looked up successfully, because every lookup
+    #: of the run was a 404. Neither a finding nor a pass.
+    not_checked: List[str] = field(default_factory=list)
     #: Records carrying this scenario's tag prefix that it never delivered.
     strays: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
-        return not self.findings
+        return not self.findings and not self.not_checked
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -648,6 +654,7 @@ class ScenarioResult:
             "passed": self.passed,
             "findings": list(self.findings),
             "missing": list(self.missing),
+            "not_checked": list(self.not_checked),
             "strays": list(self.strays),
             "messages": self.records,
         }
@@ -661,6 +668,7 @@ def judge_scenario(
     body_exact: bool = False,
     subject_match: str = DEFAULT_SUBJECT_MATCH,
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    readback_failed: bool = False,
 ) -> ScenarioResult:
     """Grade one scenario's outcome.
 
@@ -679,6 +687,8 @@ def judge_scenario(
       thread_together  each reply ended up on the same ticket as its parent.
 
     Content is graded with the run's match modes and `--expect-route`.
+    `readback_failed` (every lookup of the run was a 404) makes a message with
+    no record `not_checked` rather than a loss.
     """
     result = ScenarioResult(
         name=scenario.name,
@@ -705,7 +715,9 @@ def judge_scenario(
             "checks": [],
         }
 
-        if not found:
+        if not found and readback_failed:
+            result.not_checked.append(tag)
+        elif not found:
             result.missing.append(tag)
             result.findings.append(
                 f"{tag}: delivered and the system holds no record of it"
@@ -793,6 +805,7 @@ def judge_run(
     subject_match: str = DEFAULT_SUBJECT_MATCH,
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     strays_partial: bool = False,
+    readback_failed: bool = False,
 ) -> Tuple[List[ScenarioResult], Dict[str, Any]]:
     """Grade every scenario, then hunt for records nobody sent.
 
@@ -808,6 +821,7 @@ def judge_run(
         judge_scenario(
             scenario, readbacks, route=route, body_exact=body_exact,
             subject_match=subject_match, attachment_match=attachment_match,
+            readback_failed=readback_failed,
         )
         for scenario in scenarios
     ]
@@ -904,8 +918,9 @@ def verdict_of(
     strays: Optional[Dict[str, Any]] = None,
     unsettled: bool = False,
 ) -> str:
-    """DELIVERY-SAFE, DELIVERY-BUGS, or UNSETTLED when the only problems are
-    messages not yet found by a readback that never settled."""
+    """DELIVERY-SAFE, DELIVERY-BUGS, UNSETTLED when the only problems are
+    messages not yet found by a readback that never settled, or READBACK
+    FAILED when messages were never looked up because every lookup was a 404."""
     unattributed = bool((strays or {}).get("unattributed"))
     real = unattributed or any(
         len(r.findings) > len(r.missing) for r in results
@@ -916,6 +931,8 @@ def verdict_of(
         return "UNSETTLED"
     if any(r.findings for r in results):
         return "DELIVERY-BUGS"
+    if any(r.not_checked for r in results):
+        return READBACK_FAILED
     return "DELIVERY-SAFE"
 
 
@@ -926,14 +943,15 @@ def build_artifact(
     readback_outcome: Optional["ReadbackOutcome"] = None,
     strays: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    failing = [r for r in results if not r.passed]
+    failing = [r for r in results if r.findings]
     strays = strays or {}
     unattributed = strays.get("unattributed") or []
     unsettled = readback_unsettled(readback_outcome)
     summary: Dict[str, Any] = {
         "scenarios": len(results),
-        "passed": len(results) - len(failing),
+        "passed": sum(1 for r in results if r.passed),
         "failed": len(failing) + (1 if unattributed else 0),
+        "not_checked": sum(1 for r in results if r.not_checked),
         "deliveries": sum(r.deliveries for r in results),
         "findings": sum(len(r.findings) for r in results) + len(unattributed),
         "strays_searched": all(r.strays_searched for r in results),
@@ -1007,7 +1025,12 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
     stray_reason = summary.get("strays_not_searched_reason") or "adapter cannot enumerate"
     for scenario in artifact.get("scenarios") or []:
         lines.append("")
-        mark = "ok  " if scenario["passed"] else "FAIL"
+        not_checked = scenario.get("not_checked") or []
+        mark = (
+            "ok  " if scenario["passed"]
+            else "FAIL" if scenario["findings"]
+            else "n/c "
+        )
         lines.append(f"  [{mark}] {scenario['scenario']}: {scenario['question']}")
         lines.append(
             f"          {scenario['unique_messages']} message(s), "
@@ -1026,8 +1049,12 @@ def format_redelivery(artifact: Dict[str, Any]) -> str:
                     f"          ... and {len(scenario['findings']) - MAX_LISTED} "
                     "more, not shown"
                 )
-        else:
+        elif not not_checked:
             lines.append("          no findings")
+        if not_checked:
+            lines.append(
+                f"          - {ALL_404_NOT_CHECKED} ({len(not_checked)} message(s))"
+            )
 
     return "\n".join(lines)
 
@@ -1169,6 +1196,7 @@ def execute(
         tag_prefix=tag_prefix, route=route, body_exact=body_exact,
         subject_match=subject_match, attachment_match=attachment_match,
         strays_partial=strays_partial,
+        readback_failed=readback_failed(outcome),
     )
     stray_summary["strays_not_searched_reason"] = (
         None if stray_summary["strays_searched"] else strays_reason

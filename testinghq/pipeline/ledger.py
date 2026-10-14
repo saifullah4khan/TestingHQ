@@ -55,9 +55,11 @@ from ..core.targets import resolve_target
 from . import messages
 from .adapters import ReadbackConfig
 from .common import (
+    ALL_404_NOT_CHECKED,
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     SentMessage,
     close_adapter,
     DEFAULT_MAX_WAIT,
@@ -66,6 +68,7 @@ from .common import (
     ReadbackOutcome,
     prepare_readback,
     read_back_all,
+    readback_failed,
     readback_verdict,
     require_synthetic,
     send_all,
@@ -208,6 +211,7 @@ def account(
     strays_reason: Optional[str] = None,
     strays_partial: bool = False,
     unsettled: bool = False,
+    readback_failed: bool = False,
 ) -> Dict[str, Any]:
     """Reconcile what was sent against what the system holds.
 
@@ -229,6 +233,10 @@ def account(
     the prefix this run stamped, as recorded in its artifact. The `extra` and
     `other_runs` lists are capped at `MAX_ARTIFACT_STRAYS`, with exact counts
     beside them.
+
+    `readback_failed` means every lookup of the run was a 404: nothing was
+    checked, so a message not found is listed under `not_checked` rather than
+    `missing`, and the ledger is not balanced.
     """
     sent_tags = [message.tag for message in sent]
 
@@ -236,13 +244,14 @@ def account(
     duplicated: List[Dict[str, Any]] = []
     wrong: List[Dict[str, Any]] = []
     exactly_once: List[str] = []
+    not_checked: List[str] = []
     produced = 0
 
     for message in sent:
         found = readbacks.get(message.tag, [])
         produced += len(found)
         if not found:
-            missing.append(message.tag)
+            (not_checked if readback_failed else missing).append(message.tag)
             continue
         if len(found) > 1:
             duplicated.append(
@@ -306,6 +315,8 @@ def account(
             strays_reason or "this adapter cannot enumerate its records"
         ),
         "unsettled": unsettled,
+        "readback_failed": readback_failed,
+        "not_checked": not_checked,
         # Strays are part of the balance, and an unsearched stray hunt is not
         # a pass. The rule is deliberately the strict one: a ledger that exits
         # 0 while knowing it could not check for tickets it never sent is a
@@ -320,6 +331,7 @@ def account(
             and searched
             and not extra
             and not unsettled
+            and not readback_failed
         ),
     }
 
@@ -334,6 +346,8 @@ def verdict(accounting: Dict[str, Any]) -> str:
     BALANCED from an adapter that could not enumerate would be claiming an
     answer nobody obtained.
     """
+    if accounting.get("readback_failed"):
+        return READBACK_FAILED
     if accounting["duplicated"] or accounting.get("extra"):
         return "UNACCOUNTED"
     if accounting.get("unsettled") and accounting["missing"]:
@@ -459,7 +473,10 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
     lines.append(f"  sent:            {sent}")
     lines.append(f"  produced:        {produced}")
     lines.append(f"  exactly once:    {summary.get('exactly_once', 0)}")
-    lines.append(f"  missing:         {len(summary.get('missing') or [])}")
+    if summary.get("readback_failed"):
+        lines.append(f"  missing:         {ALL_404_NOT_CHECKED}")
+    else:
+        lines.append(f"  missing:         {len(summary.get('missing') or [])}")
     lines.append(f"  duplicated:      {len(summary.get('duplicated') or [])}")
     lines.append(f"  misparsed:       {len(summary.get('wrong') or [])}")
 
@@ -514,7 +531,15 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
         if len(items) > MAX_LISTED:
             lines.append(f"    ... and {len(items) - MAX_LISTED} more, not shown")
 
-    if summary.get("unsettled"):
+    if summary.get("readback_failed"):
+        # Every lookup was a 404, so nothing is known to be lost.
+        not_checked = summary.get("not_checked") or []
+        lines.append("")
+        lines.append(
+            f"  missing: {ALL_404_NOT_CHECKED} ({len(not_checked)} message(s) "
+            "sent, none looked up successfully)"
+        )
+    elif summary.get("unsettled"):
         # The store was still changing at --max-wait, so an absence is not yet
         # a loss: say what is known, which is that it had not been seen.
         _section(
@@ -803,6 +828,7 @@ def execute(
         subject_match=subject_match, attachment_match=attachment_match,
         strays_reason=strays_reason, strays_partial=strays_partial,
         unsettled=readback_unsettled(outcome),
+        readback_failed=readback_failed(outcome),
     )
     artifact = build_artifact(
         seed,

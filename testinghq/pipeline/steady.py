@@ -32,6 +32,7 @@ from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     close_adapter,
     prepare_readback,
     read_back_all,
@@ -1174,7 +1175,12 @@ def execute(
     )
     failed, reason = gate(report, max_dissent_rate, max_flip_rate)
     unsettled = outcome.unsettled
-    if unsettled:
+    if outcome.failed:
+        failed, reason = True, (
+            f"{READBACK_FAILED}: every lookup was 404: check the readback url; "
+            "nothing was measured"
+        )
+    elif unsettled:
         failed, reason = True, "UNSETTLED: the readback was still changing at --max-wait; " + reason
     artifact = build_artifact(seed, config, labelled, report)
     summary = artifact["stability"]

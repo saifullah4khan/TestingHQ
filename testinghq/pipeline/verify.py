@@ -38,9 +38,11 @@ from ..core.transport import TransportResult
 from . import messages
 from .adapters import ReadbackConfig
 from .common import (
+    ALL_404_NOT_CHECKED,
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     SentMessage,
     close_adapter,
     DEFAULT_MAX_WAIT,
@@ -49,6 +51,7 @@ from .common import (
     ReadbackOutcome,
     prepare_readback,
     read_back_all,
+    readback_failed,
     readback_verdict,
     require_synthetic,
     send_all,
@@ -372,6 +375,20 @@ def summarize(
         "checks_skipped_by_reason": grouped,
     }
     summary["unsettled"] = readback_unsettled(readback_outcome)
+    if readback_failed(readback_outcome):
+        # Every lookup was a 404: nothing was checked, so nothing is counted
+        # as mismatched or skipped for want of a record.
+        summary.update(
+            {
+                "found": 0,
+                "verified": 0,
+                "failed": 0,
+                "checks_passed_by_name": {},
+                "checks_skipped_by_reason": {reason: {} for reason in SKIP_REASONS},
+                "readback_failed": True,
+                "not_checked": len(verifications),
+            }
+        )
     if readback_outcome is not None:
         summary["readback"] = readback_outcome.to_json()
     return summary
@@ -382,6 +399,8 @@ def verdict_of(summary: Dict[str, Any]) -> str:
     message still in flight is not reported as lost."""
     failed = summary.get("failed", 0)
     checked = summary.get("verified", 0) + failed
+    if summary.get("readback_failed"):
+        return READBACK_FAILED
     if summary.get("unsettled"):
         return "UNSETTLED"
     if checked == 0:
@@ -422,9 +441,10 @@ def build_artifact(
     artifact shows a real failure rather than a status code.
     """
     by_tag = {v.tag: v for v in verifications}
+    not_checked = readback_failed(readback_outcome)
     records = []
     for message in sent:
-        verification = by_tag.get(message.tag)
+        verification = None if not_checked else by_tag.get(message.tag)
         records.append(
             {
                 "id": message.record_id,
@@ -436,7 +456,11 @@ def build_artifact(
                 "response": message.response_json(),
                 "assertion": {
                     "passed": bool(verification and verification.passed),
-                    "mismatches": verification.mismatch_strings() if verification else [],
+                    "mismatches": (
+                        [ALL_404_NOT_CHECKED] if not_checked
+                        else verification.mismatch_strings() if verification
+                        else []
+                    ),
                 },
                 "readback": [
                     r.to_json() for r in readbacks.get(message.tag, [])
@@ -481,6 +505,10 @@ def format_verification(artifact: Dict[str, Any]) -> str:
     lines.append(f"  found in system:   {summary.get('found', 0)}")
     lines.append(f"  verified:          {summary.get('verified', 0)}")
     lines.append(f"  mismatched:        {failed}")
+    if summary.get("readback_failed"):
+        lines.append(
+            f"  {ALL_404_NOT_CHECKED} ({summary.get('not_checked', 0)} payload(s))"
+        )
 
     lines.append(
         f"  match modes:       subject {config.get('subject_match', DEFAULT_SUBJECT_MATCH)}, "
@@ -538,6 +566,9 @@ def format_verification(artifact: Dict[str, Any]) -> str:
             lines.append(f"    {name}: {count}")
 
     failures = [r for r in records if not r.get("assertion", {}).get("passed", True)]
+    if summary.get("readback_failed"):
+        # Nothing was checked, so nothing is listed as a mismatch or a loss.
+        failures = []
     if failures:
         lines.append("")
         lines.append(f"  mismatches ({len(failures)}):")

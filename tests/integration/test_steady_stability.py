@@ -328,6 +328,24 @@ def test_null_labels_and_missing_records_are_counted_apart(
     assert code == EXIT_MISMATCH, "a family that could not be fully measured fails the gate"
 
 
+def test_every_lookup_a_404_is_readback_failed(target_config, tmp_path, spec_probe):
+    from testinghq.pipeline.readback import FetchResult
+
+    pipeline = ClassifyingPipeline(stable_labels())
+    pipeline.fetch = lambda probe: FetchResult([], status=404)
+    code, artifact, text = _run(pipeline, target_config, tmp_path, spec_probe)
+    assert code == EXIT_MISMATCH
+    stability = artifact["stability"]
+    assert stability["verdict"] == "READBACK FAILED"
+    assert stability["verdict_source"] == "readback"
+    assert stability["gate"]["failed"] is True
+    assert stability["gate"]["reason"].startswith(
+        "READBACK FAILED: every lookup was 404: check the readback url"
+    )
+    assert "readback: every lookup was 404: check the readback url" in text
+    assert reporting.summarize(artifact).exit_code == EXIT_MISMATCH
+
+
 # ---------------------------------------------------------------------------
 # A custom fixture, interruption, and the report
 # ---------------------------------------------------------------------------

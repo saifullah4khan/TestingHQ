@@ -603,3 +603,22 @@ def test_a_run_at_a_mime_target_sends_the_dsn_as_a_multipart_report(tmp_path, mo
     reports = [b for b in recorder.bodies if b"multipart/report" in b]
     assert len(reports) == 1
     _assert_real_report(reports[0])
+
+
+def test_every_ticket_lookup_a_404_is_readback_failed_not_loop_safe():
+    """No ticket seen because every lookup was a 404 is not "no ticket opened"."""
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.reporting import summarize
+
+    corpus = tool.build_machine_corpus(1, 3, "hq")
+    results = tool.judge(corpus, {}, {m.tag: [] for m in corpus})
+    summary = tool.summarize(results, corpus, "none", readback_failed=True)
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["findings"] == 1
+    assert summary["run_findings"][0].startswith(
+        "READBACK FAILED: every lookup was 404: check the readback url"
+    )
+    read = summarize({"config": {"tool": "loop"}, "summary": summary})
+    assert read.verdict == "READBACK FAILED"
+    assert read.exit_code == EXIT_FINDING
+    assert [f.kind for f in read.findings] == ["readback-failed"]

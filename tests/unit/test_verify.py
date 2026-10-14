@@ -900,3 +900,100 @@ def test_verify_check_takes_the_match_modes(target_config, tmp_path, spec_probe)
     checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
     assert checked["config"]["subject_match"] == "exact"
     assert checked["tool"] == "verify" and checked["schema_version"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Every lookup a 404
+# ---------------------------------------------------------------------------
+
+
+class _Store404:
+    """A readback API that answers 404 to every tag it does not hold. With
+    nothing held, every lookup of the run is a 404: a wrong readback url."""
+
+    def __init__(self, holds=()):
+        corpus = {t: e for e, t, _r in verify.build_tagged_corpus(SEED, COUNT)}
+        self.tickets = {
+            tag: {
+                "id": f"T-{tag}",
+                "from": email.ground_truth.from_addr,
+                "subject": email.ground_truth.subject,
+                "body": email.text,
+                "attachments": [a.filename for a in email.attachments],
+            }
+            for tag, email in corpus.items()
+            if tag in holds
+        }
+
+    def send(self, request):
+        from urllib.parse import parse_qs, urlsplit
+
+        query = parse_qs(urlsplit(request.url).query)
+        found = self.tickets.get((query.get("tag") or [""])[0])
+        if found is None:
+            return ClientResponse(status=404, body=b'{"error": "not found"}')
+        return ClientResponse(status=200, body=json.dumps({"items": [found]}).encode())
+
+
+def _run_against(store, tmp_path, target_config):
+    lines: list = []
+    client = _RecordingClient()
+    code = verify.execute(
+        SEED, COUNT, TARGET, target_config, str(tmp_path / "verify.json"),
+        readback=ReadbackConfig(
+            kind="http", url="http://localhost:8000/tickets", enumerate_records=False
+        ),
+        client=client, readback_client=store,
+        sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05,
+    )
+    artifact = json.loads((tmp_path / "verify.json").read_text(encoding="utf-8"))
+    return code, client, "\n".join(lines), artifact
+
+
+def test_a_store_that_404s_every_lookup_is_readback_failed_not_loss(
+    target_config, tmp_path
+):
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.reporting import summarize
+
+    code, client, text, artifact = _run_against(_Store404(), tmp_path, target_config)
+    assert len(client.sent) == COUNT
+    assert code == EXIT_FINDING, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["failed"] == 0
+    assert summary["not_checked"] == COUNT
+    assert text.splitlines()[0].startswith("verify: READBACK FAILED")
+    assert "  every lookup was 404: check the readback url" in text.splitlines()
+    assert "not checked: every lookup was 404" in text
+    assert "MISMATCHED" not in text
+    assert "holds no record" not in text
+    assert "mismatches (" not in text
+    for record in artifact["records"]:
+        assert record["assertion"] == {
+            "passed": False, "mismatches": ["not checked: every lookup was 404"],
+        }
+
+    read = summarize(artifact)
+    assert read.verdict == "READBACK FAILED"
+    assert read.exit_code == EXIT_FINDING
+    assert read.counts.failed == 0
+    assert [f.kind for f in read.findings] == ["readback-failed"]
+
+
+def test_a_store_that_404s_some_tags_still_reports_them_mismatched(
+    target_config, tmp_path
+):
+    tags = [tag for _e, tag, _r in verify.build_tagged_corpus(SEED, COUNT)]
+    code, _client, text, artifact = _run_against(
+        _Store404(holds=tags[1:]), tmp_path, target_config
+    )
+    assert code == EXIT_MISMATCH, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "MISMATCHED"
+    assert summary["verdict_source"] == "tool"
+    assert summary["found"] == COUNT - 1
+    assert "holds no record" in text
+    assert "every lookup was 404" not in text

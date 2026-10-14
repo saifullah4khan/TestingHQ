@@ -767,3 +767,40 @@ def test_the_redelivery_artifact_records_the_target_format(tmp_path, monkeypatch
     config = json.loads(out.read_text(encoding="utf-8"))["config"]
     assert config["format"] == "sendgrid"
     assert config["allow_public_target"] is False
+
+
+def test_every_lookup_a_404_is_readback_failed_and_no_scenario_reports_a_loss():
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.pipeline.common import ReadbackOutcome
+    from testinghq.reporting import summarize
+
+    scenarios = _scenarios()
+    tags = [tag for s in scenarios for tag in s.tags]
+    outcome = ReadbackOutcome(
+        readbacks={tag: [] for tag in tags}, elapsed=1.0, polls=2, stable=True,
+        missing=tuple(tags), all_404=True,
+    )
+    results, strays = redeliver.judge_run(
+        scenarios, outcome.readbacks, None, readback_failed=True
+    )
+    artifact = redeliver.build_artifact(
+        SEED, redeliver.run_config(SEED, COUNT, "hq", "local", _config(), 5.0, None),
+        results, outcome, strays,
+    )
+    summary = artifact["summary"]
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["failed"] == 0 and summary["passed"] == 0
+    assert summary["not_checked"] == len(scenarios)
+    for entry in artifact["scenarios"]:
+        assert entry["findings"] == [] and entry["missing"] == []
+        assert entry["not_checked"]
+    text = redeliver.format_redelivery(artifact)
+    assert text.splitlines()[0].startswith("redeliver: READBACK FAILED")
+    assert "every lookup was 404: check the readback url" in text
+    assert "holds no record" not in text
+    assert "[FAIL]" not in text
+
+    read = summarize(artifact)
+    assert read.exit_code == EXIT_FINDING
+    assert [f.kind for f in read.findings] == ["readback-failed"]

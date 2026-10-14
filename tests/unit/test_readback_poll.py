@@ -565,3 +565,26 @@ def test_a_partial_lookup_is_named_in_the_outcome():
     outcome, _clock = _read(FunctionAdapter(truncated))
     assert outcome.partial == (TAGS[1],)
     assert outcome.to_json()["partial_tags"] == [TAGS[1]]
+
+
+def test_every_lookup_a_404_is_readback_failed_from_the_readback():
+    """Not a loss and not unsettled: the run could not establish the answer."""
+
+    def not_found(probe):
+        return FetchResult([], status=404)
+
+    outcome, _clock = _read(FunctionAdapter(not_found), max_wait=2.0)
+    assert common.readback_verdict("UNACCOUNTED", outcome) == (
+        "READBACK FAILED", "readback",
+    )
+    assert outcome.to_json()["verdict"] == "READBACK FAILED"
+
+
+def test_some_404s_leave_the_tools_verdict_alone():
+    def mixed(probe):
+        if probe.tag == TAGS[0]:
+            return FetchResult([Readback(exists=True, ticket_id="1")], status=200)
+        return FetchResult([], status=404)
+
+    outcome, _clock = _read(FunctionAdapter(mixed), max_wait=2.0)
+    assert common.readback_verdict("UNACCOUNTED", outcome)[0] != "READBACK FAILED"
