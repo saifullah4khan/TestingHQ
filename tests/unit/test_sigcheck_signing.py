@@ -371,3 +371,10 @@ def test_a_literal_secret_in_the_table_is_refused(tmp_path, capsys):
 def test_no_scheme_is_refused(tmp_path, capsys):
     assert cli.main(["sigcheck", "fire", "--config", str(tmp_path / "absent.toml")]) == EXIT_REFUSED
     assert "--scheme" in capsys.readouterr().err
+
+
+def test_the_config_reference_states_the_real_sigcheck_default():
+    from testinghq.core import config_schema
+
+    keys = {k.name: k.default for k in config_schema.table_named("sigcheck").keys}
+    assert float(keys["timestamp_window_seconds"]) == tool.DEFAULT_WINDOW

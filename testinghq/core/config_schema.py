@@ -481,7 +481,112 @@ READBACK_HEADERS = Table(
 )
 
 
-TABLES: Tuple[Table, ...] = (TARGETS, READBACK, READBACK_FIELDS, READBACK_HEADERS)
+# ---------------------------------------------------------------------------
+# [loop], [loop.outbound], [steady], [sigcheck]: read by the tools themselves
+# ---------------------------------------------------------------------------
+
+LOOP = Table(
+    name="loop",
+    summary=(
+        "Settings for `loop fire`. A flag given on the command line wins over "
+        "the value here."
+    ),
+    keys=(
+        Key(
+            "reply_address", "string", default='"no-reply@example.com"',
+            meaning=(
+                "The pipeline's own reply address. The loop bait is an "
+                "autoresponder message sent to it. --reply-address overrides it."
+            ),
+        ),
+        Key(
+            "ticket_policy", "string", default='"none"',
+            meaning=(
+                "'none': a ticket opened for machine mail is a finding. "
+                "'allowed': it is reported but not a finding. The answered loop "
+                "bait is a finding under both. --ticket-policy overrides it."
+            ),
+        ),
+    ),
+)
+
+LOOP_OUTBOUND = Table(
+    name="loop.outbound",
+    summary=(
+        "Where `loop` reads what the pipeline sent: the same keys as "
+        "[readback], usually a mailbox sink. Without it the auto-reply check is "
+        "NOT CHECKED, never passed."
+    ),
+    keys=(
+        Key(
+            "kind", "string", required="yes, when the table is present",
+            meaning=(
+                "Any [readback] kind. An adapter that can enumerate lets loop "
+                "see replies that carry no tag; one that cannot qualifies the "
+                "verdict."
+            ),
+        ),
+    ),
+    notes=("Every other [readback] key is accepted here with the same meaning.",),
+)
+
+STEADY = Table(
+    name="steady",
+    summary="Settings for `steady fire`. A flag wins over the value here.",
+    keys=(
+        Key(
+            "label_field", "string", default=UNSET,
+            meaning=(
+                "The readback field carrying the classifier's label: category, "
+                "route or priority. With neither this nor --label-field, route "
+                "is read, and a run where route would be one value for every "
+                "family is refused before sending."
+            ),
+        ),
+        Key(
+            "intents_path", "string", default=UNSET,
+            meaning=(
+                "A JSON file of intents to use instead of the shipped fixture, "
+                "relative to this config file. Shape: {\"closings\": {lang: "
+                "[...]}, \"intents\": [{\"id\", \"category_hint\", "
+                "\"subjects\": {lang: [...]}, \"variants\": {lang: body}}]}. "
+                "Every language with a body needs a subject list."
+            ),
+        ),
+    ),
+)
+
+SIGCHECK = Table(
+    name="sigcheck",
+    summary="Settings for `sigcheck fire`. A flag wins over the value here.",
+    keys=(
+        Key(
+            "scheme", "string", default=UNSET,
+            meaning="mailgun, sendgrid or postmark-basic. Required here or as --scheme.",
+        ),
+        Key(
+            "secret", "string", default=UNSET, env_referenced=True,
+            meaning=(
+                "'env:<VARIABLE>' holding the Mailgun signing key, the SendGrid "
+                "ECDSA private key, or Postmark's user:password. A literal is "
+                "refused. The artifact records the reference, never the value."
+            ),
+        ),
+        Key(
+            "timestamp_window_seconds", "number", default="300.0",
+            meaning=(
+                "How old a signed timestamp the endpoint is expected to refuse. "
+                "The stale-timestamp variant is signed just outside it."
+            ),
+        ),
+    ),
+)
+
+
+TABLES: Tuple[Table, ...] = (
+    TARGETS, READBACK, READBACK_FIELDS, READBACK_HEADERS,
+    LOOP, LOOP_OUTBOUND, STEADY, SIGCHECK,
+)
 
 
 def table_named(name: str) -> Optional[Table]:

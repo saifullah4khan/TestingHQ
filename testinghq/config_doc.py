@@ -245,14 +245,10 @@ _HEADER = """<!-- GENERATED FILE. Do not edit by hand. -->
 The tables below, generated from the code so they cannot drift. A key added to
 a loader without a line here fails the suite.
 
-**Scope, because a generated reference that claims more than it covers is worse
-than one that does not.** This covers `[targets.<name>]`, `[readback]`,
-`[readback.fields]` and `[readback.headers]`, which is every table the
-`core.config` loader reads. It does not cover `[loop]` or `[loop.outbound]`,
-which `testinghq loop fire` reads from the same file: those keys are
-`reply_address` and `ticket_policy`, and the outbound table is
-`[readback]`-shaped. They are absent from the schema rather than silently
-misdescribed here.
+**Scope.** `[targets.<name>]`, `[readback]`, `[readback.fields]` and
+`[readback.headers]` are read by the `core.config` loader. `[loop]`,
+`[loop.outbound]`, `[steady]` and `[sigcheck]` are read from the same file by
+the tool they name, and `config validate` does not check them.
 
 Validate a file and see what the loaders make of it:
 

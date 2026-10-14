@@ -9,14 +9,10 @@
 The tables below, generated from the code so they cannot drift. A key added to
 a loader without a line here fails the suite.
 
-**Scope, because a generated reference that claims more than it covers is worse
-than one that does not.** This covers `[targets.<name>]`, `[readback]`,
-`[readback.fields]` and `[readback.headers]`, which is every table the
-`core.config` loader reads. It does not cover `[loop]` or `[loop.outbound]`,
-which `testinghq loop fire` reads from the same file: those keys are
-`reply_address` and `ticket_policy`, and the outbound table is
-`[readback]`-shaped. They are absent from the schema rather than silently
-misdescribed here.
+**Scope.** `[targets.<name>]`, `[readback]`, `[readback.fields]` and
+`[readback.headers]` are read by the `core.config` loader. `[loop]`,
+`[loop.outbound]`, `[steady]` and `[sigcheck]` are read from the same file by
+the tool they name, and `config validate` does not check them.
 
 Validate a file and see what the loaders make of it:
 
@@ -116,3 +112,41 @@ Keys are data rather than a fixed set. The fields or headers this table may name
 A run artifact records the header NAMES and never the values, so an artifact can be uploaded without carrying a credential.
 
 `config validate` shows resolved headers as `env:NAME` for the same reason, so printing an effective config is safe to paste somewhere.
+
+## `[loop]`
+
+Settings for `loop fire`. A flag given on the command line wins over the value here.
+
+| Key | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `reply_address` | string | `"no-reply@example.com"` | no | The pipeline's own reply address. The loop bait is an autoresponder message sent to it. --reply-address overrides it. |
+| `ticket_policy` | string | `"none"` | no | 'none': a ticket opened for machine mail is a finding. 'allowed': it is reported but not a finding. The answered loop bait is a finding under both. --ticket-policy overrides it. |
+
+## `[loop.outbound]`
+
+Where `loop` reads what the pipeline sent: the same keys as [readback], usually a mailbox sink. Without it the auto-reply check is NOT CHECKED, never passed.
+
+| Key | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `kind` | string | none | yes, when the table is present | Any [readback] kind. An adapter that can enumerate lets loop see replies that carry no tag; one that cannot qualifies the verdict. |
+
+Every other [readback] key is accepted here with the same meaning.
+
+## `[steady]`
+
+Settings for `steady fire`. A flag wins over the value here.
+
+| Key | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `label_field` | string | none | no | The readback field carrying the classifier's label: category, route or priority. With neither this nor --label-field, route is read, and a run where route would be one value for every family is refused before sending. |
+| `intents_path` | string | none | no | A JSON file of intents to use instead of the shipped fixture, relative to this config file. Shape: {"closings": {lang: [...]}, "intents": [{"id", "category_hint", "subjects": {lang: [...]}, "variants": {lang: body}}]}. Every language with a body needs a subject list. |
+
+## `[sigcheck]`
+
+Settings for `sigcheck fire`. A flag wins over the value here.
+
+| Key | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `scheme` | string | none | no | mailgun, sendgrid or postmark-basic. Required here or as --scheme. |
+| `secret` | string | none | no | 'env:<VARIABLE>' holding the Mailgun signing key, the SendGrid ECDSA private key, or Postmark's user:password. A literal is refused. The artifact records the reference, never the value. |
+| `timestamp_window_seconds` | number | `300.0` | no | How old a signed timestamp the endpoint is expected to refuse. The stale-timestamp variant is signed just outside it. |

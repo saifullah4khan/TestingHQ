@@ -328,3 +328,11 @@ def test_a_summary_never_infers_the_policy_from_the_outcome():
     assert summary["ticket_policy"] == "allowed"
     assert summary["findings"] == 0
     del ReadbackConfig
+
+
+def test_the_config_reference_states_the_real_loop_defaults():
+    from testinghq.core import config_schema
+
+    keys = {k.name: k.default for k in config_schema.table_named("loop").keys}
+    assert keys["reply_address"].strip('"') == tool.DEFAULT_REPLY_ADDRESS
+    assert keys["ticket_policy"].strip('"') == tool.TICKET_POLICY_NONE
