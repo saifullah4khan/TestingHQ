@@ -146,10 +146,20 @@ def test_a_mailer_daemon_sender_is_machine_mail():
 # ---------------------------------------------------------------------------
 
 
-def test_the_corpus_covers_every_documented_shape():
-    corpus = tool.build_machine_corpus(3, len(tool.MACHINE_MAIL_KINDS) + 1, "hq")
-    assert len(corpus) == len(tool.MACHINE_MAIL_KINDS) + 1
-    assert sum(1 for m in corpus if m.is_loop_bait) == 2
+def test_the_default_count_sends_every_shape():
+    """The index arithmetic once skipped two shapes at the default count."""
+    corpus = tool.build_machine_corpus(3, tool.DEFAULT_COUNT, "hq")
+    kinds = {m.kind for m in corpus}
+    assert kinds == {shape[0] for shape in tool.MACHINE_MAIL_SHAPES}
+    assert not any(m.is_loop_bait for m in corpus)
+
+
+@pytest.mark.parametrize("extra", [0, 1, 5])
+def test_any_count_at_least_the_shape_count_covers_every_shape(extra):
+    count = len(tool.MACHINE_MAIL_SHAPES) + extra
+    corpus = tool.build_machine_corpus(3, count, "hq")
+    assert len(corpus) == count
+    assert {m.kind for m in corpus} == {shape[0] for shape in tool.MACHINE_MAIL_SHAPES}
 
 
 def test_every_message_is_recognised_as_machine_mail():
@@ -224,29 +234,57 @@ def test_a_negative_count_is_refused():
         tool.build_machine_corpus(4, -1, "hq")
 
 
-def test_the_loop_bait_points_at_the_configured_reply_address():
-    """The bait only aims correctly if the operator told us their reply
-    address, which is why it is config and not a constant."""
-    corpus = tool.build_machine_corpus(4, 3, "hq", reply_address="bot@intake.example.com")
-    bait = next(m for m in corpus if m.is_loop_bait)
-    assert "bot@intake.example.com" in bait.email.from_addr
+def test_the_loop_bait_is_sent_to_the_configured_reply_address():
+    """The pipeline's reply came from its reply address, so an autoresponder
+    answers to it."""
+    bait = tool.build_loop_bait(4, 3, "hq", "bot@intake.example.com", "ack-1@example.com")
+    assert bait.is_loop_bait
     assert bait.email.to == "bot@intake.example.com"
 
 
-def test_the_loop_bait_carries_an_in_reply_to_the_pipeline_would_have_sent():
-    """That is the step-two shape of a live loop: a reply to a reply."""
-    corpus = tool.build_machine_corpus(4, 3, "hq")
-    bait = next(m for m in corpus if m.is_loop_bait)
-    assert bait.email.headers["In-Reply-To"].startswith("<loop-bait-parent@")
-    assert bait.email.headers["In-Reply-To"].endswith(">")
-
-
-def test_the_bait_message_id_is_on_a_reserved_domain():
-    corpus = tool.build_machine_corpus(4, 3, "hq")
-    bait = next(m for m in corpus if m.is_loop_bait)
-    guardrails.require_synthetic_content(
-        [bait.email.headers["In-Reply-To"].strip("<>")]
+def test_the_loop_bait_comes_from_a_third_party_autoresponder():
+    """Not from the pipeline's own address: a pipeline answering itself is
+    not the loop that happens in production."""
+    bait = tool.build_loop_bait(4, 3, "hq", "bot@intake.example.com", "ack-1@example.com")
+    assert "bot@intake.example.com" not in bait.email.from_addr
+    assert bait.email.headers["Auto-Submitted"] == "auto-replied"
+    assert tool.machine_mail_marker(
+        bait.email.headers, bait.email.subject, bait.email.from_addr
     )
+
+
+def test_the_loop_bait_replies_to_the_pipelines_real_outbound_message():
+    bait = tool.build_loop_bait(4, 3, "hq", "bot@intake.example.com", "ack-1@example.com")
+    assert bait.email.headers["In-Reply-To"] == "<ack-1@example.com>"
+    assert bait.email.headers["References"] == "<ack-1@example.com>"
+
+
+def test_without_a_real_parent_the_bait_falls_back_to_a_reserved_domain():
+    bait = tool.build_loop_bait(4, 3, "hq", "bot@intake.example.com", None)
+    parent = bait.email.headers["In-Reply-To"].strip("<>")
+    assert "unseen-parent" in parent
+    guardrails.require_synthetic_content([parent])
+
+
+def test_the_precursor_is_ordinary_mail_from_the_bait_sender():
+    precursor = tool.build_precursor(4, 3, "hq")
+    email = precursor.email
+    assert tool.machine_mail_marker(email.headers, email.subject, email.from_addr) is None
+    bait = tool.build_loop_bait(4, 3, "hq", "bot@intake.example.com", None)
+    assert bait.email.from_addr == email.from_addr
+    assert len({precursor.tag, bait.tag}) == 2
+
+
+def test_the_dsn_shape_carries_a_delivery_status_part():
+    dsn = next(m for m in tool.build_machine_corpus(1, tool.DEFAULT_COUNT, "hq")
+               if m.kind == "bounce-dsn")
+    assert dsn.email.headers["Content-Type"].startswith("multipart/report")
+    assert "report-type=delivery-status" in dsn.email.headers["Content-Type"]
+    types = [a.content_type for a in dsn.email.attachments]
+    assert "message/delivery-status" in types
+    status = next(a for a in dsn.email.attachments
+                  if a.content_type == "message/delivery-status")
+    assert b"Action: failed" in status.content and b"Status: 5.1.1" in status.content
 
 
 # ---------------------------------------------------------------------------
@@ -360,3 +398,115 @@ def test_a_result_serializes_for_the_artifact():
     assert payload["replied"] is False
     assert payload["findings"]
     assert "is_loop_bait" in payload
+
+
+def test_unattributed_outbound_never_reads_as_no_reply():
+    """An auto-reply that quotes nothing cannot be matched to a message. With
+    such mail in the sink, "reply: no" would be a claim with no evidence."""
+    result = tool.judge_one(_message(), readbacks=[], outbound=[], unattributed_seen=True)
+    assert result.reply_state == tool.REPLY_UNATTRIBUTED
+    assert result.replied is None
+    plain = tool.judge_one(_message(), readbacks=[], outbound=[])
+    assert plain.reply_state == tool.REPLY_NO
+
+
+def test_a_bait_filed_on_the_precursors_ticket_is_not_a_new_ticket():
+    result = tool.judge_one(
+        _message(bait=True), readbacks=_ticketed("T7"), outbound=[],
+        threaded_ticket_ids=["T7"],
+    )
+    assert result.ticked is False and result.passed
+    assert any("existing ticket" in n for n in result.notes)
+
+
+def _out(tag=None, in_reply_to=None, references=(), ident="O1"):
+    return Readback(exists=True, ticket_id=ident, tag=tag, in_reply_to=in_reply_to,
+                    references=tuple(references),
+                    fields=("ticket_id", "in_reply_to", "references"))
+
+
+def test_outbound_is_attributed_by_tag_then_by_threading_headers():
+    ids = {"m1@hq.example.test": "t1", "m2@hq.example.test": "t2"}
+    assert tool.attribute(_out(tag="t1"), ["t1", "t2"], ids) == "t1"
+    assert tool.attribute(_out(in_reply_to="<m2@hq.example.test>"), ["t1", "t2"], ids) == "t2"
+    assert tool.attribute(_out(references=["<other@x.example>", "<m1@hq.example.test>"]),
+                          ["t1", "t2"], ids) == "t1"
+    assert tool.attribute(_out(tag="someone-else"), ["t1", "t2"], ids) is None
+    assert tool.attribute(_out(), ["t1", "t2"], ids) is None
+
+
+def test_merge_keeps_tag_lookups_and_returns_what_nothing_claims():
+    tagged = _out(tag="t1", ident="O1")
+    threaded = _out(in_reply_to="<m2@hq.example.test>", ident="O2")
+    stranger = _out(ident="O3")
+    merged, unattributed = tool.merge_outbound(
+        {"t1": [tagged]}, [tagged, threaded, stranger], ["t1", "t2"],
+        {"m2@hq.example.test": "t2"},
+    )
+    assert merged == {"t1": [tagged], "t2": [threaded]}
+    assert unattributed == [stranger]
+
+
+def test_new_records_is_a_multiset_difference():
+    a, b = _out(ident="A"), _out(ident="B")
+    assert tool.new_records([a, a, b], [a]) == [a, b]
+    assert tool.new_records([a], [a]) == []
+
+
+def test_unattributed_outbound_makes_the_run_a_finding():
+    corpus = tool.build_machine_corpus(1, 3, "hq")
+    results = tool.judge(corpus, {}, {m.tag: [] for m in corpus}, unattributed_seen=True)
+    summary = tool.summarize(results, corpus, "none", unattributed=[_out()],
+                             outbound_enumerated=True)
+    assert summary["findings"] == 1
+    assert summary["auto_reply_unattributed"] == 1
+    assert summary["verdict"] == "LOOPS-DETECTED"
+    assert any(f.startswith("outbound, unattributed") for f in summary["run_findings"])
+    text = tool.format_results(results, summary)
+    assert "outbound, unattributed" in text
+    assert all(r.reply_state == tool.REPLY_UNATTRIBUTED for r in results)
+
+
+def test_loop_bait_answered_counts_only_the_bait():
+    corpus = tool.build_machine_corpus(1, 2, "hq")
+    bait = tool.build_loop_bait(1, 2, "hq", tool.DEFAULT_REPLY_ADDRESS, None)
+    messages = [*corpus, bait]
+    replies = {corpus[0].tag: [_out(tag=corpus[0].tag)], corpus[1].tag: [], bait.tag: []}
+    summary = tool.summarize(tool.judge(messages, {}, replies), messages, "none")
+    assert summary["auto_replies_emitted"] == 1
+    assert summary["loop_bait_answered"] == 0
+    replies[bait.tag] = [_out(tag=bait.tag, ident="O9")]
+    results = tool.judge(messages, {}, replies)
+    summary = tool.summarize(results, messages, "none")
+    assert summary["loop_bait_answered"] == 1
+    bait_result = next(r for r in results if r.is_loop_bait)
+    assert bait_result.findings == ("the loop bait was answered, which is a live mail loop",)
+
+
+def test_the_flag_wins_over_the_config_table_for_both_settings():
+    section = {"ticket_policy": "allowed", "reply_address": "cfg@example.com"}
+    assert tool.effective_settings(section, flag_policy=None, flag_reply=None) == (
+        "allowed", "cfg@example.com")
+    assert tool.effective_settings(section, flag_policy="none", flag_reply="flag@example.com") == (
+        "none", "flag@example.com")
+    assert tool.effective_settings({}, flag_policy=None, flag_reply=None) == (
+        tool.TICKET_POLICY_NONE, tool.DEFAULT_REPLY_ADDRESS)
+
+
+def test_the_headline_says_what_was_not_checked():
+    base = {"findings": 0}
+    assert tool.headline(base) == "LOOP-SAFE"
+    assert tool.headline({**base, "auto_reply_skipped": 3}) == "LOOP-SAFE (auto-reply NOT CHECKED)"
+    assert tool.headline({**base, "outbound_enumerated": False}) == (
+        "LOOP-SAFE (untagged auto-replies NOT CHECKED)")
+    assert tool.headline({**base, "unsettled": True}) == "UNSETTLED"
+    assert tool.headline({"aborted": True}) == "ABORTED"
+
+
+def test_the_report_says_no_sink_configured_not_a_field_problem():
+    corpus = tool.build_machine_corpus(1, 2, "hq")
+    results = tool.judge(corpus, {}, None)
+    text = tool.format_results(results, tool.summarize(results, corpus, "none"))
+    assert "no sink configured" in text
+    assert "adapter cannot see field" not in text
+    assert "by why" not in text
