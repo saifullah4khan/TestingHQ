@@ -9,14 +9,12 @@ that would look like it had checked something.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from testinghq import cli
 from testinghq.pipeline import loop as tool
-from testinghq.pipeline.adapters import AdapterError
 from testinghq.pipeline.common import EXIT_DRY_RUN, EXIT_REFUSED
 
 TARGET = "local"
@@ -49,11 +47,42 @@ def test_loop_is_reachable_and_takes_the_shared_arguments():
         assert hasattr(args, flag), flag
 
 
-def test_loop_defaults_to_refusing_machine_mail_ticketing():
-    """The brief's default, and the stricter one. Getting it wrong turns a
-    pipeline that tickets bulk mail into a passing run."""
+def test_loop_defaults_to_refusing_machine_mail_ticketing(tmp_path, capsys):
+    """The stricter default. The flag itself defaults to unset so that
+    `[loop].ticket_policy` can apply when it is not given."""
     args = cli.build_parser().parse_args(["loop", "fire"])
-    assert args.ticket_policy == tool.TICKET_POLICY_NONE
+    assert args.ticket_policy is None
+    code = cli.main(["loop", "fire", "--config", _config(tmp_path)])
+    assert code == EXIT_DRY_RUN
+    assert "ticket policy:   none" in capsys.readouterr().out
+
+
+def test_loop_does_not_take_expect_route():
+    """loop never checks a route, so the flag would be accepted and ignored."""
+    with pytest.raises(SystemExit) as caught:
+        cli.build_parser().parse_args(["loop", "fire", "--expect-route", "billing"])
+    assert caught.value.code == EXIT_REFUSED
+
+
+def test_the_config_policy_applies_when_the_flag_is_absent(tmp_path, capsys):
+    path = _config(tmp_path, '\n[loop]\nticket_policy = "allowed"\n'
+                             'reply_address = "cfg@intake.example.com"\n')
+    assert cli.main(["loop", "fire", "--config", path]) == EXIT_DRY_RUN
+    out = capsys.readouterr().out
+    assert "ticket policy:   allowed" in out
+    assert "reply address:   cfg@intake.example.com" in out
+
+
+def test_the_flags_win_over_the_config_table(tmp_path, capsys):
+    """Every other flag overrides the config file; these once did not."""
+    path = _config(tmp_path, '\n[loop]\nticket_policy = "allowed"\n'
+                             'reply_address = "cfg@intake.example.com"\n')
+    code = cli.main(["loop", "fire", "--config", path, "--ticket-policy", "none",
+                     "--reply-address", "flag@intake.example.com"])
+    assert code == EXIT_DRY_RUN
+    out = capsys.readouterr().out
+    assert "ticket policy:   none" in out
+    assert "reply address:   flag@intake.example.com" in out
 
 
 def test_the_ticket_policy_flag_is_constrained():
@@ -221,17 +250,40 @@ def test_a_malformed_loop_table_refuses_the_run(tmp_path, capsys):
     assert "reply_address must be a string" in captured.out + captured.err
 
 
-def test_a_missing_readback_is_refused_before_the_dry_run(tmp_path, capsys):
-    """Same rule as every other tool: no adapter means no evidence, so the run
-    does not start, and a dry-run preview is not printed for a run that could
-    never happen."""
+def test_a_missing_readback_is_refused_before_a_send(tmp_path, capsys):
+    """No adapter means no evidence, so a real run does not start."""
     path = tmp_path / "no-readback.toml"
     path.write_text(BASE, encoding="utf-8")
-    code = cli.main(["loop", "fire", "--target", TARGET, "--config", str(path)])
+    code = cli.main(["loop", "fire", "--target", TARGET, "--config", str(path), "--send"])
     captured = capsys.readouterr()
     assert code == EXIT_REFUSED
     assert "no readback adapter configured" in captured.out + captured.err
-    assert "dry-run preview" not in captured.out
+
+
+def test_a_dry_run_needs_neither_a_readback_nor_a_config_file(tmp_path, capsys):
+    """A dry run sends and reads nothing, so it previews and says what a real
+    run would refuse."""
+    code = cli.main(["loop", "fire", "--config", str(tmp_path / "absent.toml")])
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "dry-run preview" in out
+    assert "none configured (a real run refuses)" in out
+    assert "auto-replies will NOT be checked" in out
+
+
+def test_the_dry_run_lists_every_shape_at_the_default_count(tmp_path, capsys):
+    code = cli.main(["loop", "fire", "--config", _config(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    for kind, *_rest in tool.MACHINE_MAIL_SHAPES:
+        assert kind in out, kind
+    assert "loop-bait" in out
+
+
+def test_a_negative_count_is_a_refusal_not_a_traceback(tmp_path, capsys):
+    code = cli.main(["loop", "fire", "--config", _config(tmp_path), "--count", "-1"])
+    assert code == EXIT_REFUSED
+    assert "count must be >= 0" in capsys.readouterr().err
 
 
 def test_an_unimportable_readback_spec_is_refused(tmp_path, capsys):
