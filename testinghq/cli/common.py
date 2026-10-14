@@ -97,6 +97,37 @@ def _resolve_readback(args):
     return dataclasses.replace(readback, **changes) if changes else readback
 
 
+def _number(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if value != value or value in (float("inf"), float("-inf")):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {text}")
+    return value
+
+
+def positive_seconds(text: str) -> float:
+    """argparse type for --max-wait and --poll-interval: a number above zero.
+
+    Checked by the parser, so a bad value is a refusal (exit 1) before anything
+    is sent. Checked only by the readback, it was a refusal after the whole
+    corpus had gone out, which broke "exit 1 means nothing was sent"."""
+    value = _number(text)
+    if not value > 0:
+        raise argparse.ArgumentTypeError(f"must be > 0 seconds, got {text}")
+    return value
+
+
+def non_negative_seconds(text: str) -> float:
+    """argparse type for --quiet-window: zero or more seconds. Zero is a legal
+    window meaning "settle on the first two identical polls"."""
+    value = _number(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0 seconds, got {text}")
+    return value
+
+
 def _add_readback_poll_args(parser) -> None:
     """How long to keep asking the system what it produced.
 
@@ -112,7 +143,7 @@ def _add_readback_poll_args(parser) -> None:
     group = parser.add_argument_group("readback polling", common.SETTLING_RULE)
     group.add_argument(
         "--quiet-window",
-        type=float,
+        type=non_negative_seconds,
         default=common.DEFAULT_QUIET_WINDOW,
         help=(
             "seconds what the readback sees (which tags are found, their "
@@ -124,17 +155,18 @@ def _add_readback_poll_args(parser) -> None:
     )
     group.add_argument(
         "--max-wait",
-        type=float,
+        type=positive_seconds,
         default=common.DEFAULT_MAX_WAIT,
         help=(
             "seconds to keep polling (default %(default)s). A run whose "
-            "readback is still changing then is UNSETTLED, not lost. Keep it "
-            "well above --quiet-window"
+            "readback is still changing then, or that could not poll every tag "
+            "twice, is UNSETTLED, not lost. Keep it well above --quiet-window, "
+            "and above 2 x tags / --readback-rate"
         ),
     )
     group.add_argument(
         "--poll-interval",
-        type=float,
+        type=positive_seconds,
         default=common.DEFAULT_POLL_INTERVAL,
         help="seconds between lookups while waiting",
     )

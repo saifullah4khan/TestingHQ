@@ -537,3 +537,40 @@ def test_barrage_ends_at_its_deadline_against_a_target_that_never_answers(tmp_pa
     assert requests["abandoned"] == 2
     assert requests["completed"] == 0
     assert requests["not_dispatched"] + requests["dropped_backlog"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Readback polling flags: refused before anything is sent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tool,flag,value",
+    [
+        ("ledger", "--quiet-window", "-1"),
+        ("ledger", "--poll-interval", "0"),
+        ("ledger", "--max-wait", "-5"),
+        ("ledger", "--max-wait", "0"),
+        ("verify", "--poll-interval", "-1"),
+        ("redeliver", "--quiet-window", "-2"),
+    ],
+)
+def test_a_bad_polling_flag_is_refused_before_any_post(tmp_path, tool, flag, value):
+    """Exit 1 means nothing was sent. These flags used to be checked only by
+    the readback, after every message had already reached the target, so the
+    sink below took the whole corpus and the run still exited 1."""
+    mailbox = tmp_path / "mail.jsonl"
+    mailbox.write_text("", encoding="utf-8")
+    with _Sink() as sink:
+        config = tmp_path / "target.toml"
+        sink.write_config(config)
+        with config.open("a", encoding="utf-8") as handle:
+            handle.write(f'\n[readback]\nkind = "mailbox"\npath = "{mailbox.as_posix()}"\n')
+        result = _run(
+            tool, "fire", "--target", "e2e", "--config", str(config),
+            "--count", "2", "--send", flag, value, timeout=60,
+        )
+        posts = len(sink.bodies)
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert posts == 0, f"{posts} POST(s) reached the target before the refusal"
+    assert f"argument {flag}" in result.stderr
