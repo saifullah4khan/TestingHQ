@@ -164,6 +164,18 @@ SCENARIO_TAG_SUFFIX: Dict[str, str] = SCENARIO_IDENTITY
 _ALREADY_REPLYING = re.compile(r"^\s*(re|aw|sv|fwd?|fw)\s*(\[\d+\])?\s*:\s*", re.IGNORECASE)
 
 
+def _bare(message_id: Optional[str]) -> str:
+    """A Message-ID without its angle brackets, the form ids are compared in,
+    so a stored value with or without brackets matches."""
+    return (message_id or "").strip().strip("<>").strip()
+
+
+def _header_ids(*message_ids: str) -> str:
+    """Message-IDs as RFC 5322 writes them in a header: each in angle
+    brackets, several separated by a space (a References chain)."""
+    return " ".join(f"<{_bare(mid)}>" for mid in message_ids)
+
+
 def reply_subject(subject: str) -> str:
     """The subject a real client would put on a reply: `Re: ` plus the parent's,
     and not `Re: Re: ` when the parent already had one."""
@@ -233,12 +245,13 @@ class Scenario:
         return self.delivery_for(delivery.in_reply_to_tag or "")
 
     def ancestry_of(self, tag: str) -> Tuple[str, ...]:
-        """Message-IDs of every ancestor of `tag`, root first."""
+        """Message-IDs of every ancestor of `tag`, root first, bare (angle
+        brackets stripped) so they compare with a stored value either way."""
         chain: List[str] = []
         seen = {tag}
         parent = self.parent_of(tag)
         while parent is not None and parent.tag not in seen:
-            chain.append(parent.message_id)
+            chain.append(_bare(parent.message_id))
             seen.add(parent.tag)
             parent = self.parent_of(parent.tag)
         return tuple(reversed(chain))
@@ -270,13 +283,17 @@ def _make(
     scenario depends on that: its replies are stamped before its root exists in
     the delivery order, and building the parent's Message-ID by hand is what
     makes that possible.
+
+    The ids are given bare and written to the headers in angle brackets, as
+    RFC 5322 requires; `references` is a space-separated chain. The Delivery
+    keeps the bare id.
     """
     stamped = messages.stamp(
         email,
         tag,
-        message_id=message_id,
-        in_reply_to=in_reply_to,
-        references=references,
+        message_id=None if message_id is None else _header_ids(message_id),
+        in_reply_to=None if in_reply_to is None else _header_ids(in_reply_to),
+        references=None if references is None else _header_ids(*references.split()),
         subject=subject,
     )
     return Delivery(
@@ -321,7 +338,7 @@ def _repeat_twice(
         record_id = f"clean-{seed}-{index:04d}"
         originals.append(
             Delivery(
-                email=messages.stamp(email, tag, message_id=message_id),
+                email=messages.stamp(email, tag, message_id=_header_ids(message_id)),
                 tag=tag,
                 record_id=record_id,
                 message_id=message_id,
@@ -332,7 +349,7 @@ def _repeat_twice(
                 # Stamped from the original again rather than from the already
                 # stamped payload, so the two deliveries are byte-identical
                 # rather than carrying the marker twice.
-                email=messages.stamp(email, tag, message_id=message_id),
+                email=messages.stamp(email, tag, message_id=_header_ids(message_id)),
                 tag=tag,
                 record_id=record_id,
                 message_id=message_id,
@@ -763,7 +780,7 @@ def judge_scenario(
                 "it must not be reported as one."
             )
         link = check_thread_link(
-            first_by_tag.get(tag), parent.message_id, scenario.ancestry_of(tag)
+            first_by_tag.get(tag), _bare(parent.message_id), scenario.ancestry_of(tag)
         )
         together = check_thread_together(
             first_by_tag.get(tag), first_by_tag.get(parent.tag)
