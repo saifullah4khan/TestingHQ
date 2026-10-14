@@ -158,6 +158,21 @@ DEFAULT_KIND_WEIGHTS: Dict[str, float] = {
     "degenerate": 0.15,
 }
 
+#: Kinds drawn for `--attachments adversarial`.
+ADVERSARIAL_KIND_WEIGHTS: Dict[str, float] = {
+    "clean": 0.50,
+    "zero_byte": 0.10,
+    "oversized": 0.05,
+    "degenerate": 0.25,
+    "rtl_override": 0.10,
+}
+
+#: The `--attachments` modes.
+ATTACHMENT_MODES: Tuple[str, ...] = ("none", "seeded", "adversarial")
+
+#: Share of payloads that get attachments in the seeded and adversarial modes.
+ATTACHED_SHARE = 1 / 3
+
 
 def generate_attachment(rng: random.Random, kind: str = "clean") -> Attachment:
     """Generate one attachment of the given `kind` (see GENERATORS)."""
@@ -187,6 +202,24 @@ def generate_attachments(
         generate_attachment(rng, rng.choices(kinds, weights=kind_weights, k=1)[0])
         for _ in range(count)
     ]
+
+
+def corpus_attachments(rng: random.Random, mode: str) -> Tuple[Attachment, ...]:
+    """Attachments for one corpus payload under `mode`.
+
+    `none` attaches nothing. `seeded` gives about a third of payloads one to
+    three ordinary attachments of 256 bytes to 16 KiB. `adversarial` attaches
+    to the same payloads, drawing kinds from ADVERSARIAL_KIND_WEIGHTS: hostile
+    filenames, zero-byte, 5 MiB and right-to-left override files.
+    """
+    if mode not in ATTACHMENT_MODES:
+        raise ValueError(f"unknown attachments mode: {mode!r}; choose from {list(ATTACHMENT_MODES)}")
+    if mode == "none" or rng.random() >= ATTACHED_SHARE:
+        return ()
+    count = rng.randint(1, 3)
+    if mode == "seeded":
+        return tuple(clean_attachment(rng, rng.randint(256, 16384)) for _ in range(count))
+    return tuple(generate_attachments(rng, count, ADVERSARIAL_KIND_WEIGHTS))
 
 
 def attach(email: InboundEmail, attachments: Sequence[Attachment]) -> InboundEmail:
