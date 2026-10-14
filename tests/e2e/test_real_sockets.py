@@ -409,131 +409,145 @@ def test_the_sink_actually_binds_loopback_and_nothing_else():
 
 
 # ---------------------------------------------------------------------------
-# Barrage concurrency, measured against a real socket
+# Barrage concurrency, keep-alive and the run deadline, against real sockets
 #
-# This lives here rather than in its own module because of the exemption rule
-# above: `allow_network` is one file, and adding a second is supposed to be
-# argued for. This is the argument. A load test cannot be faked, because a fake
-# clock cannot see concurrency: a fake `sleep` returns instantly, so a serial
-# loop and a parallel one are indistinguishable to virtual time. That is
-# precisely how a serial dispatcher carried a green suite for as long as it did
-# (issue #38).
+# These live here rather than in their own module because `allow_network` is
+# one file. A fake clock cannot see concurrency, and only a real server can
+# say how many TCP connections a run opened.
 # ---------------------------------------------------------------------------
 
-#: A WHOLE number of one-second buckets, and that is not arbitrary.
-#: `barrage.report.throughput` divides the request count by
-#: `len(buckets) * bucket_seconds`, and buckets are whole units. A 1.5s run spans
-#: two buckets, so 30 requests are reported as 30 / 2.0 = 15/s even though every
-#: one was dispatched on the 20/s schedule. At 2.0s the arithmetic is
-#: 40 / 2.0 = 20/s and the reported number is the scheduled one. Getting this
-#: wrong makes a correct run look like it under-delivered, which is the sort of
-#: thing that gets a real bug dismissed.
 _BARRAGE_DURATION = 2.0
 _BARRAGE_RATE = 20.0
 #: 200ms of service time puts the one-request-in-flight ceiling at 5/s, a
-#: quarter of the rate asked for. The gap has to be wide enough that a
-#: scheduler hiccup cannot close it.
+#: quarter of the rate asked for, wide enough that a scheduler hiccup cannot
+#: close the gap.
 _BARRAGE_SERVICE_SECONDS = 0.2
 
 
 def _barrage_against(url, concurrency):
-    """One real barrage run over a real socket. Returns the reported numbers."""
-    from testinghq.blast.generate import generate_corpus
+    """One real open-loop run over a real socket, with the shipped send hook.
+    Returns the records and the reported throughput."""
+    from testinghq.barrage import fire as barrage_fire
     from testinghq.barrage import runner as barrage_runner
-    from testinghq.barrage.report import Sample, throughput
-    from testinghq.core.transport import post
+    from testinghq.barrage.report import throughput
+    from testinghq.blast.generate import generate_corpus
 
     plan = barrage_runner.RunPlan(
         mode="open", rate=_BARRAGE_RATE, concurrency=concurrency,
         warmup_seconds=0.0, hold_seconds=_BARRAGE_DURATION, ramp_step_count=0,
     )
-    pool = generate_corpus(seed=7, count=4)
-
-    def send_fn(index):
-        result = post(pool[index % len(pool)], url)
-        return result, result.latency_ms / 1000.0
-
-    records = barrage_runner.run(plan, send_fn, allow_high_rate=True)
-    samples = [
-        Sample(
-            dispatch_time=r.dispatch_time,
-            target_rate=r.target_rate,
-            status=getattr(r.result, "status", None),
-            latency_ms=getattr(r.result, "latency_ms", None) or 0.0,
-        )
-        for r in records
-    ]
-    return records, throughput(samples)
+    sender = barrage_fire.make_send_fn(generate_corpus(seed=7, count=4), url)
+    try:
+        result = barrage_runner.run(plan, sender, allow_high_rate=True)
+    finally:
+        sender.close()
+    samples = barrage_fire.samples_from_records(result, plan.warmup_seconds)
+    return result.records, throughput(samples)
 
 
 def test_barrage_concurrency_changes_the_throughput_a_real_target_sees():
-    """The load-bearing claim of issue #38, measured end to end.
-
-    A target taking 200ms per request, offered 20 requests/second. With one
-    request in flight the ceiling is 1 / 0.2 = 5/s whatever is asked for, and
-    the run reports an achieved rate near 5 while looking like it honoured a
-    20/s schedule. That number is a measurement of the dispatcher, not of the
-    target, and it is what the tool reported for as long as there was no
-    executor.
-
-    Asserted as a ratio rather than as exact figures, because the absolutes
-    depend on a real scheduler and a loaded CI runner. The claim worth making
-    is that concurrency moved the number by several times over.
-    """
+    """A target taking 200ms per request, offered 20 requests/second. One
+    worker cannot exceed 1 / 0.2 = 5/s; eight can hold the schedule. Asserted
+    as a ratio, because the absolutes depend on a loaded runner."""
     with _Sink(delay_seconds=_BARRAGE_SERVICE_SECONDS) as sink:
-        _serial_records, serial = _barrage_against(sink.url, 1)
+        serial_records, serial = _barrage_against(sink.url, 1)
         parallel_records, parallel = _barrage_against(sink.url, 8)
 
-    assert serial["total_requests"] == parallel["total_requests"], (
+    assert len(serial_records) == len(parallel_records), (
         "both runs were asked for the same rate and duration and should have "
-        f"dispatched the same count: {serial['total_requests']} vs "
-        f"{parallel['total_requests']}"
+        "scheduled the same requests"
     )
-
-    assert serial["achieved_rps"] < _BARRAGE_RATE, (
-        f"one request in flight achieved {serial['achieved_rps']:.2f}/s against "
-        f"a requested {_BARRAGE_RATE}/s, which is what a 0.2s service time "
-        "allows. If this ever passes, the target is no longer slow enough for "
-        "the comparison to mean anything."
-    )
-
-    assert parallel["achieved_rps"] > serial["achieved_rps"] * 2, (
-        f"concurrency 8 achieved {parallel['achieved_rps']:.2f}/s against "
-        f"{serial['achieved_rps']:.2f}/s at 1. --concurrency still does nothing."
-    )
-
-    assert parallel["achieved_rps"] >= _BARRAGE_RATE * 0.85, (
-        f"concurrency 8 achieved {parallel['achieved_rps']:.2f}/s, short of the "
-        f"requested {_BARRAGE_RATE}/s. With 8 workers against 0.2s of service "
-        "time the ceiling is 40/s, so the run should have held its schedule. "
-        "The tolerance is for a loaded runner, not for a missing pool."
-    )
-
-    assert all(getattr(r.result, "status", None) == 200 for r in parallel_records), (
-        "every request under concurrency should have been answered 200"
-    )
+    assert serial["achieved_rps"] < _BARRAGE_RATE * 0.5, serial
+    assert parallel["achieved_rps"] > serial["achieved_rps"] * 2, (serial, parallel)
+    assert parallel["achieved_rps"] >= _BARRAGE_RATE * 0.85, parallel
+    assert all(getattr(r.result, "status", None) == 200 for r in parallel_records)
 
 
 def test_barrage_accounts_for_every_request_it_dispatched():
-    """A pool can drop work in a way a serial loop cannot, and the symptom is a
-    record whose result was never filled in.
-
-    Checked on the records rather than through the artifact, because a None
-    result reaching the report is the failure, and reading the records is where
-    it is visible.
-    """
+    """Every scheduled request comes back, in index order, and with eight
+    workers against a 200ms target every one of them completed."""
     with _Sink(delay_seconds=_BARRAGE_SERVICE_SECONDS) as sink:
         records, _ = _barrage_against(sink.url, 8)
 
     assert records, "the run dispatched nothing"
-    unfilled = [r for r in records if r.result is None]
-    assert not unfilled, (
-        f"{len(unfilled)} of {len(records)} records have no result. A request "
-        "was dispatched and never accounted for, which is the failure mode a "
-        "concurrent dispatcher adds."
+    assert [r.index for r in records] == list(range(len(records)))
+    unfilled = [r for r in records if r.outcome != "completed" or r.result is None]
+    assert not unfilled, f"{len(unfilled)} of {len(records)} records have no result"
+
+
+def _count_connections(sink):
+    """Count the TCP connections the sink accepts. `verify_request` runs once
+    per accepted connection, before any request on it is read."""
+    accepted = []
+    original = sink._server.verify_request
+
+    def verify(request, client_address):
+        accepted.append(client_address)
+        return original(request, client_address)
+
+    sink._server.verify_request = verify
+    return accepted
+
+
+@pytest.mark.parametrize("keepalive", [True, False])
+def test_barrage_keeps_one_connection_per_worker(tmp_path, keepalive):
+    with _Sink() as sink:
+        accepted = _count_connections(sink)
+        config = sink.write_config(tmp_path / "target.toml")
+        artifact = tmp_path / "load.json"
+        result = _run(
+            "barrage", "fire", "--target", "e2e", "--send",
+            "--rate", "20", "--duration", "1", "--warmup", "0", "--concurrency", "2",
+            "--out", str(artifact), "--config", config,
+            *([] if keepalive else ["--no-keepalive"]),
+        )
+        assert result.returncode == 0, result.stderr
+        assert sink.only_talked_to_loopback()
+
+    data = json.loads(artifact.read_text(encoding="utf-8"))
+    sent = data["summary"]["requests"]["sent"]
+    assert sent == len(sink.bodies) == 20
+    assert data["config"]["keepalive"] is keepalive
+    if keepalive:
+        assert len(accepted) <= 2, f"{len(accepted)} connections for 2 workers"
+        assert data["connections"]["workers_connected"] == len(accepted)
+        assert data["connections"]["setup_ms"]["max"] is not None
+    else:
+        assert len(accepted) == sent
+
+
+def test_barrage_ends_at_its_deadline_against_a_target_that_never_answers(tmp_path):
+    """A listener that accepts connections and never reads them. With a 20s
+    timeout the run must still end at duration + grace, recording the stuck
+    requests as abandoned instead of waiting them out."""
+    import socket
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(64)
+    port = listener.getsockname()[1]
+    config = tmp_path / "target.toml"
+    config.write_text(
+        f'[targets.e2e]\nurl = "http://127.0.0.1:{port}/intake"\n', encoding="utf-8"
     )
-    assert [r.index for r in records] == list(range(len(records))), (
-        "records must come back in index order. A run artifact is aligned by "
-        "index, so an artifact that reorders itself between executions of the "
-        "same plan cannot be compared."
-    )
+    artifact = tmp_path / "load.json"
+    try:
+        started = time.monotonic()
+        result = _run(
+            "barrage", "fire", "--target", "e2e", "--send",
+            "--rate", "10", "--duration", "1", "--warmup", "0", "--concurrency", "2",
+            "--grace", "0.5", "--timeout", "20",
+            "--out", str(artifact), "--config", str(config), timeout=60,
+        )
+        wall = time.monotonic() - started
+    finally:
+        listener.close()
+
+    assert result.returncode == 0, result.stderr
+    # 1.5s of run plus interpreter start-up, far below the 20s timeout.
+    assert wall < 1.5 + 6.0, f"barrage took {wall:.1f}s against a 1.5s deadline"
+    requests = json.loads(artifact.read_text(encoding="utf-8"))["summary"]["requests"]
+    assert requests["scheduled"] == 10
+    assert requests["abandoned"] == 2
+    assert requests["completed"] == 0
+    assert requests["not_dispatched"] + requests["dropped_backlog"] == 8
