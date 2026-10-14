@@ -311,7 +311,7 @@ def payload_sha256(email) -> str:
         hasher.update(part.name.encode("utf-8"))
         hasher.update(b"\x00")
         if hasattr(part, "value"):
-            hasher.update(part.value.encode("utf-8"))
+            hasher.update(serialize_module.part_value_bytes(part))
         else:
             hasher.update(part.filename.encode("utf-8"))
             hasher.update(b"\x00")
