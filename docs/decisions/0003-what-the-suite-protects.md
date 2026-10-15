@@ -38,7 +38,8 @@ smaller check, a CI job or `CONTRIBUTING.md`.
 | Most of `test_dogfood_harness.py` | Recipes state their status plainly, and `.env` must be gitignored. | `.gitignore` and `docs/DOGFOOD.md`. |
 | Source scans in `test_exit_codes.py` | Exit codes are defined once and no tool invents a fifth. | `core/exit_codes.py` is the only definition, and the remaining tests call the code. |
 | Drift extras in `test_config_schema.py` | `--check` mode and the "generated file" banner. | The one drift test covers both. |
-| `test_suite_network_block.py` extras | The marker is registered, the block covers all three socket doors, the demo runs in e2e. | `tests/report_html/render.test.cjs`, run by the `report-html-tests` job against the installed wheel. |
+| `test_suite_network_block.py` extras | The marker is registered, the block covers all three socket doors, the demo runs in e2e. | `pyproject.toml` markers; `e2e.yml`. |
+| `tests/web/`, `web/tests/render.test.cjs` | The rendering code must run in CI, in its own language. | `tests/report_html/render.test.cjs`, run by the `report-html-tests` job against the installed wheel. |
 
 ## Why
 
