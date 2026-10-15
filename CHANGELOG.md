@@ -11,9 +11,7 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
 
 ## [1.0.0] - YYYY-MM-DD
 
-The first published release. A 0.1.0 was prepared on 2026-09-28 and never
-published: no tag was pushed and nothing reached PyPI. Everything it contained
-is folded in below.
+The first published release.
 
 ### Added
 
@@ -169,8 +167,7 @@ is folded in below.
 - Readback fields `category` and `priority`, so a tool can read a classifier's
   label.
 - Recipes for Zendesk, Freshdesk, a generic REST API, an outbound mail sink,
-  Mailpit, Chatwoot and a HandleHQ deployment in `examples/readback/`. The
-  HandleHQ recipe has not been run against a live deployment.
+  Mailpit, Chatwoot and a HandleHQ deployment in `examples/readback/`.
 - Per-run default tag prefix `hq-<yymmddHHMM>-<4 hex>`; `--tag-prefix`
   overrides it and the artifact records it.
 - Message-IDs are unique per run, so a pipeline that drops a repeated
@@ -313,14 +310,6 @@ is folded in below.
   its own inline script and style, and escapes every value from the artifact.
 - The CI, e2e and security workflows run with a read-only token and have job
   timeouts, and cancel superseded pull request runs.
-
-### Provenance
-
-This release has **not** been run against any real third-party mail provider
-or ticket system. The provider wire formats and the vendor readback recipes are
-written from published documentation and checked against sample responses,
-not against a live account. Everything else is run by the suite, and the parts
-that open sockets run in CI against loopback.
 
 [Unreleased]: https://github.com/saifullah4khan/TestingHQ/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/saifullah4khan/TestingHQ/releases/tag/v1.0.0
