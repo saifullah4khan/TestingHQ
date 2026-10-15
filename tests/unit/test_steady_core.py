@@ -46,22 +46,48 @@ def test_every_transform_name_is_in_the_table():
     )
 
 
-def test_the_three_reused_transforms_come_from_blast_corrupt():
-    """Reuse, not a second implementation. Two copies of a meaning-preserving
-    edit would drift, and a drifted edit stops being meaning-preserving."""
-    from testinghq.blast import corrupt
+CTX = steady.TransformContext()
 
-    email = _email_with("A complaint body long enough to be worth transforming. " * 2)
-    for mine, theirs in (
-        (steady.transform_signature, corrupt._op_signature),
-        (steady.transform_forward, corrupt._op_forward_header),
-        (steady.transform_quoted_history, corrupt._op_quote_chain),
-    ):
-        for seed in (1, 2):
-            assert (
-                mine(email, random.Random(seed)).text
-                == theirs(email, random.Random(seed)).text
-            ), mine.__name__
+
+def test_add_signature_is_the_sender_name_and_a_phone_and_nothing_else():
+    """A role or title in the signature is a claim about who is asking, which
+    a triage classifier may fairly act on."""
+    sender = steady.sender_for(3)
+    ctx = steady.TransformContext(sender=sender)
+    email = _email_with("The kettle is broken.\n")
+    signed = steady.transform_signature(email, random.Random(1), ctx)
+    added = signed.text[len(email.text.rstrip("\n")):].strip().splitlines()
+    assert added == ["--", sender.name, sender.phone]
+
+
+def test_wrap_forward_keeps_the_author_and_forwards_from_the_same_person():
+    sender = steady.sender_for(2)
+    ctx = steady.TransformContext(sender=sender)
+    email = _email_with("The kettle is broken.\n")
+    email = email.__class__(**{**email.__dict__, "from_addr": sender.display})
+    forwarded = steady.transform_forward(email, random.Random(1), ctx)
+    assert f"From: {sender.display}" in forwarded.text, "the quoted author is unchanged"
+    assert forwarded.from_addr == sender.alternate_display
+    assert forwarded.from_addr.split("<")[0].strip() == sender.name
+    assert forwarded.envelope.from_addr == sender.alternate
+    assert forwarded.subject == f"Fwd: {email.subject}"
+
+
+@pytest.mark.parametrize("language", ["ur", "roman_ur"])
+def test_reword_greeting_closes_a_non_english_body_in_its_own_language(language):
+    fixture = steady.load_fixture()
+    closings = fixture.closings[language]
+    ctx = steady.TransformContext(language=language, closings=closings)
+    body = fixture.intents[0].variants[language]
+    reworded = steady.transform_reword_greeting(_email_with(body + "\n"), random.Random(1), ctx)
+    assert reworded is not None
+    assert reworded.text.rstrip().splitlines()[-1] in closings
+    assert "regards" not in reworded.text.lower()
+
+
+def test_reword_greeting_declines_when_the_language_has_no_closing():
+    ctx = steady.TransformContext(language="xx", closings=())
+    assert steady.transform_reword_greeting(_email_with("Body.\n"), random.Random(1), ctx) is None
 
 
 def test_collapse_body_is_not_used_as_a_transform():
@@ -96,7 +122,7 @@ def _email_with(text: str, subject: str = "Hello, support team.\n\nKind regards,
 def test_reflow_rewraps_without_changing_the_words():
     long_text = " ".join(["word%d" % i for i in range(60)]) + "\n"
     email = _email_with(long_text)
-    reflowed = steady.transform_reflow_whitespace(email, random.Random(1))
+    reflowed = steady.transform_reflow_whitespace(email, random.Random(1), CTX)
     assert reflowed is not None
     assert len(reflowed.text.splitlines()) > 1
     assert reflowed.text.split() == email.text.split(), "no word may change"
@@ -107,7 +133,7 @@ def test_reflow_declines_rather_than_returning_the_input_unchanged():
     """A transform that silently does nothing appears in the report as a variant
     that agreed, which is a pass the run did not earn."""
     email = _email_with("Too short.\n")
-    assert steady.transform_reflow_whitespace(email, random.Random(1)) is None
+    assert steady.transform_reflow_whitespace(email, random.Random(1), CTX) is None
 
 
 def test_reflow_returns_none_when_it_would_change_nothing():
@@ -115,13 +141,13 @@ def test_reflow_returns_none_when_it_would_change_nothing():
     # Whatever width is chosen, the text is one long line either way, so either
     # the result differs or the transform declines. Both are correct; emitting
     # an identical payload is not.
-    produced = steady.transform_reflow_whitespace(email, random.Random(1))
+    produced = steady.transform_reflow_whitespace(email, random.Random(1), CTX)
     assert produced is None or produced.text != email.text
 
 
 def test_reword_swaps_a_greeting():
     email = _email_with("Hello, the kettle is broken.\n\nKind regards,\nA")
-    reworded = steady.transform_reword_greeting(email, random.Random(1))
+    reworded = steady.transform_reword_greeting(email, random.Random(1), CTX)
     assert reworded is not None
     assert reworded.text.startswith("Hi,")
     assert "the kettle is broken" in reworded.text, "only the greeting changes"
@@ -129,7 +155,7 @@ def test_reword_swaps_a_greeting():
 
 def test_reword_swaps_a_signoff_when_there_is_no_greeting_to_swap():
     email = _email_with("The kettle is broken.\n\nKind regards,\nA")
-    reworded = steady.transform_reword_greeting(email, random.Random(1))
+    reworded = steady.transform_reword_greeting(email, random.Random(1), CTX)
     assert reworded is not None
     assert reworded.text.endswith("Best regards,\nA")
     assert "The kettle is broken" in reworded.text
@@ -141,7 +167,7 @@ def test_reword_appends_a_signoff_when_there_is_no_greeting_to_swap():
     actually sends, while still appearing in the report as a transform that was
     tried."""
     email = _email_with("The kettle is broken.\n")
-    reworded = steady.transform_reword_greeting(email, random.Random(1))
+    reworded = steady.transform_reword_greeting(email, random.Random(1), CTX)
     assert reworded is not None
     assert reworded.text.rstrip().endswith("Kind regards,")
     assert "The kettle is broken" in reworded.text
@@ -157,7 +183,7 @@ def test_reword_always_produces_a_variant():
         "A bare complaint with neither.\n",
     ):
         email = _email_with(body)
-        produced = steady.transform_reword_greeting(email, random.Random(1))
+        produced = steady.transform_reword_greeting(email, random.Random(1), CTX)
         assert produced is not None, body
         assert produced.text != email.text, body
 
@@ -165,7 +191,7 @@ def test_reword_always_produces_a_variant():
 def test_every_transform_keeps_the_addresses_synthetic():
     for name, transform in steady.TRANSFORMS.items():
         email = _email_with("A reasonably long complaint body for the transform. " * 3)
-        produced = transform(email, random.Random(2))
+        produced = transform(email, random.Random(2), CTX)
         assert produced is not None, name
         guardrails.require_synthetic_content(
             [
@@ -400,7 +426,8 @@ def test_a_flipping_family_names_its_dissenters_and_their_transforms():
     result = steady.judge_family(family.labelled(labels))
     assert result.consistent is False
     assert result.majority == family.category_hint
-    assert result.dissenters == ((family.variants[1].transform, "wrong"),)
+    variant = family.variants[1]
+    assert result.dissenters == ((variant.transform, variant.language, "wrong"),)
     assert result.flips > 0
 
 
@@ -410,17 +437,17 @@ def test_a_flipping_family_names_its_dissenters_and_their_transforms():
 
 
 def test_identical_repeats_that_agree_are_perfectly_stable():
-    report = steady.StabilityReport((), repeats=5, repeat_labels=("a",) * 5)
+    report = steady.StabilityReport((), repeats=5, repeat_labels={"i": ("a",) * 5})
     assert report.repeat_instability == 0.0
 
 
 def test_repeats_that_disagree_are_measured_against_the_most_common():
-    report = steady.StabilityReport((), repeats=4, repeat_labels=("a", "a", "a", "b"))
+    report = steady.StabilityReport((), repeats=4, repeat_labels={"i": ("a", "a", "a", "b")})
     assert report.repeat_instability == pytest.approx(0.25)
 
 
 def test_repeats_are_none_when_they_were_not_all_labelled():
-    report = steady.StabilityReport((), repeats=3, repeat_labels=("a", "a", None))
+    report = steady.StabilityReport((), repeats=3, repeat_labels={"i": ("a", "a", None)})
     assert report.repeat_instability is None, (
         "an unlabelled repeat is a gap, not agreement"
     )
@@ -439,7 +466,7 @@ def test_the_two_numbers_are_reported_separately():
     labels[0] = "wrong"
     report = steady.StabilityReport(
         (families[0].labelled(labels),), repeats=4,
-        repeat_labels=("a", "a", "a", "a"),
+        repeat_labels={families[0].intent_id: ("a", "a", "a", "a")},
     )
     assert report.flip_rate > 0
     assert report.repeat_instability == 0.0
@@ -524,3 +551,152 @@ def test_tags_carry_the_prefix_and_the_seed_so_concurrent_runs_stay_apart():
     assert first.isdisjoint(other_seed)
     assert first.isdisjoint(other_prefix)
     assert all(tag.startswith("a-1-") for tag in first)
+
+
+# ---------------------------------------------------------------------------
+# What the classifier is shown
+# ---------------------------------------------------------------------------
+
+
+def test_no_subject_names_the_category_or_the_intent():
+    """The subject once read "[billing] refund-request", handing the answer
+    to any classifier that reads subjects."""
+    fixture = steady.load_fixture()
+    for family in steady.build_families(3):
+        intent = next(i for i in fixture.intents if i.id == family.intent_id)
+        for variant in family.variants:
+            subject = variant.email.subject.lower()
+            assert intent.category_hint.lower() not in subject, subject
+            assert intent.id not in subject, subject
+            assert "[" not in subject
+
+
+def test_each_baseline_subject_comes_from_the_intents_own_list():
+    fixture = steady.load_fixture()
+    for family in steady.build_families(3, transforms=[]):
+        intent = next(i for i in fixture.intents if i.id == family.intent_id)
+        for variant in family.variants:
+            assert variant.email.subject in intent.subjects_for(variant.language)
+
+
+def test_a_custom_fixture_is_loaded_with_the_same_shape(tmp_path):
+    path = tmp_path / "intents.json"
+    path.write_text(
+        '{"schema_version": 2, "closings": {"en": ["Thanks,"]}, "intents": ['
+        '{"id": "a", "category_hint": "x", "subjects": {"en": ["Help please"]},'
+        ' "variants": {"en": "My order never arrived and I would like to know why."}}]}',
+        encoding="utf-8",
+    )
+    families = steady.load_families(1, 5, None, str(path))
+    assert [f.intent_id for f in families] == ["a"]
+    assert {v.email.subject for v in families[0].variants} <= {"Help please", "Fwd: Help please"}
+
+
+def test_a_custom_fixture_without_subjects_is_refused(tmp_path):
+    path = tmp_path / "intents.json"
+    path.write_text('{"intents": [{"id": "a", "variants": {"en": "Body text."}}]}',
+                    encoding="utf-8")
+    with pytest.raises(ValueError, match="no subject"):
+        steady.load_fixture(path)
+
+
+# ---------------------------------------------------------------------------
+# The headline and its context
+# ---------------------------------------------------------------------------
+
+
+def _labelled_family(intent_index=0, wrong=()):
+    family = steady.build_families(1, intents=_intents_subset(intent_index + 1))[intent_index]
+    labels = [
+        "wrong" if (v.transform, v.language) in wrong else family.category_hint
+        for v in family.variants
+    ]
+    return family.labelled(labels)
+
+
+def test_majority_dissent_is_the_headline_and_pairs_are_split_by_language():
+    family = _labelled_family(wrong={("add-signature", "ur")})
+    report = steady.StabilityReport((family,))
+    assert report.dissenters == 1
+    assert report.dissent_rate == pytest.approx(1 / len(family.variants))
+    split = report.pair_split()
+    assert split["same_language"]["flips"] > 0 and split["cross_language"]["flips"] > 0
+    assert split["same_language"]["pairs"] + split["cross_language"]["pairs"] == report.pairs
+    assert report.by_language()["ur"]["dissenters"] == 1
+    assert report.by_language()["en"]["dissenters"] == 0
+    assert report.by_transform()["add-signature"]["dissenters"] == 1
+    text = steady.format_stability(report)
+    assert "majority dissent" in text.splitlines()[0]
+    assert "cross language" in text and "same language" in text
+
+
+def test_every_report_states_its_sample_size():
+    family = _labelled_family()
+    report = steady.StabilityReport((family,))
+    line = report.sample_size()
+    n = len(family.variants)
+    assert line == (f"1 families, {n} variants each; a single dissenting variant "
+                    f"is {1 / n:.1%} of the headline")
+    assert line in steady.format_stability(report)
+
+
+def test_one_constant_label_across_families_is_a_headline_warning():
+    families = steady.build_families(1, intents=_intents_subset(2))
+    labelled = tuple(f.labelled(["same"] * len(f.variants)) for f in families)
+    verdict = steady.verdict_for(steady.StabilityReport(labelled))
+    assert verdict == "STABLE (WARNING: every family read the one label 'same')"
+
+
+def test_route_is_a_constant_label_risk_and_category_is_not():
+    families = steady.build_families(1, intents=_intents_subset(2))
+    assert steady.constant_label_risk(families, "route") == steady.MAILBOX
+    assert steady.constant_label_risk(families, "category") is None
+
+
+def _record(**values):
+    from testinghq.pipeline.readback import Readback
+
+    fields = tuple(k for k in values)
+    return Readback(exists=True, ticket_id="T1", fields=("ticket_id", *fields), **values)
+
+
+def test_not_visible_null_and_no_record_stay_apart():
+    assert steady.read_label([], "category").state == steady.READ_NO_RECORD
+    assert steady.read_label([_record(subject="s")], "category").state == steady.READ_NOT_VISIBLE
+    assert steady.read_label([_record(category=None)], "category").state == steady.READ_NULL
+    read = steady.read_label([_record(category="billing")], "category")
+    assert (read.label, read.state) == ("billing", steady.READ_LABELLED)
+
+
+def test_repeats_use_one_payload_per_family():
+    families = steady.build_families(1, intents=_intents_subset(3))
+    items = steady.repeat_items(families, 4, "hq", 1)
+    assert len(items) == 3 * 4
+    for index, family in enumerate(families):
+        chunk = items[index * 4:(index + 1) * 4]
+        assert len({tag for _e, tag, _r, _p in chunk}) == 4
+        source = family.variants[0].email.text.rstrip("\n")
+        assert all(e.text.startswith(source) for e, _t, _r, _p in chunk)
+
+
+def test_the_dry_run_lists_only_the_selected_transforms():
+    families = steady.build_families(1, intents=_intents_subset(1), transforms=["add-signature"])
+    text = steady.format_dry_run(families, None, "category", ["add-signature"])
+    assert "transforms:       add-signature" in text
+    assert "wrap-forward" not in text
+
+
+def test_the_steady_table_resolves_a_relative_intents_path(tmp_path):
+    path = tmp_path / "target.toml"
+    path.write_text('[steady]\nlabel_field = "category"\nintents_path = "mine.json"\n',
+                    encoding="utf-8")
+    section = steady.load_steady_config(str(path))
+    assert section["label_field"] == "category"
+    assert section["intents_path"] == str(tmp_path.resolve() / "mine.json")
+
+
+def test_an_unknown_label_field_in_the_table_is_refused(tmp_path):
+    path = tmp_path / "target.toml"
+    path.write_text('[steady]\nlabel_field = "mood"\n', encoding="utf-8")
+    with pytest.raises(steady.SteadyConfigError, match="label_field"):
+        steady.load_steady_config(str(path))

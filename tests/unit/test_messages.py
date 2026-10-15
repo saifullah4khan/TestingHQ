@@ -205,6 +205,15 @@ def test_stamping_can_replace_the_subject_for_a_reply():
     assert email.subject == "Re: x"
 
 
+def test_a_replaced_subject_reaches_the_header_blob_too():
+    """Every wire format serializes `headers`, so a reply subject pinned only
+    on the field would go out under the original Subject header."""
+    corpus = generate_corpus(11, 1)
+    email = messages.stamp(corpus[0], messages.make_tag("hq", 11, 0), subject="Re: x")
+    assert email.headers["Subject"] == "Re: x"
+    assert email.ground_truth.subject == "Re: x"
+
+
 def test_stamping_omits_threading_headers_it_was_not_given():
     corpus = generate_corpus(11, 1)
     email = messages.stamp(corpus[0], messages.make_tag("hq", 11, 0))
@@ -218,14 +227,18 @@ def test_message_id_of_strips_the_angle_brackets():
     assert messages.message_id_of(email) == "x@y"
 
 
-def test_a_pinned_null_message_id_is_ignored_rather_than_written():
-    """`None` means "do not pin this header", which is different from writing
-    an empty one. A scenario that does not control Message-IDs must not erase
-    the one the generator produced."""
+def test_an_unpinned_message_id_is_derived_from_the_tag():
+    """`None` means "do not pin this header". The generator's id is a function
+    of the seed alone, so keeping it would give two runs with one seed the
+    same Message-ID, and a pipeline that drops a repeat would drop the second
+    run. The stamped id is the tag's, in angle brackets."""
     corpus = generate_corpus(11, 1)
-    generated = messages.message_id_of(corpus[0])
-    email = messages.stamp(corpus[0], messages.make_tag("hq", 11, 0), message_id=None)
-    assert messages.message_id_of(email) == generated
+    tag = messages.make_tag("hq-2610141200-ab12", 11, 0)
+    email = messages.stamp(corpus[0], tag, message_id=None)
+    assert email.headers["Message-ID"] == f"<{tag}@hq.example.test>"
+    assert messages.message_id_of(email) == messages.build_chain_message_id(tag)
+    other = messages.stamp(corpus[0], messages.make_tag("hq-2610141200-cd34", 11, 0))
+    assert messages.message_id_of(other) != messages.message_id_of(email)
 
 
 def test_a_generated_chain_message_id_is_on_a_reserved_domain():
@@ -312,3 +325,40 @@ def test_a_stamped_payload_still_serializes_to_the_real_wire_format():
     assert messages.tag_marker(tag) in dict(
         (p.name, p.value) for p in parts if hasattr(p, "value")
     )["text"]
+
+
+# ---------------------------------------------------------------------------
+# The per-run prefix
+# ---------------------------------------------------------------------------
+
+
+def test_the_run_prefix_has_the_documented_shape():
+    from datetime import datetime, timezone
+
+    prefix = messages.run_tag_prefix(
+        now=datetime(2026, 10, 14, 9, 7, tzinfo=timezone.utc), token="a1b2"
+    )
+    assert prefix == "hq-2610140907-a1b2"
+
+
+def test_two_runs_in_the_same_minute_get_different_prefixes():
+    """The fixed default made a second run against a persistent store read
+    the first run's tickets as its own duplicates."""
+    prefixes = {messages.run_tag_prefix() for _ in range(20)}
+    assert len(prefixes) > 1
+    for prefix in prefixes:
+        assert prefix.startswith(messages.DEFAULT_TAG_PREFIX + "-")
+
+
+@pytest.mark.parametrize(
+    "prefix, seed, index",
+    [("hq-2610140907-a1b2", 0, 0), ("hq-2610140907-1234", 7, 12), ("hq", -3, 9999)],
+)
+def test_split_tag_inverts_make_tag(prefix, seed, index):
+    tag = messages.make_tag(prefix, seed, index)
+    assert messages.split_tag(tag) == (prefix, seed, index)
+
+
+@pytest.mark.parametrize("value", [None, "", "TICKET-12", "hq-1-12", 42])
+def test_split_tag_says_none_for_anything_make_tag_could_not_produce(value):
+    assert messages.split_tag(value) is None

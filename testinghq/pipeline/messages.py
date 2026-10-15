@@ -11,13 +11,23 @@ check: a subject carrying a synthetic suffix is not the subject that was sent,
 so verifying it compares a mangled expectation against a mangled result and
 passes. The tag goes somewhere inert instead.
 
-Determinism is the contract: every tag is a pure function of (prefix, seed,
-index), nothing reads the clock, and the same seed and count produce the same
-tags and payload hashes as any other run. That is what lets a verification
-artifact be re-read later and mean the same thing."""
+Every tag is a pure function of (prefix, seed, index), so a run artifact can be
+re-read later and mean the same thing. What makes two runs' tags different is
+the prefix: the CLI default is `run_tag_prefix()`, `hq-<yymmddHHMM>-<4 hex>`,
+drawn once per run, so a second run against a persistent store cannot find the
+first run's records and report them as duplicates. `--tag-prefix` replaces it
+with a fixed value, and the artifact records whichever was used.
+
+The Message-ID is derived from the tag for the same reason. A pipeline that
+drops a repeated Message-ID, as a correct helpdesk does, would otherwise drop
+every message of a second run with the same seed and the run would report
+them lost."""
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
@@ -32,7 +42,11 @@ TAG_HEADER = "X-TestingHQ-Tag"
 #: synthetic-content contract and trips no guardrail.
 TAG_DOMAIN_SUFFIX = "hq.example.test"
 
+#: The family every TestingHQ tag prefix starts with, and the prefix library
+#: callers get when they pass none. The CLI default is `run_tag_prefix()`.
 DEFAULT_TAG_PREFIX = "hq"
+
+_TAG_SHAPE = re.compile(r"^(?P<prefix>.+?)-(?P<seed>-?\d+)-(?P<index>\d{4,})$")
 
 _MARKER_OPEN = "[testinghq:"
 _MARKER_CLOSE = "]"
@@ -46,14 +60,37 @@ def tag_marker(tag: str) -> str:
     return f"{_MARKER_OPEN}{tag}{_MARKER_CLOSE}"
 
 
+def run_tag_prefix(
+    now: Optional[datetime] = None, token: Optional[str] = None
+) -> str:
+    """A tag prefix no other run produces: `hq-<yymmddHHMM>-<4 hex>`.
+
+    The minute stamp makes a stray record's age readable at a glance; the
+    random suffix separates two runs started in the same minute. `now` and
+    `token` are parameters so a test can pin them."""
+    stamp = (now or datetime.now(timezone.utc)).strftime("%y%m%d%H%M")
+    suffix = token if token is not None else os.urandom(2).hex()
+    return f"{DEFAULT_TAG_PREFIX}-{stamp}-{suffix}"
+
+
+def split_tag(tag: Optional[str]) -> Optional[Tuple[str, int, int]]:
+    """(prefix, seed, index) for a tag `make_tag` could have produced, or None.
+
+    Lets a reader tell this run's records (same prefix) from another
+    TestingHQ run's (a prefix in the `hq` family) from records TestingHQ never
+    tagged at all."""
+    if not tag or not isinstance(tag, str):
+        return None
+    match = _TAG_SHAPE.match(tag.strip())
+    if match is None:
+        return None
+    return match.group("prefix"), int(match.group("seed")), int(match.group("index"))
+
+
 def make_tag(prefix: str, seed: int, index: int) -> str:
     """The unique token for one message of one run.
 
-    Unique within a run by `index`, and across concurrent runs by
-    (`prefix`, `seed`). The prefix is an operator-supplied `--tag-prefix` so two
-    runs against the same system at the same time do not read each other's
-    records, which is the failure that makes a ledger untrustworthy rather than
-    merely wrong.
+    Unique within a run by `index`, and across runs by (`prefix`, `seed`).
     """
     if not prefix:
         raise ValueError("tag prefix must be a non-empty string")
@@ -127,16 +164,25 @@ def stamp(
     nobody sent. That was not hypothetical: the reply-first scenario stamps
     `Re: ` prefixes, and leaving the ground truth alone made both threaded
     scenarios report a mismatch on a reply's subject.
+
+    Unless the caller pins `message_id`, the Message-ID becomes
+    `<{tag}@hq.example.test>`, replacing the generator's: the generator's id
+    is a function of the seed alone, so two runs with one seed would share it.
     """
 
     headers = dict(email.headers)
     headers[TAG_HEADER] = tag
-    if message_id is not None:
-        headers["Message-ID"] = message_id
+    headers["Message-ID"] = (
+        message_id if message_id is not None else f"<{build_chain_message_id(tag)}>"
+    )
     if in_reply_to is not None:
         headers["In-Reply-To"] = in_reply_to
     if references is not None:
         headers["References"] = references
+    if subject is not None:
+        # The header blob is what every wire format serializes, so a pinned
+        # subject has to land there too or the two disagree on the wire.
+        headers["Subject"] = subject
 
     changes: dict = {
         "headers": headers,
@@ -146,7 +192,26 @@ def stamp(
     if subject is not None:
         changes["subject"] = subject
         changes["ground_truth"] = replace(email.ground_truth, subject=subject)
-    return replace(email, **changes)
+    return _with_changes(email, changes)
+
+
+def _with_changes(email: InboundEmail, changes: dict) -> InboundEmail:
+    """`InboundEmail.with_changes` where the payload model has it, so derived
+    data stays in sync by the model's own rule; `dataclasses.replace`
+    otherwise, with the headers already set directly by the caller.
+
+    The subject goes in a second call: the model only rewrites the Subject
+    header (RFC 2047 encoded where needed) when `headers` is not passed in
+    the same call."""
+    helper = getattr(email, "with_changes", None)
+    if not callable(helper):
+        return replace(email, **changes)
+    changes = dict(changes)
+    subject = changes.pop("subject", None)
+    updated = helper(**changes)
+    if subject is not None:
+        updated = updated.with_changes(subject=subject)
+    return updated
 
 
 def message_id_of(email: InboundEmail) -> str:
@@ -163,9 +228,9 @@ def message_id_of(email: InboundEmail) -> str:
 
 
 def build_chain_message_id(tag: str) -> str:
-    """A deterministic Message-ID for a message in a thread whose real
-    provider-assigned id is not available to the test. Reserved-domain, so it
-    satisfies the synthetic-content contract."""
+    """The bare Message-ID for the message carrying `tag`: unique wherever
+    the tag is, and reproducible from it. Reserved-domain, so it satisfies the
+    synthetic-content contract."""
     return f"{tag}@{TAG_DOMAIN_SUFFIX}"
 
 

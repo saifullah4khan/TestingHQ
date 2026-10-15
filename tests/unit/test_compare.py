@@ -167,7 +167,7 @@ def test_a_verdict_that_holds_while_the_status_moves_is_unchanged():
     assert diff["changes"]["count"] == 0
     # The status movement is still visible in the totals.
     rows = {row["key"]: row for row in diff["totals"]}
-    assert rows["timeout"]["delta"] == -1
+    assert rows["no_response"]["delta"] == -1
     assert rows["5xx"]["delta"] == 1
 
 
@@ -456,7 +456,6 @@ def test_compare_never_imports_a_transport():
     which discuss what the module deliberately does not do. Checking imports
     and call targets is both correct and immune to prose.
     """
-    import ast
 
     forbidden_modules = {
         "socket",
@@ -661,3 +660,156 @@ def test_compare_needs_no_target_or_config(tmp_path):
     assert result.returncode == bw.EXIT_NO_REGRESSION
     assert "target" not in result.stdout.lower()
     assert "config" not in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# Refusals: dry runs, nothing aligned, a newer schema
+# ---------------------------------------------------------------------------
+
+
+def _dry_run(records):
+    artifact = _artifact(records)
+    artifact["config"]["dry_run"] = True
+    return artifact
+
+
+@pytest.mark.parametrize("side", ["baseline", "candidate"])
+def test_a_dry_run_on_either_side_is_refused(tmp_path, side):
+    """A dry run has no responses. Against a real run, every flag would read
+    as a fix or a regression that never happened."""
+    real = [_record("clean-1-0000", report.CLEAN, 500)]
+    dry = [_record("clean-1-0000", report.CLEAN, None, passed=True)]
+    paths = {
+        "baseline": _write(tmp_path, "base.json", _artifact(real)),
+        "candidate": _write(tmp_path, "cand.json", _artifact(real)),
+    }
+    paths[side] = _write(tmp_path, f"{side}-dry.json", _dry_run(dry))
+
+    result = _run_cli(
+        "compare", "--baseline", paths["baseline"], "--candidate", paths["candidate"]
+    )
+
+    assert result.returncode == bw.EXIT_USAGE
+    assert "dry run" in result.stderr
+    assert "fix" not in result.stdout.lower()
+
+
+def test_zero_aligned_records_is_nothing_to_compare(tmp_path):
+    """Two different seeds share no record id. That used to print
+    "no regressions" and exit 0."""
+    baseline = _write(
+        tmp_path, "base.json",
+        _artifact([_record("clean-1-0000", report.CLEAN, 200)], seed=1),
+    )
+    candidate = _write(
+        tmp_path, "cand.json",
+        _artifact([_record("clean-2-0000", report.CLEAN, 500)], seed=2),
+    )
+
+    result = _run_cli("compare", "--baseline", baseline, "--candidate", candidate)
+
+    assert result.returncode == bw.EXIT_USAGE
+    assert "nothing to compare" in result.stderr
+    assert "no regressions" not in result.stdout
+
+
+def test_compare_raises_when_nothing_aligns():
+    with pytest.raises(bw.CompareError, match="nothing to compare"):
+        bw.compare(_artifact([]), _artifact([]))
+
+
+def test_a_newer_artifact_schema_is_refused():
+    artifact = dict(_artifact([_record("clean-1-0000", report.CLEAN, 200)]), schema_version=99)
+    with pytest.raises(bw.CompareError, match="schema_version"):
+        bw.validate_artifact(artifact, "new.json")
+
+
+def test_a_schema_0_timeout_count_lines_up_with_no_response():
+    """Artifacts written before 1.0 count a missing response as `timeout`."""
+    old = _artifact([_record("clean-1-0000", report.CLEAN, None)])
+    old["summary"]["by_status_class"] = {"2xx": 0, "4xx": 0, "5xx": 0, "timeout": 1}
+    new = _artifact([_record("clean-1-0000", report.CLEAN, None)])
+
+    rows = {row["key"]: row for row in bw.compare(old, new)["totals"]}
+
+    assert rows["no_response"] == {
+        "key": "no_response", "baseline": 1, "candidate": 1, "delta": 0,
+    }
+
+
+def test_the_difference_report_carries_schema_version_and_tool():
+    records = [_record("clean-1-0000", report.CLEAN, 200)]
+    diff = bw.compare(_artifact(records), _artifact(list(records)))
+    assert diff["schema_version"] == 1
+    assert diff["tool"] == "compare"
+
+
+def test_different_attachment_modes_are_a_warning():
+    records = [_record("clean-1-0000", report.CLEAN, 200)]
+    baseline = _artifact(records)
+    candidate = _artifact(list(records))
+    candidate["config"]["attachments"] = "seeded"
+
+    diff = bw.compare(baseline, candidate)
+
+    assert any("attachment modes differ" in w for w in diff["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# `report` on a compare artifact gives the exit code compare gave
+# ---------------------------------------------------------------------------
+
+
+def _regressed_pair(tmp_path):
+    baseline = _write(
+        tmp_path, "base.json", _artifact([_record("clean-1-0000", report.CLEAN, 200)])
+    )
+    candidate = _write(
+        tmp_path, "cand.json", _artifact([_record("clean-1-0000", report.CLEAN, 500)])
+    )
+    return baseline, candidate
+
+
+@pytest.mark.parametrize(
+    "flags, expected",
+    [([], bw.EXIT_NO_REGRESSION), (["--fail-on-regression"], bw.EXIT_REGRESSION)],
+    ids=["default", "fail-on-regression"],
+)
+def test_report_on_the_artifact_agrees_with_the_compare_exit_code(tmp_path, flags, expected):
+    baseline, candidate = _regressed_pair(tmp_path)
+    out = tmp_path / "cmp.json"
+    result = _run_cli(
+        "compare", "--baseline", baseline, "--candidate", candidate,
+        "--out", str(out), *flags,
+    )
+    assert result.returncode == expected
+
+    diff = json.loads(out.read_text(encoding="utf-8"))
+    assert diff["fail_on_regression"] is bool(flags)
+    assert diff["exit_code"] == expected
+
+    read = _run_cli("report", str(out), "--json")
+    assert read.returncode == 0, read.stderr
+    summary = json.loads(read.stdout)
+    assert summary["verdict"] == "REGRESSED"
+    assert summary["exit_code"] == result.returncode
+    assert summary["exit_code_source"] == "recorded"
+
+    text = _run_cli("report", str(out)).stdout
+    assert f"exit code: {expected} (recorded in the artifact)" in text
+
+
+def test_report_on_an_artifact_without_a_recorded_code_uses_the_default(tmp_path):
+    """An artifact written before the code was recorded does not say whether
+    --fail-on-regression was set, so it reads as the command's default: 0."""
+    baseline, candidate = _regressed_pair(tmp_path)
+    out = tmp_path / "cmp.json"
+    _run_cli("compare", "--baseline", baseline, "--candidate", candidate, "--out", str(out))
+    diff = json.loads(out.read_text(encoding="utf-8"))
+    del diff["exit_code"], diff["fail_on_regression"]
+    old = _write(tmp_path, "old.json", diff)
+
+    summary = json.loads(_run_cli("report", old, "--json").stdout)
+    assert summary["verdict"] == "REGRESSED"
+    assert summary["exit_code"] == bw.EXIT_NO_REGRESSION
+    assert summary["exit_code_source"] == "derived"

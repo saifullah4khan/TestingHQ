@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "tool": "loop",
+  "aborted": false,
+  "seed": 13,
+  "config": {
+    "tool": "loop",
+    "seed": 13,
+    "count": 4,
+    "target": "local",
+    "outbound": "local",
+    "ticket_policy": "open",
+    "reply_address": "loop@example.test",
+    "dry_run": false
+  },
+  "summary": {
+    "sent": 4,
+    "checked": 4,
+    "findings": 0,
+    "ticket_policy": "open",
+    "tickets_opened": 4,
+    "auto_replies_emitted": 0,
+    "auto_reply_checked": 0,
+    "auto_reply_skipped": 0,
+    "loop_bait_answered": 0
+  },
+  "messages": []
+}

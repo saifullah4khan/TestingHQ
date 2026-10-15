@@ -1,151 +1,131 @@
-# Running TestingHQ against a real deployment
+# Running TestingHQ against a real staging deployment
 
-Every other run in this repository is against something in the tree: a loopback
-server, a JSON Lines file, a fake client. This is the one document about running
-it against a deployment somebody else operates.
+This is the procedure for pointing TestingHQ at a deployment you operate but
+that is not on your machine: a staging HandleHQ, or any other inbound-email
+pipeline. Everything else in the repository runs against loopback.
 
-**It has not been done.** There is no recording of a successful dogfood run, no
-timing, and no verified field map. The harness below exists so that doing it is
-one command once two values are supplied, and so that the person who does it is
-explicitly told what has and has not been checked.
+Status: no run against a live deployment has been recorded yet. When one is,
+add the date, the tool versions and the verdicts to CHANGELOG.md.
 
-## What you need from the deployment's owner
+## What you need
 
-One value, an environment variable rather than something written into a tracked
-file:
-
-| Variable | What it is |
+| Item | Where it goes |
 | --- | --- |
-| `HANDLEHQ_TOKEN` | a token that deployment issued for this run |
+| The staging webhook URL (where the email provider POSTs) | `url` in `[targets.handlehq]` of your local config copy |
+| The URL that lists the records the deployment made, filterable by tag | `url` in `[readback]` of the same copy |
+| A token the deployment issued for this run | `HANDLEHQ_TOKEN` in `.env`, referenced as `env:HANDLEHQ_TOKEN` |
+| Which provider format the webhook expects | `format` in `[targets.handlehq]`, see [FORMATS.md](FORMATS.md) |
+| For sigcheck: the provider's signing secret | another variable in `.env`, referenced as `env:NAME` |
 
-You also need the base URL of the deployment, but that is not a secret and it is
-not an environment variable: `[readback].url` is a literal, the config loader has
-no way to interpolate one, and pretending otherwise in a template would be
-misleading. It goes in your own config copy.
+URLs are literals in the config file; only header values and secrets come from
+the environment.
 
-The name `HANDLEHQ_TOKEN` is the one this repository chose, referenced from the
-config as `env:HANDLEHQ_TOKEN`. If the deployment issues tokens under a
-different name, changing it is one line in the recipe and one in `.env.example`.
-
-## Running it
+## Set up
 
 ```bash
-# 1. Copy the recipe and the environment. Both copies are gitignored, so a real
-#    host and a real token never reach a commit.
 cp examples/readback/handlehq.toml examples/readback/handlehq.local.toml
 cp .env.example .env
-$EDITOR examples/readback/handlehq.local.toml     # set the url
-$EDITOR .env                                      # set the token
-
-# 2. Load the environment. TestingHQ reads the process environment, not a file,
-#    so something has to do this.
-set -a && . ./.env && set +a
-
-# 3. Check the config before sending anything. Sends nothing, and prints no
-#    header value, so the output is safe to paste into an issue.
-testinghq config validate examples/readback/handlehq.local.toml
-
-# 4. See what it would send. Dry run by default, and nothing leaves the machine.
-testinghq verify fire --config examples/readback/handlehq.local.toml --count 5 --seed 1
-
-# 5. Send, and check what the deployment actually produced.
-testinghq verify fire --config examples/readback/handlehq.local.toml --count 5 --seed 1 --send
-
-# 6. Confirm every message was accounted for exactly once.
-testinghq ledger fire --config examples/readback/handlehq.local.toml --count 5 --seed 1 --send
-
-# 7. Read the artifact back afterwards, without needing the original command.
-testinghq report run.json
+$EDITOR examples/readback/handlehq.local.toml   # set both urls, and format if not sendgrid
+$EDITOR .env                                    # set HANDLEHQ_TOKEN
+set -a && . ./.env && set +a                    # TestingHQ reads the environment, not .env
 ```
 
-Step 3 is the one to do first. It resolves `[readback.headers]` against the
-environment, so a missing or unset token fails there rather than after messages
-have been sent.
+Both copies are gitignored, so a real host and a real token never reach a
+commit. The tracked recipe's readback URL ends in `.invalid` on purpose: an
+unedited copy fails at DNS instead of reading a loopback 404 as "every message
+lost".
 
-The recipe's URL is `https://replace-me.invalid/...`, which is deliberate. If you
-forget to set it, the run fails at DNS. It is not set to `localhost`, because a
-loopback URL is reachable and answers 404, and 404 means "no record of this
-message", which is a finding: an unedited template would report a pipeline
-losing every message.
-
-## What to expect from the readback guardrail
-
-A real deployment is a public host, and the guardrail refuses a public readback
-URL unless it is told not to. The recipe leaves `allow_public_hosts` commented
-out, so:
+Check the config before sending anything:
 
 ```bash
-testinghq verify fire --config examples/readback/handlehq.toml --send \
-  --allow-public-readback
+testinghq config validate examples/readback/handlehq.local.toml
 ```
 
-That is the better form. Setting `allow_public_hosts = true` in the file makes
-the permission permanent, and the URL being read is a store that may hold other
-people's data. Passing it per run means a person re-decides it every time. See
-`docs/SECURITY.md` for why the guard exists.
+It resolves `[readback.headers]` against the environment, so a missing token
+fails here rather than after messages have gone out. It also prints, for the
+target, whether its host is public and what firing at it needs. It prints no
+header value, so the output is safe to paste into an issue.
+
+## Public hosts need consent on every run
+
+A staging deployment is a public host: not a reserved test domain, not a
+private address, and not a name that resolves only to private addresses. Firing
+at it needs `--allow-public-target` on the run, and reading back from it needs
+`--allow-public-readback`. Both are per run on purpose, so a person decides
+again each time. Barrage at a public host also needs `public = true` in
+`[targets.handlehq]`. See [SECURITY.md](SECURITY.md).
+
+## Run
+
+Dry run first; it sends nothing and shows what would be sent and read:
+
+```bash
+testinghq ledger fire --target handlehq --config examples/readback/handlehq.local.toml --count 5
+```
+
+Then, in this order, each with the two consent flags:
+
+```bash
+testinghq ledger fire --target handlehq --config examples/readback/handlehq.local.toml --count 5 --send --allow-public-target --allow-public-readback --quiet-window 30 --max-wait 180 --out ledger.json
+testinghq verify fire --target handlehq --config examples/readback/handlehq.local.toml --count 5 --send --allow-public-target --allow-public-readback --quiet-window 30 --max-wait 180 --out verify.json
+testinghq redeliver fire --target handlehq --config examples/readback/handlehq.local.toml --send --allow-public-target --allow-public-readback --retry-after 30 --quiet-window 30 --max-wait 180 --out redeliver.json
+testinghq report ledger.json --html ledger.html
+```
+
+`ledger` first because it needs only `ticket_id` from the readback: did every
+message produce exactly one record. `verify` then checks the parsed fields,
+which needs the real response shape (below). `redeliver` checks Message-ID
+deduplication and threading.
+
+If the deployment records a triage label, `steady` measures how stable it is;
+name the field that holds it:
+
+```bash
+testinghq steady fire --target handlehq --config examples/readback/handlehq.local.toml --send --allow-public-target --allow-public-readback --label-field category --out steady.json
+```
+
+`loop` also needs to read what the deployment sends: add a `[loop.outbound]`
+table pointing at its outbound mail log or sink, and set `[loop].reply_address`
+to its real reply address. Without it the auto-reply check is reported as NOT
+CHECKED.
+
+If the webhook verifies the provider's signature, check that it refuses what it
+should:
+
+```bash
+testinghq sigcheck fire --target handlehq --config examples/readback/handlehq.local.toml --scheme mailgun --secret env:MAILGUN_SIGNING_KEY --send --allow-public-target
+```
 
 ## Waiting long enough
 
-Staging is slower than a loopback sink. `--quiet-window` defaults to 5 seconds
-and `--max-wait` to 60, and those defaults are tuned for a local process. If runs
-report messages as lost, raise them rather than concluding the pipeline is
-losing them:
-
-```bash
-  --quiet-window 20 --max-wait 180
-```
-
-A run that gives up reports GAVE UP, which is a different claim from "everything
-was found". Read the artifact rather than the exit code alone.
+The readback settles once what it sees (which messages are found, how many
+records each, the field values the checks read) has held still for
+`--quiet-window` seconds (default 5); a message still not found then is
+reported as lost. That default suits a local process. For a deployment that
+creates or fills in the record on a queue consumer, raise `--quiet-window`
+above its worst processing latency, and keep `--max-wait` well above it: a run
+whose store is still changing when `--max-wait` runs out is UNSETTLED, which is
+not a loss. A run whose every lookup was a 404 is READBACK FAILED (exit 3): the
+readback url is almost certainly wrong, so no message is reported as lost. A
+search-indexed store can take minutes to index a new record; the Zendesk and
+Freshdesk recipes suggest `--quiet-window 120 --max-wait 600`. The readback
+paces itself to `--readback-rate` (default 4 per second) and backs off on 429.
 
 ## Before trusting a result
 
-The recipe names only `ticket_id`, but that does **not** mean only `ticket_id` is
-checked. The field map is merged over the defaults, so every default path is
-still live: a response carrying `subject` will have its subject checked, even
-though the recipe never mentions it. The defaults assume the API names its
-fields as TestingHQ names them, which is exactly the assumption that has not
-been checked against a real deployment.
-
-That matters in both directions. An operator who assumes nothing else is checked
-will trust a green run that checked more than they thought, and one who assumes
-more is checked than is will spend an afternoon on a field the tool was reading
-at a default path all along.
-
-To check more, point `curl` at the readback endpoint with a tag from step 4 and
-look at what actually comes back, then uncomment the paths that are right.
-
-`ticket_id` alone is enough for `ledger`, which is the check that matters most:
-did every message produce exactly one record. The field checks are about whether
-the deployment *parsed* the message correctly, and that needs the real response
-shape.
+The recipe maps only `ticket_id`, but the field map is merged over the
+defaults, so every default path (`from`, `subject`, `body`, `attachments`,
+`route`, ...) is still read. If the deployment names a field differently, that
+check reports NOT CHECKED, "adapter cannot see field". Fetch one record by hand
+with a tag from the dry run, compare its shape with [CONFIG.md](CONFIG.md), and
+map the paths in `[readback.fields]` before reading `verify`'s field checks.
 
 ## If a run finds something
 
-`verify` exits 3 for a finding, 1 for a refusal, 2 for a dry run. The exit codes
-are documented in the README and defined once in
-`testinghq/core/exit_codes.py`.
+Read the artifact with `testinghq report ledger.json` before concluding
+anything. Separate two cases:
 
-Read the artifact with `testinghq report run.json` before concluding anything
-about the deployment. Two failure modes are worth separating up front, because
-they look the same in a summary:
-
-**The tool did not send it.** `summary.transport_unanswered` or
-`transport_non_2xx` non-zero means the request never got a 2xx. That is a
-network or endpoint problem, not a pipeline problem.
-
-**The deployment did not record it.** The message was sent and the readback
-found nothing. That is the finding this tool exists for.
-
-## What is still unverified after a successful run
-
-A green dogfood run establishes that one deployment, one configuration and one
-payload size behaved as expected. It does not establish:
-
-- the `mailgun`, `postmark` and `mime` wire formats (written from vendor
-  documentation, never fired at a live account)
-- the Zendesk and Freshdesk readback recipes (same)
-- the field map beyond `ticket_id`, until one is added against a real response
-
-`CHANGELOG.md` carries a Provenance section saying the same, and it should be
-updated rather than left stale once this has actually been run.
+- **The request never got a 2xx.** The artifact's transport counts are
+  non-zero. That is a network, auth or endpoint problem, not a pipeline one.
+- **The request got a 2xx and the record is missing, duplicated or wrong.**
+  That is the finding this tool exists for.

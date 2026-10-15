@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 
 from testinghq.core import report
+from testinghq.pipeline import common as pipeline_common
 from testinghq.pipeline import messages as pipeline_messages
 from testinghq.pipeline import redeliver
 from testinghq.pipeline.readback import Readback
@@ -82,9 +83,16 @@ def test_the_duplicate_scenario_does_not_delay_the_second_copy():
     assert all(d.delay_before == 0.0 for d in scenario.deliveries)
 
 
-def test_the_slow_retry_scenario_delays_only_the_second_copy():
+def test_the_slow_retry_scenario_sends_every_original_then_waits_once():
+    """One wait for the batch. A wait per message turned the default of three
+    messages at 120s into six minutes."""
     scenario = _by_name(redeliver.SCENARIO_SLOW_RETRY)
-    assert [d.delay_before for d in scenario.deliveries] == [0.0, 5.0] * COUNT
+    assert [d.delay_before for d in scenario.deliveries] == (
+        [0.0] * COUNT + [5.0] + [0.0] * (COUNT - 1)
+    )
+    tags = [d.tag for d in scenario.deliveries]
+    assert tags[:COUNT] == tags[COUNT:]
+    assert len(set(tags[:COUNT])) == COUNT
 
 
 def test_the_slow_retry_gap_is_configurable():
@@ -93,7 +101,7 @@ def test_the_slow_retry_gap_is_configurable():
     scenario = redeliver.build_slow_retry(
         redeliver.build_clean_corpus(SEED, 2), SEED, "hq", 42.0
     )
-    assert [d.delay_before for d in scenario.deliveries] == [0.0, 42.0, 0.0, 42.0]
+    assert [d.delay_before for d in scenario.deliveries] == [0.0, 0.0, 42.0, 0.0]
 
 
 def test_a_negative_retry_gap_is_refused():
@@ -116,22 +124,73 @@ def test_the_reply_first_scenario_pins_correct_threading_headers():
     scenario = _by_name(redeliver.SCENARIO_REPLY_FIRST)
     root = scenario.deliveries[-1]
     for reply in scenario.deliveries[:-1]:
-        assert reply.email.headers["In-Reply-To"] == root.message_id
-        assert root.message_id in reply.email.headers["References"]
+        assert reply.email.headers["In-Reply-To"] == f"<{root.message_id}>"
+        assert reply.email.headers["References"] == f"<{root.message_id}>"
         assert reply.message_id != root.message_id
 
 
 def test_the_references_scenario_builds_a_growing_chain():
     scenario = _by_name(redeliver.SCENARIO_REFERENCES)
     root, first, second = scenario.deliveries
-    assert first.email.headers["In-Reply-To"] == root.message_id
-    assert first.email.headers["References"] == root.message_id
+    assert first.email.headers["In-Reply-To"] == f"<{root.message_id}>"
+    assert first.email.headers["References"] == f"<{root.message_id}>"
     # The second reply answers the first, not the root, and its References
     # carries the whole ancestry. A pipeline that threads only on In-Reply-To
     # gets this right by accident; one that reads only the first Reference does
     # not.
-    assert second.email.headers["In-Reply-To"] == first.message_id
-    assert second.email.headers["References"] == f"{root.message_id} {first.message_id}"
+    assert second.email.headers["In-Reply-To"] == f"<{first.message_id}>"
+    assert second.email.headers["References"] == (
+        f"<{root.message_id}> <{first.message_id}>"
+    )
+
+
+def test_every_message_id_redeliver_writes_is_in_angle_brackets():
+    """RFC 5322 msg-id is `<id-left@id-right>`. The Delivery keeps the bare id
+    the readback compares against."""
+    for scenario in redeliver.build_scenarios(SEED, COUNT, "hq", 5.0):
+        for delivery in scenario.deliveries:
+            headers = delivery.email.headers
+            assert headers["Message-ID"] == f"<{delivery.message_id}>"
+            assert "<" not in delivery.message_id
+            for name in ("In-Reply-To", "References"):
+                if name in headers:
+                    for token in headers[name].split():
+                        assert token.startswith("<") and token.endswith(">"), (name, token)
+
+
+def _threaded(delivery, ticket, in_reply_to=None, references=()):
+    """A record matching `delivery`'s content, carrying the threading headers
+    as a store returned them."""
+    return Readback(
+        exists=True,
+        ticket_id=ticket,
+        from_addr=delivery.email.ground_truth.from_addr,
+        subject=delivery.email.ground_truth.subject,
+        body=delivery.email.text,
+        attachment_names=tuple(a.filename for a in delivery.email.attachments),
+        route=delivery.email.envelope.to[0],
+        in_reply_to=in_reply_to,
+        references=references,
+        fields=ALL_FIELDS,
+    )
+
+
+@pytest.mark.parametrize("bracketed", [True, False])
+def test_the_ancestry_check_matches_stored_ids_with_or_without_brackets(bracketed):
+    scenario = _by_name(redeliver.SCENARIO_REFERENCES)
+    root, first, second = scenario.deliveries
+    wrap = (lambda mid: f"<{mid}>") if bracketed else (lambda mid: mid)
+    stored = {
+        root.tag: [_threaded(root, "T1")],
+        first.tag: [_threaded(first, "T1", wrap(root.message_id), [wrap(root.message_id)])],
+        second.tag: [_threaded(
+            second, "T1", wrap(first.message_id),
+            f"{wrap(root.message_id)} {wrap(first.message_id)}",
+        )],
+    }
+    result = redeliver.judge_scenario(scenario, stored)
+    assert result.findings == []
+    assert scenario.ancestry_of(second.tag) == (root.message_id, first.message_id)
 
 
 def test_a_reply_subject_is_never_double_prefixed():
@@ -261,6 +320,7 @@ def _content_readbacks(scenario, tickets_per_tag=1):
         if delivery.tag in by_tag:
             continue
         parent = scenario.parent_of(delivery.tag)
+        ancestry = scenario.ancestry_of(delivery.tag)
         for index in range(tickets_per_tag):
             by_tag.setdefault(delivery.tag, []).append(
                 Readback(
@@ -274,7 +334,7 @@ def _content_readbacks(scenario, tickets_per_tag=1):
                     ),
                     route=delivery.email.envelope.to[0],
                     in_reply_to=parent.message_id if parent else None,
-                    references=(parent.message_id,) if parent else (),
+                    references=ancestry,
                     fields=ALL_FIELDS,
                 )
             )
@@ -393,7 +453,6 @@ def test_a_pipeline_that_misparses_the_content_is_caught_too():
     the tickets it counted were never the customer's message."""
     scenario = _by_name(redeliver.SCENARIO_DUPLICATE)
     readbacks = _content_readbacks(scenario)
-    first = readbacks[scenario.deliveries[0].tag]
     readbacks[scenario.deliveries[0].tag] = [
         Readback(exists=True, ticket_id="T1", subject="wrong", fields=("subject",))
     ]
@@ -427,20 +486,89 @@ def test_a_scenario_never_delivers_a_reply_to_a_message_it_does_not_send():
 # ---------------------------------------------------------------------------
 
 
-def test_a_stray_record_is_reported_against_the_run_not_every_scenario():
-    """One stray is one finding. Attaching it to all four scenarios would make
-    four bugs out of one and bury the real ones."""
+def test_a_stray_attaches_to_the_scenario_whose_tag_it_carries():
+    """One stray is one finding, on the scenario that produced it, not on
+    whichever scenario happened to be first."""
     scenarios = _scenarios()
     readbacks = {tag: rs for s in scenarios for tag, rs in _content_readbacks(s).items()}
-    strays = [Readback(exists=True, ticket_id="STRAY", tag="not-ours")]
+    stray_tag = pipeline_messages.make_tag("hq-ref", SEED, 7)
+    strays = [Readback(exists=True, ticket_id="STRAY", tag=stray_tag)]
 
     results = redeliver.judge_all(scenarios, readbacks, strays)
     assert sum(len(r.findings) for r in results) == 1
-    assert "STRAY" in results[0].findings[0]
-    assert results[0].passed is False
-    # The scenarios that were themselves fine stay fine. Blaming all four would
-    # make the report useless precisely when it is needed.
-    assert [r.passed for r in results] == [False, True, True, True]
+    by_name = {r.name: r for r in results}
+    references = by_name[redeliver.SCENARIO_REFERENCES]
+    assert "STRAY" in references.findings[0]
+    assert references.strays == [{"tag": stray_tag, "ticket": "STRAY"}]
+    assert [r.passed for r in results] == [True, True, True, False]
+
+
+def test_untagged_and_other_run_records_are_not_strays():
+    scenarios = _scenarios()
+    readbacks = {tag: rs for s in scenarios for tag, rs in _content_readbacks(s).items()}
+    strays = [
+        Readback(exists=True, ticket_id="CUSTOMER", tag=None),
+        Readback(exists=True, ticket_id="OTHER", tag=pipeline_messages.make_tag("zz-dup", SEED, 0)),
+    ]
+    results, summary = redeliver.judge_run(scenarios, readbacks, strays)
+    assert all(r.passed for r in results)
+    assert summary["untagged_count"] == 1
+    assert summary["other_runs_count"] == 1
+    assert summary["unattributed"] == []
+
+
+def test_a_stray_with_this_runs_prefix_and_no_scenarios_is_a_run_finding():
+    scenarios = _scenarios()
+    readbacks = {tag: rs for s in scenarios for tag, rs in _content_readbacks(s).items()}
+    strays = [Readback(exists=True, ticket_id="ODD", tag=pipeline_messages.make_tag("hq", SEED, 3))]
+    results, summary = redeliver.judge_run(scenarios, readbacks, strays)
+    assert all(r.passed for r in results)
+    assert summary["unattributed"] == [{"tag": "hq-11-0003", "ticket": "ODD"}]
+    artifact = redeliver.build_artifact(
+        SEED, redeliver.run_config(SEED, COUNT, "hq", "local", _config(), 5.0, None),
+        results, None, summary,
+    )
+    assert artifact["summary"]["verdict"] == "DELIVERY-BUGS"
+    assert "ODD" in redeliver.format_redelivery(artifact)
+
+
+def test_the_references_scenario_checks_the_full_ancestry():
+    """The last reply keeps its parent in References and drops the root. Its
+    In-Reply-To is right, so only the ancestry check can see it."""
+    scenario = _by_name(redeliver.SCENARIO_REFERENCES)
+    root, first, second = scenario.deliveries
+    assert scenario.ancestry_of(second.tag) == (root.message_id, first.message_id)
+    readbacks = _content_readbacks(scenario)
+    good = readbacks[second.tag][0]
+    readbacks[second.tag] = [Readback(
+        exists=True, ticket_id="T1", from_addr=good.from_addr, subject=good.subject,
+        body=good.body, attachment_names=(), route=good.route,
+        in_reply_to=first.message_id, references=(first.message_id,),
+        fields=ALL_FIELDS,
+    )]
+    result = redeliver.judge_scenario(scenario, readbacks)
+    assert result.passed is False
+    assert any("full ancestry" in f and root.message_id in f for f in result.findings)
+
+
+def test_the_subject_match_and_route_reach_the_scenarios():
+    scenario = _by_name(redeliver.SCENARIO_DUPLICATE)
+    readbacks = _content_readbacks(scenario)
+    prefixed = {
+        tag: [Readback(
+            exists=True, ticket_id=r.ticket_id, from_addr=r.from_addr,
+            subject=f"[Ticket #5] {r.subject}", body=r.body,
+            attachment_names=r.attachment_names, route="queue:support",
+            fields=ALL_FIELDS,
+        ) for r in found]
+        for tag, found in readbacks.items()
+    }
+    assert redeliver.judge_scenario(scenario, prefixed).passed
+    exact = redeliver.judge_scenario(scenario, prefixed, subject_match="exact")
+    assert any("match: exact" in f for f in exact.findings)
+    routed = redeliver.judge_scenario(scenario, prefixed, route="queue:billing")
+    assert any("routing" in f for f in routed.findings)
+    assert redeliver.judge_scenario(scenario, prefixed, route="queue:support").passed
 
 
 def test_an_unsearchable_adapter_marks_every_scenario_rather_than_passing():
@@ -554,7 +682,8 @@ def test_sending_a_scenario_honours_the_delays_through_the_injected_sleep():
         scenario, "http://localhost:9/intake", rate=1000.0, client=_RecordingClient(),
         sleep=sleep, clock=lambda: now[0],
     )
-    assert waited == [5.0, 5.0, 5.0]
+    assert waited == [5.0]
+    assert now[0] == 5.0
 
 
 class _RecordingClient:
@@ -582,3 +711,150 @@ def test_a_scenario_needs_a_delivery_for_every_tag_it_reports():
     assert len(scenario.tags) == COUNT
     assert scenario.deliveries[0].tag == scenario.tags[0]
     assert scenario.deliveries[-1].tag == scenario.tags[-1]
+
+
+# ---------------------------------------------------------------------------
+# Strays under a fixed prefix next to per-run prefixes
+# ---------------------------------------------------------------------------
+
+
+def test_another_runs_per_run_prefix_is_not_this_runs_stray():
+    """A run with `--tag-prefix hq` next to a store holding another run's
+    `hq-<yymmddHHMM>-<4 hex>-dup-...` tickets: those are another run's, not a
+    finding on this run's duplicate scenario."""
+    scenarios = _scenarios()
+    readbacks = {tag: rs for s in scenarios for tag, rs in _content_readbacks(s).items()}
+    other = pipeline_messages.make_tag("hq-2610141100-cd34-dup", SEED, 0)
+    results, summary = redeliver.judge_run(
+        scenarios, readbacks, [Readback(exists=True, ticket_id="OTHER", tag=other)]
+    )
+    assert all(r.passed for r in results)
+    assert summary["unattributed"] == []
+    assert summary["other_runs"] == [{"tag": other, "ticket": "OTHER"}]
+
+
+def test_a_stray_under_a_per_run_prefix_attaches_to_its_scenario():
+    run = "hq-2610141200-ab12"
+    scenarios = redeliver.build_scenarios(SEED, COUNT, run, 5.0, None)
+    readbacks = {tag: rs for s in scenarios for tag, rs in _content_readbacks(s).items()}
+    stray = pipeline_messages.make_tag(f"{run}-dup", SEED, 9)
+    results, summary = redeliver.judge_run(
+        scenarios, readbacks, [Readback(exists=True, ticket_id="S", tag=stray)],
+        tag_prefix=run,
+    )
+    by_name = {r.name: r for r in results}
+    assert by_name[redeliver.SCENARIO_DUPLICATE].strays == [{"tag": stray, "ticket": "S"}]
+    assert summary["unattributed"] == []
+
+
+# ---------------------------------------------------------------------------
+# The run: Ctrl-C, and what the artifact records about the target
+# ---------------------------------------------------------------------------
+
+
+def _target_config(tmp_path):
+    path = tmp_path / "target.toml"
+    path.write_text('[targets.local]\nurl = "http://localhost:9/intake"\n', encoding="utf-8")
+    return str(path)
+
+
+def test_ctrl_c_during_the_slow_retry_wait_writes_what_it_has_and_exits_3(
+    tmp_path, monkeypatch
+):
+    """The one long wait in the tool. An interrupt there keeps the scenarios
+    already delivered and says the run was aborted, never graded."""
+    from testinghq.pipeline.common import EXIT_MISMATCH
+
+    class _Never:
+        def fetch(self, probe):
+            raise AssertionError("an aborted run must not read back")
+
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Never())
+
+    now = [0.0]
+
+    def sleep(seconds):
+        if seconds >= 120:
+            raise KeyboardInterrupt
+        now[0] += seconds
+
+    lines = []
+    out = tmp_path / "redeliver.json"
+    code = redeliver.execute(
+        SEED, COUNT, "local", _target_config(tmp_path), str(out),
+        readback=_config(), scenarios=None, tag_prefix="hq", retry_after=120.0,
+        rate=1000.0, client=_RecordingClient(), sleep=sleep,
+        clock=lambda: now[0], printer=lines.append,
+    )
+    import json
+
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert code == EXIT_MISMATCH
+    assert artifact["aborted"] is True
+    assert artifact["tool"] == "redeliver"
+    assert artifact["summary"]["aborted_during"] == "send"
+    # The duplicate scenario finished before the slow-retry wait began.
+    duplicate = _by_name(redeliver.SCENARIO_DUPLICATE)
+    assert artifact["summary"]["sent"] == len(duplicate.deliveries)
+    assert "ABORTED" in "\n".join(lines)
+
+
+def test_the_redelivery_artifact_records_the_target_format(tmp_path, monkeypatch):
+    class _Empty:
+        def fetch(self, probe):
+            return []
+
+    monkeypatch.setattr(pipeline_common, "build_adapter", lambda config, **kw: _Empty())
+    out = tmp_path / "redeliver.json"
+    redeliver.execute(
+        SEED, COUNT, "local", _target_config(tmp_path), str(out),
+        readback=_config(), scenarios=["duplicate"], tag_prefix="hq",
+        rate=1000.0, client=_RecordingClient(), sleep=lambda _s: None,
+        clock=lambda: 0.0,
+        printer=lambda _line: None, quiet_window=0.0, max_wait=0.0,
+    )
+    import json
+
+    config = json.loads(out.read_text(encoding="utf-8"))["config"]
+    assert config["format"] == "sendgrid"
+    assert config["allow_public_target"] is False
+    # A --max-wait given is recorded as given and used as is.
+    assert config["readback_poll"]["max_wait"] == 0.0
+    assert config["readback_poll"]["max_wait_source"] == "given"
+
+
+def test_every_lookup_a_404_is_readback_failed_and_no_scenario_reports_a_loss():
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.pipeline.common import ReadbackOutcome
+    from testinghq.reporting import summarize
+
+    scenarios = _scenarios()
+    tags = [tag for s in scenarios for tag in s.tags]
+    outcome = ReadbackOutcome(
+        readbacks={tag: [] for tag in tags}, elapsed=1.0, polls=2, stable=True,
+        missing=tuple(tags), all_404=True,
+    )
+    results, strays = redeliver.judge_run(
+        scenarios, outcome.readbacks, None, readback_failed=True
+    )
+    artifact = redeliver.build_artifact(
+        SEED, redeliver.run_config(SEED, COUNT, "hq", "local", _config(), 5.0, None),
+        results, outcome, strays,
+    )
+    summary = artifact["summary"]
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["failed"] == 0 and summary["passed"] == 0
+    assert summary["not_checked"] == len(scenarios)
+    for entry in artifact["scenarios"]:
+        assert entry["findings"] == [] and entry["missing"] == []
+        assert entry["not_checked"]
+    text = redeliver.format_redelivery(artifact)
+    assert text.splitlines()[0].startswith("redeliver: READBACK FAILED")
+    assert "every lookup was 404: check the readback url" in text
+    assert "holds no record" not in text
+    assert "[FAIL]" not in text
+
+    read = summarize(artifact)
+    assert read.exit_code == EXIT_FINDING
+    assert [f.kind for f in read.findings] == ["readback-failed"]

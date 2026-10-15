@@ -16,19 +16,23 @@ The readback is a separate phase, and it polls rather than looking once. A
 pipeline that acknowledges a POST and creates the ticket on a queue consumer is
 the normal case, not the exotic one, so a single lookup after the last send
 would report a healthy pipeline as having lost everything it had not finished
-processing yet.
+processing yet. `SETTLING_RULE` below is the rule the poll ends by.
 """
 from __future__ import annotations
 
+import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..blast.payload import InboundEmail
 from ..core import guardrails
-from ..core.config import load_config
+from ..core.formats import WireFormat
 from ..core.ratelimit import TokenBucket
+from ..core.targets import resolve_target
 from ..core.transport import TransportResult, post
+from .adapters import BudgetExhausted, ReadbackConfig, build_adapter, parse_readback_config
 from .messages import Probe
 from .readback import Readback, ReadbackAdapter, ReadbackError
 
@@ -45,14 +49,44 @@ from ..core.exit_codes import (  # noqa: F401
     EXIT_REFUSED,
 )
 
-#: How long the record counts must hold steady before a read is believed.
+#: How long the observed state must hold steady before a read is believed.
 #: Long enough that a queue consumer has had a chance to write a second copy of
 #: something, because the late duplicate is the case a single lookup misses and
 #: the reason this polls rather than looks once.
 DEFAULT_QUIET_WINDOW = 5.0
 
-#: How long to keep polling before giving up and reporting whatever was seen.
+#: How long to keep polling before giving up on a store that is still changing,
+#: at the least. When --max-wait is not given, a plan too big to poll every tag
+#: twice in this long gets more: see `resolve_max_wait`.
 DEFAULT_MAX_WAIT = 60.0
+
+#: The room a plan-sized --max-wait leaves above the time the plan needs to
+#: settle on an instantly consistent store, for a store that is not instant.
+MAX_WAIT_MARGIN = 0.25
+
+#: `max_wait_source` in a run's `readback_poll`: whether --max-wait was the
+#: default (sized to the plan) or given, and so honoured exactly.
+MAX_WAIT_DEFAULT = "default"
+MAX_WAIT_GIVEN = "given"
+
+#: When the readback ends and what its end means. The `--quiet-window` and
+#: `--max-wait` help prints it, and the [readback] notes in
+#: `core/config_schema.py` (and so docs/CONFIG.md) carry the same paragraph.
+SETTLING_RULE = (
+    "The readback is SETTLED once what it sees (which tags are found, how many "
+    "records each, and the field values the checks read) has not changed for "
+    "--quiet-window seconds, counted from the start of the first of two "
+    "identical complete polls; a tag still not found then is MISSING and is "
+    "reported as lost. It is UNSETTLED only when --max-wait runs out while that "
+    "state is still changing, or before every tag could be polled twice, which "
+    "exits 3 with an UNSETTLED headline naming which and keeps every finding "
+    "already proven. A run whose every lookup was a 404 is READBACK FAILED "
+    "(exit 3): the readback url is almost certainly wrong, so no message is "
+    "reported as lost. For a slow or async pipeline, raise "
+    "--quiet-window above the pipeline's worst processing latency (a "
+    "search-indexed store such as Zendesk or Freshdesk can take minutes to "
+    "index a new ticket), and keep --max-wait well above --quiet-window."
+)
 
 #: How often to look while waiting.
 DEFAULT_POLL_INTERVAL = 0.5
@@ -90,24 +124,14 @@ def require_synthetic(emails: Sequence[InboundEmail]) -> None:
     guardrails.require_synthetic_content(fields)
 
 
-def resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, gating both
-    the configured name and the resolved URL through the canonical guardrail.
-
-    Two calls, on purpose, and the reason is the same one given in
-    `barrage/fire.py`: a bare single-label name like "local" has no dot, so the
-    public-host hardening classifies it as internal and passes it
-    unconditionally. The hardening then looks correct while being inert, and a
-    public URL hiding behind a friendly name fires. Checking the resolved URL
-    too is what makes it bite.
-    """
-    if not target_name:
-        raise guardrails.GuardrailError("refusing to fire: --send requires --target")
-    config = load_config(config_path)
-    guardrails.require_configured_target(target_name, config.allowed_target_names())
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
+def resolve_target_url(
+    target_name: Optional[str], config_path: str, *, allow_public_target: bool = False
+) -> str:
+    """Deprecated: use `testinghq.core.targets.resolve_target`, which also
+    returns the target's wire format. Kept as a wrapper for one release."""
+    return resolve_target(
+        target_name, config_path, allow_public_target=allow_public_target
+    ).url
 
 
 def send_all(
@@ -117,6 +141,7 @@ def send_all(
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    wire_format: Optional[WireFormat] = None,
 ) -> List[SentMessage]:
     """Fire every (email, tag, record_id, probe) in order, paced by a token
     bucket, and return what happened to each.
@@ -147,7 +172,7 @@ def send_all(
     sent: List[SentMessage] = []
     for index, (email, tag, record_id, probe) in enumerate(items):
         bucket.acquire()
-        result = post(email, url, client=client)
+        result = post(email, url, client=client, wire_format=wire_format)
         sent.append(
             SentMessage(
                 index=index,
@@ -161,13 +186,242 @@ def send_all(
     return sent
 
 
+#: The verdict a run gets when its readback did not settle within --max-wait.
+#: Distinct from loss: a message not seen yet is not a message the pipeline
+#: lost, and saying it was is the false alarm that teaches people to ignore
+#: the tool.
+UNSETTLED = "UNSETTLED"
+
+#: `verdict_source` for a verdict decided by the readback phase rather than by
+#: the tool's own checks.
+VERDICT_SOURCE_READBACK = "readback"
+
+#: The headline line for a run whose every lookup was a 404.
+ALL_404_HEADLINE = "every lookup was 404: check the readback url"
+
+#: The verdict a run gets when every lookup of its readback was a 404. Not a
+#: loss: a store that answers 404 to every tag, including the ones the pipeline
+#: certainly holds, is almost always a wrong url, so the run could not
+#: establish the answer and nothing it sent is reported as lost. Exit 3.
+READBACK_FAILED = "READBACK FAILED"
+
+#: What a tool says in place of its list of lost messages on such a run.
+ALL_404_NOT_CHECKED = "not checked: every lookup was 404"
+
+#: Why a readback is UNSETTLED. The two are different problems with different
+#: fixes, and a headline that said "still changing" about a store that never
+#: changed once sent people looking for a pipeline fault that was not there.
+#: CAUSE_CHANGING: the store was seen changing within the last quiet window.
+#: CAUSE_NO_TIME: nothing changed, but --max-wait was too short to see every
+#: tag twice (or to cover --quiet-window), so the quiet was never confirmed.
+CAUSE_CHANGING = "still changing"
+CAUSE_NO_TIME = "not enough time"
+
+_CAUSE_PHRASES = {
+    CAUSE_CHANGING: "still changing at --max-wait",
+    CAUSE_NO_TIME: "not enough time within --max-wait to confirm the store quiet",
+}
+
+
+def _round_up(value: float, places: int = 0) -> float:
+    scale = 10 ** places
+    return math.ceil(value * scale - 1e-9) / scale
+
+
+def _fit_advice(
+    tags: int, rate: Optional[float], quiet_window: float, max_wait: float,
+    per_poll: Optional[float] = None,
+) -> str:
+    """The --max-wait, and with a paced adapter the --readback-rate, that would
+    leave room for two complete polls plus the quiet window."""
+    if per_poll is None:
+        per_poll = tags / rate if rate else 0.0
+    need = _round_up(2 * per_poll + quiet_window)
+    advice = f"raise --max-wait to at least {need:g}"
+    if rate and tags and max_wait > quiet_window:
+        rate_needed = max(_round_up(2 * tags / (max_wait - quiet_window), 1), rate)
+        if rate_needed > rate:
+            advice += f", or --readback-rate to at least {rate_needed:g} if the store allows it"
+    return advice
+
+
+def adapter_rate(readback: Any) -> Optional[float]:
+    """Readback requests per second for a `ReadbackConfig` or an adapter, or
+    None when lookups are not paced (a mailbox file, a custom adapter)."""
+    if readback is None:
+        return None
+    if getattr(readback, "spec", None):
+        return None
+    kind = getattr(readback, "kind", "http")
+    if kind != "http":
+        return None
+    rate = getattr(readback, "rate", None)
+    if isinstance(rate, (int, float)) and not isinstance(rate, bool) and rate > 0:
+        return float(rate)
+    return None
+
+
+def settle_time_needed(
+    tags: int,
+    readback_rate: Optional[float],
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+) -> float:
+    """Seconds a readback of `tags` tags needs to settle on an instantly
+    consistent store.
+
+    A readback settles at the earliest after two complete polls, and each poll
+    asks every tag once, paced to `readback_rate` per second. So a run needs
+    about 2 x tags / rate seconds to poll twice, plus the quiet window.
+    `readback_rate` None means lookups are not paced, and only the quiet
+    window counts. The one statement of this arithmetic: the dry-run warning
+    and the plan-sized --max-wait default both use it.
+    """
+    per_poll = tags / readback_rate if readback_rate else 0.0
+    return 2 * per_poll + quiet_window
+
+
+@dataclass(frozen=True)
+class MaxWait:
+    """The --max-wait a run uses, and where it came from.
+
+    `source` is MAX_WAIT_GIVEN for a value the user passed, which is honoured
+    exactly, or MAX_WAIT_DEFAULT for one sized to the plan. `needed` is what
+    the plan needs to settle (`settle_time_needed`).
+    """
+
+    seconds: float
+    source: str
+    needed: float
+    tags: int = 0
+    readback_rate: Optional[float] = None
+
+    @property
+    def raised(self) -> bool:
+        """True when the default was raised above DEFAULT_MAX_WAIT to fit the
+        plan."""
+        return self.source == MAX_WAIT_DEFAULT and self.seconds > DEFAULT_MAX_WAIT
+
+    def describe(self) -> str:
+        """One line for a dry run: the max-wait a real run would use."""
+        if self.source == MAX_WAIT_GIVEN:
+            return f"readback max-wait: {self.seconds:g}s (given)"
+        if not self.raised:
+            return f"readback max-wait: {self.seconds:g}s (default)"
+        cost = (
+            f"{self.tags} tag(s) at --readback-rate {self.readback_rate:g}/s"
+            if self.readback_rate else f"{self.tags} tag(s)"
+        )
+        return (
+            f"readback max-wait: {self.seconds:g}s (the {DEFAULT_MAX_WAIT:g}s "
+            f"default, raised to fit the plan: {cost} need about "
+            f"{self.needed:.1f}s to poll twice plus --quiet-window, and "
+            f"{MAX_WAIT_MARGIN:.0%} more is left for a slower store)"
+        )
+
+
+def resolve_max_wait(
+    max_wait: Optional[float],
+    tags: int,
+    readback: Any,
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+) -> MaxWait:
+    """The --max-wait a run of `tags` tags uses.
+
+    A value given (not None) is honoured exactly, even when it is too short
+    for the plan; the dry run then warns (`settle_time_warning`). None means
+    the user did not pass --max-wait, and the default grows with the plan: the
+    larger of DEFAULT_MAX_WAIT and the plan's settle time plus
+    MAX_WAIT_MARGIN. Without that, a plan above about 110 tags at the default
+    --readback-rate could never poll every tag twice in the default 60s, and a
+    correct pipeline read UNSETTLED. `readback` is a `ReadbackConfig` or an
+    adapter, or None, whose pacing `adapter_rate` reads.
+    """
+    rate = adapter_rate(readback)
+    needed = settle_time_needed(tags, rate, quiet_window)
+    if max_wait is not None:
+        return MaxWait(float(max_wait), MAX_WAIT_GIVEN, needed, tags, rate)
+    seconds = max(DEFAULT_MAX_WAIT, _round_up(needed * (1 + MAX_WAIT_MARGIN)))
+    return MaxWait(seconds, MAX_WAIT_DEFAULT, needed, tags, rate)
+
+
+def readback_poll_settings(
+    tags: int,
+    readback: Any,
+    *,
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+    max_wait: Optional[float] = None,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+) -> Dict[str, Any]:
+    """The readback polling options a run uses, as its artifact records them
+    under `readback_poll`: --max-wait resolved for the plan
+    (`resolve_max_wait`), and whether it was the default or given. Every
+    pipeline tool's real run resolves its polling options here."""
+    resolved = resolve_max_wait(max_wait, tags, readback, quiet_window)
+    return {
+        "quiet_window": quiet_window,
+        "max_wait": resolved.seconds,
+        "max_wait_source": resolved.source,
+        "poll_interval": poll_interval,
+    }
+
+
+def settle_time_warning(
+    tags: int,
+    readback_rate: Optional[float],
+    quiet_window: float = DEFAULT_QUIET_WINDOW,
+    max_wait: float = DEFAULT_MAX_WAIT,
+) -> Optional[str]:
+    """A warning for a dry run whose real run may end UNSETTLED for lack of
+    time, or None when it fits.
+
+    The run needs `settle_time_needed` seconds inside --max-wait. A default
+    --max-wait is sized to fit (`resolve_max_wait`), so this only fires for a
+    --max-wait the user gave. Every pipeline tool's dry run calls this.
+    """
+    per_poll = tags / readback_rate if readback_rate else 0.0
+    need = settle_time_needed(tags, readback_rate, quiet_window)
+    if need <= max_wait:
+        return None
+    if readback_rate:
+        cost = (
+            f"{tags} tag(s) at --readback-rate {readback_rate:g}/s take about "
+            f"{per_poll:.1f}s a poll, so two polls plus --quiet-window "
+            f"{quiet_window:g}s is about {need:.1f}s"
+        )
+    else:
+        cost = f"--quiet-window {quiet_window:g}s"
+    advice = _fit_advice(tags, readback_rate, quiet_window, max_wait)
+    return (
+        f"warning: a real run may end UNSETTLED for lack of time: {cost}, over "
+        f"--max-wait {max_wait:g}s. {advice[0].upper()}{advice[1:]}"
+    )
+
+
+def readback_state_phrase(readback: Optional[Dict[str, Any]]) -> str:
+    """"settled", or "UNSETTLED, <why>", for a readback as `to_json` wrote it.
+    An artifact written before the cause was recorded says only UNSETTLED."""
+    if not readback or readback.get("stable"):
+        return "settled"
+    phrase = _CAUSE_PHRASES.get(readback.get("cause") or "")
+    return f"{UNSETTLED}, {phrase}" if phrase else f"{UNSETTLED} at --max-wait"
+
+
 @dataclass(frozen=True)
 class ReadbackOutcome:
     """What the readback phase found, and how long it took to settle.
 
-    `stable` is False when the phase hit `max_wait` before the counts held
-    steady, which is a different statement from "everything was found": a run
-    that gave up early cannot claim its answer was quiet.
+    `stable` is True when the observed state held still for the quiet window.
+    A tag in `missing` is then MISSING: the store went quiet without it, and
+    the tool reports it as lost. `stable` is False when `max_wait` ran out
+    while the state was still changing, or before the quiet could be
+    confirmed, which makes the run UNSETTLED: a run that never saw the store
+    go quiet cannot claim a message it had not seen yet was lost, and
+    `missing` then means "not seen yet". `cause` says which (CAUSE_CHANGING or
+    CAUSE_NO_TIME) and `reason` says it with the numbers. `budget_exhausted`
+    says the budget ran out in the middle of a poll or a retry wait. `partial`
+    names the tags whose lookup hit `max_pages`. `all_404` is True when every
+    lookup of every poll got a 404, which is almost always a wrong url rather
+    than a pipeline that lost everything.
     """
 
     readbacks: Dict[str, List[Readback]]
@@ -175,14 +429,101 @@ class ReadbackOutcome:
     polls: int
     stable: bool
     missing: Tuple[str, ...] = ()
+    budget_exhausted: bool = False
+    partial: Tuple[str, ...] = ()
+    all_404: bool = False
+    detail: Optional[str] = None
+    complete_polls: int = 0
+    cause: Optional[str] = None
+    reason: Optional[str] = None
+    advice: Optional[str] = None
+
+    @property
+    def unsettled(self) -> bool:
+        return not self.stable
+
+    def state_phrase(self) -> str:
+        """"settled", or "UNSETTLED, <why>", for a one-line summary."""
+        return readback_state_phrase({"stable": self.stable, "cause": self.cause})
+
+    @property
+    def failed(self) -> bool:
+        """True when the readback could not establish anything: every lookup
+        was a 404. Takes precedence over `unsettled`."""
+        return self.all_404
+
+    def headline(self) -> Optional[str]:
+        """One line for the top of a tool's report, or None when the readback
+        settled normally."""
+        if self.all_404:
+            return ALL_404_HEADLINE
+        if self.unsettled:
+            missing = (
+                f", {len(self.missing)} tag(s) not seen yet" if self.missing else ""
+            )
+            reason = self.reason or "the store was not confirmed quiet"
+            advice = self.advice or (
+                "raise --max-wait above --quiet-window for a slow or async pipeline"
+            )
+            return (
+                f"{UNSETTLED}: the readback did not settle within --max-wait "
+                f"({self.elapsed:.1f}s, {self.polls} poll(s){missing}): "
+                f"{reason}. Unseen is not lost: {advice}"
+            )
+        return None
 
     def to_json(self) -> Dict[str, Any]:
         return {
             "elapsed_s": round(self.elapsed, 3),
             "polls": self.polls,
             "stable": self.stable,
+            "unsettled": self.unsettled,
+            "verdict": (
+                READBACK_FAILED if self.failed
+                else UNSETTLED if self.unsettled
+                else None
+            ),
+            "budget_exhausted": self.budget_exhausted,
+            "complete_polls": self.complete_polls,
+            "cause": None if self.stable else self.cause,
             "missing_tags": list(self.missing),
+            "partial_tags": list(self.partial),
+            "all_404": self.all_404,
+            "headline": self.headline(),
+            "detail": self.detail,
         }
+
+
+def readback_verdict(verdict: str, outcome: Optional[ReadbackOutcome]) -> Tuple[str, str]:
+    """(verdict, verdict_source) after the readback has had its say.
+
+    A readback whose every lookup was a 404 replaces the tool's verdict with
+    READBACK FAILED: the tool ran and could not establish the answer, so no
+    message is reported as lost and the exit code is 3. An unsettled readback
+    (--max-wait ran out while the store was still changing, or before every
+    tag could be polled twice) replaces the tool's own verdict with UNSETTLED, because every absence that
+    verdict rests on is unproven. The findings the tool did make still stand
+    and are still listed and counted; the exit code stays 3. A settled
+    readback leaves the tool's verdict alone, so a message the store went
+    quiet without is reported by the tool as the loss it is.
+    """
+    if outcome is not None and outcome.failed:
+        return READBACK_FAILED, VERDICT_SOURCE_READBACK
+    if outcome is not None and outcome.unsettled:
+        return UNSETTLED, VERDICT_SOURCE_READBACK
+    return verdict, "tool"
+
+
+def readback_failed(outcome: Optional[ReadbackOutcome]) -> bool:
+    """True when `outcome` is a readback whose every lookup was a 404."""
+    return bool(outcome is not None and outcome.failed)
+
+
+def _signature(readbacks: Sequence[Readback]) -> Tuple[Readback, ...]:
+    """What the quiet window watches for one tag: every readback, every field
+    value. Sorted so an API that returns the same records in a different order
+    does not look like a change."""
+    return tuple(sorted(readbacks, key=lambda r: (r.ticket_id or "", repr(r))))
 
 
 def read_back_all(
@@ -198,28 +539,66 @@ def read_back_all(
 ) -> ReadbackOutcome:
     """Ask the system what it holds for every probe, until it stops changing.
 
-    Believed stable when every tag has been found and the per-tag counts have
-    not moved for `quiet_window`. Waiting for the counts specifically is what
-    catches a duplicate that appears late: a read at t=0 sees one ticket, and
-    one that only required "all found" would finish there and report a clean
-    run moments before the second ticket lands.
+    THE RULE (`SETTLING_RULE`). The observed state is which tags are found,
+    how many records each, and every field value the checks read. The read is
+    SETTLED, and `stable` is True, once that state has not changed for
+    `quiet_window`. The window counts from the START of the first of two
+    identical complete polls: that poll is when the state was first observed,
+    so a store that answers the same thing twice has held still since then. A
+    tag still not found at that point is MISSING, and the tool reports it as
+    lost.
 
-    `require_all_found=False` relaxes the first half of that condition, and one
-    tool needs it. `loop` asks whether a pipeline filed a ticket for
-    machine-generated mail, and under the default ticket policy a CORRECT
-    pipeline files none, so "every tag found" is not a condition the run can ever
-    satisfy. Left on, every `loop` run polls until `max_wait` and reports a
-    readback that gave up, which is both a slow run and a report that says
-    nothing about the thing being measured. There, absence is the expected
-    answer and the counts-steady condition is what settles it.
+    The run is UNSETTLED, `stable` False, only when `max_wait` runs out first,
+    and `cause` says why:
 
-    An adapter that raises is not swallowed. A readback that fails halfway is a
-    broken run, and reporting the first half as "the pipeline produced nothing
-    else" would be a lie with a number attached.
+      CAUSE_CHANGING: the state was still changing. The last two complete
+        polls differed, a lookup after the last complete poll saw a change, or
+        the last change was seen less than `quiet_window` before the budget
+        ran out.
+      CAUSE_NO_TIME: nothing was seen changing, but there was not time to poll
+        every tag twice (each poll asks every tag once, at the adapter's
+        --readback-rate), or `max_wait` ran out before the window could pass
+        (a `max_wait` shorter than `quiet_window`).
 
-    A tag is asked once per poll, not once per delivery: a redelivery scenario
-    sends the same message twice on purpose, and asking twice would either
-    double-count the answer or return a different one the second time.
+    When the budget runs out after two identical complete polls, nothing has
+    changed since (including in a poll the budget cut short), and the window
+    counted from the start of the first of them has passed, the run is
+    SETTLED: running out of time while watching a quiet store is not a store
+    still changing.
+
+    Absence does not hold the window open. It used to: "every tag found" was
+    part of the condition, so a pipeline that genuinely dropped one message
+    could never settle, and every loss surfaced as UNSETTLED after
+    `max_wait`. A loss is the main thing `ledger` exists to report.
+
+    Watching the values is what catches an async pipeline that creates a
+    ticket first and fills its route or body a moment later; watching the
+    counts is what catches the late duplicate.
+
+    GUIDANCE FOR ASYNC PIPELINES. If the pipeline acknowledges the POST and
+    does its work on a queue consumer, the quiet window has to be longer than
+    the pipeline's worst processing latency (the gap between a send and its
+    record appearing, and between a record appearing and its last field being
+    filled), or a message still in the queue is reported as lost. `max_wait`
+    has to be longer than the quiet window plus the backlog the pipeline can
+    build, and long enough to poll every tag twice (`settle_time_warning`). A
+    search-indexed store (Zendesk, Freshdesk) can take minutes to index a new
+    ticket: raise `--quiet-window` above that, and `--max-wait` well above it.
+
+    `max_wait` is a hard budget: it is checked before every lookup, and an
+    adapter that supports `bind_clock` is told the deadline, so its request
+    timeouts, retry waits and rate-limit waits spend the same budget. A run
+    that runs out is UNSETTLED, not lost.
+
+    `require_all_found` is accepted for compatibility and has no effect: since
+    absence no longer holds the window open, every caller now gets what
+    `loop` asked for with `require_all_found=False`.
+
+    An adapter that raises is not swallowed, with one exception: running out
+    of budget inside the adapter ends the poll like running out of budget
+    between lookups does.
+
+    A tag is asked once per poll, not once per delivery.
     """
     if quiet_window < 0:
         raise ValueError(f"quiet_window must be >= 0, got {quiet_window}")
@@ -228,59 +607,237 @@ def read_back_all(
     if poll_interval <= 0:
         raise ValueError(f"poll_interval must be > 0, got {poll_interval}")
 
-    asked: List[str] = []
+    by_tag: Dict[str, Probe] = {}
     for probe in probes:
-        if probe.tag not in asked:
-            asked.append(probe.tag)
+        by_tag.setdefault(probe.tag, probe)
+    asked = list(by_tag)
 
     started = clock()
+    deadline = started + max_wait
+    binder = getattr(adapter, "bind_clock", None)
+    if callable(binder):
+        binder(clock, sleep, deadline)
+
     found: Dict[str, List[Readback]] = {tag: [] for tag in asked}
-    previous: Optional[Tuple[int, ...]] = None
-    unchanged_since: Optional[float] = None
+    partial: Dict[str, bool] = {tag: False for tag in asked}
+    statuses: Dict[str, List[Optional[int]]] = {tag: [] for tag in asked}
+    previous: Optional[Tuple[Tuple[Readback, ...], ...]] = None
+    previous_start: Optional[float] = None
+    # The start of the first of the run of identical complete polls the state
+    # has held through, or None when the last two complete polls differed.
+    quiet_since: Optional[float] = None
+    changed = False
+    first_poll_s: Optional[float] = None
     polls = 0
+    complete = 0
     stable = False
+    exhausted = False
+    detail: Optional[str] = None
+    lookups = 0
 
-    while True:
-        polls += 1
-        for tag in asked:
-            found[tag] = list(adapter.fetch(_probe_by_tag(probes, tag)) or [])
-
-        now = clock()
-        counts = tuple(len(found[tag]) for tag in asked)
-        settled_enough = all(found[tag] for tag in asked) or not require_all_found
-
-        if settled_enough and counts == previous:
-            if unchanged_since is None:
-                unchanged_since = now
-            if now - unchanged_since >= quiet_window:
-                stable = True
+    try:
+        while True:
+            if polls and clock() >= deadline:
                 break
+            polls += 1
+            poll_start = clock()
+            for tag in asked:
+                if lookups and clock() >= deadline:
+                    exhausted = True
+                    break
+                lookups += 1
+                try:
+                    result = adapter.fetch(by_tag[tag])
+                except BudgetExhausted as exc:
+                    exhausted = True
+                    detail = str(exc)
+                    break
+                partial[tag] = bool(getattr(result, "partial", False))
+                statuses[tag].append(getattr(result, "status", None))
+                found[tag] = list(result or [])
+            if exhausted:
+                break
+
+            now = clock()
+            complete += 1
+            if first_poll_s is None:
+                first_poll_s = now - poll_start
+            # The whole observed state: an empty tuple for a tag not found yet,
+            # so a tag appearing is a change like any other.
+            signature = tuple(_signature(found[tag]) for tag in asked)
+
+            if signature == previous:
+                if quiet_since is None:
+                    quiet_since = previous_start
+                if now - quiet_since >= quiet_window:
+                    stable = True
+                    break
+            else:
+                # Something changed: a tag appeared, a count moved, or a field
+                # value did. That resets the window, because believing the
+                # earlier sighting is the bug this exists to prevent. A tag
+                # that is merely still missing does not: a store that has gone
+                # quiet without it has answered.
+                if previous is not None:
+                    changed = True
+                quiet_since = None
+            previous = signature
+            previous_start = poll_start
+
+            if now - started >= max_wait:
+                break
+            sleep(min(poll_interval, deadline - now))
+    finally:
+        if callable(binder):
+            binder(clock, sleep, None)
+
+    ended = clock()
+    cause: Optional[str] = None
+    reason: Optional[str] = None
+    advice: Optional[str] = None
+    if not stable:
+        # A poll the budget cut short still counts as evidence of a change:
+        # `found` then holds its answers for the tags it reached.
+        cut_short_changed = (
+            previous is not None
+            and tuple(_signature(found[tag]) for tag in asked) != previous
+        )
+        if (
+            quiet_since is not None
+            and not cut_short_changed
+            and ended - quiet_since >= quiet_window
+        ):
+            stable = True
         else:
-            # Either something is still missing or a count moved. Both reset the
-            # window: a count moving is a late duplicate arriving, and believing
-            # the earlier sighting is the bug this exists to prevent.
-            unchanged_since = None
-        previous = counts
+            cause, reason, advice = _why_unsettled(
+                tags=len(asked),
+                rate=adapter_rate(adapter),
+                quiet_window=quiet_window,
+                max_wait=max_wait,
+                complete=complete,
+                first_poll_s=first_poll_s,
+                elapsed=ended - started,
+                changed=changed or cut_short_changed,
+                last_two_identical=quiet_since is not None,
+                quiet_for=None if quiet_since is None else ended - quiet_since,
+            )
 
-        if now - started >= max_wait:
-            break
-        sleep(poll_interval)
-
-    missing = tuple(tag for tag in asked if not found[tag])
+    seen_statuses = [s for tag in asked for s in statuses[tag]]
+    all_404 = bool(seen_statuses) and all(s == 404 for s in seen_statuses) and all(
+        statuses[tag] for tag in asked
+    )
     return ReadbackOutcome(
         readbacks=found,
-        elapsed=clock() - started,
+        elapsed=ended - started,
         polls=polls,
         stable=stable,
-        missing=missing,
+        missing=tuple(tag for tag in asked if not found[tag]),
+        budget_exhausted=exhausted,
+        partial=tuple(tag for tag in asked if partial[tag]),
+        all_404=all_404,
+        detail=detail,
+        complete_polls=complete,
+        cause=cause,
+        reason=reason,
+        advice=advice,
     )
 
 
-def _probe_by_tag(probes: Sequence[Probe], tag: str) -> Probe:
-    for probe in probes:
-        if probe.tag == tag:
-            return probe
-    raise ReadbackError(f"no probe carries tag {tag!r}")
+def _why_unsettled(
+    *,
+    tags: int,
+    rate: Optional[float],
+    quiet_window: float,
+    max_wait: float,
+    complete: int,
+    first_poll_s: Optional[float],
+    elapsed: float,
+    changed: bool,
+    last_two_identical: bool,
+    quiet_for: Optional[float],
+) -> Tuple[str, str, str]:
+    """(cause, reason, advice) for a readback that did not settle."""
+    if complete < 2:
+        if rate:
+            cost = f"{tags} tag(s) at --readback-rate {rate:g}/s take about {tags / rate:.1f}s a poll"
+            per_poll = None
+        else:
+            per_poll = first_poll_s if first_poll_s is not None else elapsed
+            cost = (
+                f"a poll of {tags} tag(s) took "
+                f"{'' if first_poll_s is not None else 'more than '}{per_poll:.1f}s"
+            )
+        return (
+            CAUSE_NO_TIME,
+            f"not enough time to poll every tag twice: {cost}, and --max-wait is "
+            f"{max_wait:g}s",
+            _fit_advice(tags, rate, quiet_window, max_wait, per_poll=per_poll),
+        )
+    if not last_two_identical:
+        return (
+            CAUSE_CHANGING,
+            "the store was still changing: the last two complete polls differed",
+            "raise --max-wait above --quiet-window for a slow or async pipeline",
+        )
+    if changed:
+        return (
+            CAUSE_CHANGING,
+            "the store was still changing: the last change was seen "
+            f"{quiet_for or 0.0:.1f}s before --max-wait ran out, inside the "
+            f"{quiet_window:g}s --quiet-window",
+            "raise --max-wait above --quiet-window for a slow or async pipeline",
+        )
+    return (
+        CAUSE_NO_TIME,
+        f"not enough time: nothing changed over {complete} poll(s), but "
+        f"--max-wait {max_wait:g}s ran out before the state had held for "
+        f"--quiet-window {quiet_window:g}s",
+        f"raise --max-wait to at least "
+        f"{_round_up(quiet_window + (first_poll_s or 0.0) * 2):g}, so it covers "
+        "--quiet-window",
+    )
+
+
+def prepare_readback(
+    args_or_config: Any,
+    *,
+    client: Any = None,
+    config_path: Optional[str] = None,
+    config_dir: Optional[str] = None,
+    preflight: bool = True,
+) -> ReadbackAdapter:
+    """Build the readback adapter and check it works, before anything is sent.
+
+    The one call every tool makes in place of `build_adapter`, so the three
+    things that must happen before the first send happen everywhere:
+
+      1. the adapter is built, with a relative mailbox path resolved against
+         the directory of the config file (`config_path`, or `config_dir`);
+      2. a `module:attribute` that cannot be imported or built is refused;
+      3. `preflight()` runs when the adapter has one: refused credentials, a
+         404 list path, a response that is not JSON, or a sink directory that
+         does not exist are refusals now, not a broken run later.
+
+    `args_or_config` is a `ReadbackConfig`, a raw `[readback]` table, or a kind
+    string. Raises `AdapterError`; the adapter is closed when preflight fails.
+    """
+    config = (
+        args_or_config
+        if isinstance(args_or_config, ReadbackConfig)
+        else parse_readback_config(args_or_config)
+    )
+    if config_dir is None and config_path:
+        config_dir = str(Path(config_path).resolve().parent)
+    adapter = build_adapter(config, client=client, config_dir=config_dir)
+    if preflight:
+        check = getattr(adapter, "preflight", None)
+        if callable(check):
+            try:
+                check()
+            except Exception:
+                close_adapter(adapter)
+                raise
+    return adapter
 
 
 def close_adapter(adapter: Optional[ReadbackAdapter]) -> None:
@@ -309,16 +866,38 @@ def status_class(result: TransportResult) -> str:
 
 
 __all__ = [
+    "ALL_404_HEADLINE",
+    "ALL_404_NOT_CHECKED",
+    "CAUSE_CHANGING",
+    "CAUSE_NO_TIME",
     "EXIT_DRY_RUN",
     "EXIT_MISMATCH",
     "EXIT_OK",
     "EXIT_REFUSED",
+    "MAX_WAIT_DEFAULT",
+    "MAX_WAIT_GIVEN",
+    "MAX_WAIT_MARGIN",
+    "MaxWait",
+    "READBACK_FAILED",
     "ReadbackError",
+    "ReadbackOutcome",
+    "SETTLING_RULE",
     "SentMessage",
+    "UNSETTLED",
+    "VERDICT_SOURCE_READBACK",
+    "adapter_rate",
     "close_adapter",
+    "prepare_readback",
     "read_back_all",
+    "readback_failed",
+    "readback_poll_settings",
+    "readback_state_phrase",
+    "readback_verdict",
     "require_synthetic",
+    "resolve_max_wait",
     "resolve_target_url",
     "send_all",
+    "settle_time_needed",
+    "settle_time_warning",
     "status_class",
 ]

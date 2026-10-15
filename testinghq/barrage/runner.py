@@ -1,69 +1,74 @@
 """Barrage's rate and concurrency engine.
 
 Barrage is a load generator for an endpoint the operator controls, not a
-flooding tool. Everything in this module exists to keep firing at a
-controlled, bounded rate: a warmup ramp eases into load instead of
-slamming an endpoint cold, a steady-state hold sustains the configured
-target, and a hard rate, duration and concurrency ceiling refuses to run an
-unreasonably large load test unless the caller explicitly says so with
-`allow_high_rate=True`. That ceiling is a safety control, not a tuning
-knob: a typo in `--rate` or `--duration` must not turn into a
-self-inflicted denial of service against the operator's own endpoint.
-Fix the caller's inputs, never widen the default ceiling.
+flooding tool. A warmup ramp eases into load, a steady-state hold sustains the
+configured rate, and a hard rate, duration and concurrency ceiling refuses an
+unreasonably large run unless the caller passes `allow_high_rate=True`. The
+ceiling is a safety control, not a tuning knob.
 
-Pacing is done exclusively with testinghq.core.ratelimit.TokenBucket
-(imported, never reimplemented). The clock and sleep function are always
-injectable, all the way through this module's public API, so tests can
-drive a full run through simulated time with zero real sleeps.
+Two firing modes, with standard load-testing meanings:
 
-Two firing modes, matching standard load-testing terminology:
+- Open loop (`mode="open"`): arrivals follow a fixed schedule computed from the
+  plan before the run starts, across the ramp and the hold, whatever the target
+  does. `concurrency` workers carry them; a request that cannot get a worker
+  waits in a queue, and if it waits longer than `max_queue_seconds` it is
+  recorded as `dropped_backlog` and never sent.
+- Closed loop (`mode="closed"`): `concurrency` workers, each of which sends,
+  waits for the response, then takes the next token from one shared
+  TokenBucket paced at the stage rate. Offered load is therefore
+  min(rate, concurrency / latency): a slow target slows the test down.
 
-- Closed-loop (`mode="closed"`): a fixed number of workers (`concurrency`).
-  Each worker only issues its next request after its previous one
-  completes, so offered load self-limits when the target slows down.
-  Still capped by the same rate ceiling, shared across all workers.
-- Open-loop (`mode="open"`): a fixed arrival rate. Requests are dispatched
-  on schedule regardless of how long previous requests take to complete,
-  which is what actually reveals a target's breaking point (closed-loop
-  load quietly throttles itself against a slow target; open-loop does
-  not). `concurrency` bounds how many requests may be outstanding at
-  once, as a resource safety valve, not as the thing controlling rate.
+Both modes end at a hard deadline of `duration + grace_seconds` after the
+start. A request still in flight then is recorded as `abandoned`, one still
+queued as `not_dispatched`. Ctrl-C ends the run early with the same
+accounting and `RunResult.aborted` set.
+
+The clock and sleep are injectable throughout, so tests drive a run through
+simulated time. Waiting for in-flight work at the deadline uses real time,
+bounded by `deadline - clock()`.
 """
 from __future__ import annotations
 
+import threading
 import time
+from concurrent.futures import FIRST_EXCEPTION, wait
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
 from ..core.ratelimit import TokenBucket
-from .executor import PoolExecutor, SerialExecutor, make_executor
+from .executor import make_executor
 
 # ---------------------------------------------------------------------------
-# The hard ceiling.
-#
-# Defaults are deliberately modest: 50 requests/second and a 5 minute
-# duration cap. That is enough to see real throughput and latency behaviour
-# under sustained load against a local or staging target, but not enough to
-# come close to actually denial-of-servicing anything by accident. Raising
-# either limit requires the caller to pass allow_high_rate=True explicitly
-# (wired to a CLI flag), so a fat-fingered --rate or --duration cannot
-# silently turn a load test into an outage. This ceiling must never be
-# raised by default and must never be bypassed implicitly.
+# The hard ceiling. Raising any of these requires allow_high_rate=True.
 # ---------------------------------------------------------------------------
 
 DEFAULT_MAX_RATE_PER_SEC = 50.0
 DEFAULT_MAX_DURATION_SEC = 300.0
 #: Requests in flight at once. Each is a worker thread, so this is a memory
-#: ceiling as much as a load one. 64 covers the default rate ceiling against a
-#: target answering in over a second (50 req/s x 1.28s), which is already a
-#: target in trouble. Raised by the same --allow-high-rate opt-in as the others.
+#: ceiling as much as a load one.
 DEFAULT_MAX_CONCURRENCY = 64
+
+#: Seconds after `duration` that in-flight requests may still finish.
+DEFAULT_GRACE_SECONDS = 10.0
+#: Open loop only: a request that waited this long for a worker is not sent.
+DEFAULT_MAX_QUEUE_SECONDS = 5.0
+
+#: Outcomes a DispatchRecord can carry.
+OUTCOME_COMPLETED = "completed"
+OUTCOME_ABANDONED = "abandoned"
+OUTCOME_DROPPED_BACKLOG = "dropped_backlog"
+OUTCOME_NOT_DISPATCHED = "not_dispatched"
+OUTCOMES = (
+    OUTCOME_COMPLETED,
+    OUTCOME_ABANDONED,
+    OUTCOME_DROPPED_BACKLOG,
+    OUTCOME_NOT_DISPATCHED,
+)
 
 
 class RateCeilingError(RuntimeError):
-    """Raised when a run would exceed the hard rate, duration or concurrency
-    ceiling and the caller did not explicitly opt in to a higher limit, or asks
-    for a concurrency below 1."""
+    """A run would exceed the rate, duration or concurrency ceiling without the
+    explicit opt-in, or asks for a concurrency below 1."""
 
 
 def check_rate_ceiling(
@@ -75,13 +80,8 @@ def check_rate_ceiling(
     concurrency: Optional[int] = None,
     max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
 ) -> None:
-    """Refuse a run whose target rate, total duration or concurrency exceeds
-    the ceiling, unless `allow_high_rate` is True. Checked once, up front,
-    before any stage is built or any request is dispatched.
-
-    A concurrency below 1 is refused whatever `allow_high_rate` says: it is not
-    a high setting but a meaningless one, and the pool would reject it later
-    with a less useful message."""
+    """Refuse a run over the ceiling unless `allow_high_rate` is True. A
+    concurrency below 1 is refused regardless."""
     if concurrency is not None and concurrency < 1:
         raise RateCeilingError(
             f"concurrency {concurrency!r} must be at least 1: it is the number "
@@ -117,25 +117,15 @@ def check_rate_ceiling(
 
 @dataclass(frozen=True)
 class RampStage:
-    """One constant-rate segment of a run. A full run is a list of stages:
-    several rising stages that approximate a linear ramp, followed by one
-    steady-state hold stage at the full target rate."""
+    """One constant-rate segment of a run."""
 
     rate: float
     duration: float
 
 
 def ramp_stages(target_rate: float, warmup_seconds: float, steps: int = 10) -> List[RampStage]:
-    """Approximate a linear ramp from 0 to `target_rate` over
-    `warmup_seconds`, discretized into `steps` constant-rate stages of equal
-    duration. Each stage is paced by its own TokenBucket at a constant rate
-    (a TokenBucket's rate is fixed for its lifetime), so a true continuous
-    ramp is approximated by a staircase of `steps` increasing rates. More
-    steps makes the staircase a closer approximation to a straight line.
-
-    Returns an empty list if there is no warmup (warmup_seconds <= 0) or no
-    steps requested.
-    """
+    """A staircase from 0 to `target_rate` over `warmup_seconds` in `steps`
+    equal stages. Empty when there is no warmup or no steps."""
     if warmup_seconds <= 0 or steps <= 0:
         return []
     step_duration = warmup_seconds / steps
@@ -148,8 +138,7 @@ def ramp_stages(target_rate: float, warmup_seconds: float, steps: int = 10) -> L
 def build_stages(
     target_rate: float, warmup_seconds: float, hold_seconds: float, ramp_step_count: int = 10
 ) -> List[RampStage]:
-    """The full stage list for a run: the warmup ramp, then one steady-state
-    hold stage at `target_rate` for `hold_seconds`."""
+    """The warmup ramp followed by one hold stage at `target_rate`."""
     stages = ramp_stages(target_rate, warmup_seconds, ramp_step_count)
     if hold_seconds > 0:
         stages.append(RampStage(rate=target_rate, duration=hold_seconds))
@@ -160,338 +149,315 @@ def total_duration(warmup_seconds: float, hold_seconds: float) -> float:
     return warmup_seconds + hold_seconds
 
 
+@dataclass(frozen=True)
+class Arrival:
+    """One scheduled open-loop request: its index, its offset from the start
+    of the run, and the stage rate it belongs to."""
+
+    index: int
+    offset: float
+    rate: float
+
+
+def arrival_schedule(stages: List[RampStage]) -> List[Arrival]:
+    """The open-loop schedule for `stages`, fixed before the run starts.
+
+    Each stage contributes round(rate * duration) arrivals spaced 1 / rate
+    apart from the stage's nominal start, and each stage starts where the
+    previous one nominally ended. Nothing here depends on how the target
+    responds, which is what makes it open loop.
+    """
+    arrivals: List[Arrival] = []
+    stage_start = 0.0
+    for stage in stages:
+        if stage.duration <= 0:
+            continue
+        count = max(0, round(stage.rate * stage.duration))
+        interval = 1.0 / stage.rate
+        for step in range(count):
+            arrivals.append(Arrival(len(arrivals), stage_start + step * interval, stage.rate))
+        stage_start += stage.duration
+    return arrivals
+
+
 # ---------------------------------------------------------------------------
-# Dispatch
-#
-# `send_fn(index) -> (result, service_seconds)` is the caller's hook for
-# actually issuing a request (or, in tests, faking one). `service_seconds`
-# is how long the call took (or, for a fake, however long the test wants to
-# simulate); open-loop dispatch ignores it entirely (that is the point of
-# open-loop: arrivals do not wait on service time), closed-loop dispatch
-# uses it to know when a worker slot frees up.
+# Records
 # ---------------------------------------------------------------------------
 
-SendFn = Callable[[int], Tuple[object, float]]
-
-#: What `run` needs from a dispatch strategy: `submit`, `drain` and `shutdown`,
-#: as defined by the two executors in `testinghq/barrage/executor.py`. A string,
-#: because it is only ever used in annotations.
-DispatchExecutor = "SerialExecutor | PoolExecutor"
+#: The caller's hook: send request `index`, return its result.
+SendFn = Callable[[int], object]
 
 
 @dataclass(frozen=True)
 class DispatchRecord:
-    """One dispatched request: which stage rate was targeted at dispatch
-    time, when (simulated or real, per the injected clock) it was
-    dispatched, how long the bucket made it wait, and the caller's result
-    object for that request."""
+    """One request the run scheduled.
+
+    Times are readings of the injected clock. `scheduled_at` is when the
+    request was due (open loop: its slot on the schedule; closed loop: when a
+    worker took its token). `dispatched_at` is when it actually went out and is
+    None for a request that was never sent. `completed_at` is None unless the
+    request finished before the deadline. `waited` is the rate gate's wait.
+    """
 
     index: int
     target_rate: float
-    dispatch_time: float
-    waited: float
-    result: object
-    #: Seconds the request spent waiting for a free worker after it was
-    #: scheduled. `dispatch_time` is when it actually went out, so a saturated
-    #: pool shows up as achieved throughput falling behind the target, and this
-    #: says by how much each request was held back. Always 0 for serial dispatch.
-    queued: float = 0.0
+    scheduled_at: float
+    outcome: str
+    dispatched_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    result: object = None
+    waited: float = 0.0
+
+    @property
+    def queued(self) -> float:
+        """Seconds between due and dispatched, 0.0 if never dispatched."""
+        if self.dispatched_at is None:
+            return 0.0
+        return max(self.dispatched_at - self.scheduled_at, 0.0)
 
 
-# Headroom for the gate bucket. See _pace_and_gate: the schedule is the
-# pacer, and this bucket is a check on the schedule's interval arithmetic, so
-# it needs enough headroom that a correctly paced run never enters its own
-# internal wait loop. 2.0 does that.
-#
-# The old justification for this value was a float knife-edge where the bucket
-# would spin. That was the TokenBucket.acquire() defect fixed in 2026-07-27
-# and it no longer applies, so 1.0 would now be safe too. 2.0 stays because it
-# tolerates jitter for free, not because lowering it is dangerous.
-# See docs/decisions/0001-barrage-pacing.md.
+@dataclass(frozen=True)
+class RunResult:
+    """What `run` returns: records in index order plus how the run ended."""
+
+    records: List[DispatchRecord]
+    started_at: float
+    deadline: float
+    ended_at: float
+    aborted: bool = False
+
+    def count(self, outcome: str) -> int:
+        return sum(1 for r in self.records if r.outcome == outcome)
+
+
+class _Slot:
+    """Mutable state for one request while the run is live. Guarded by the
+    run's lock; turned into a frozen DispatchRecord at finalisation."""
+
+    __slots__ = ("index", "target_rate", "scheduled_at", "waited", "dispatched_at",
+                 "completed_at", "result", "outcome")
+
+    def __init__(self, index: int, target_rate: float, scheduled_at: float, waited: float = 0.0):
+        self.index = index
+        self.target_rate = target_rate
+        self.scheduled_at = scheduled_at
+        self.waited = waited
+        self.dispatched_at: Optional[float] = None
+        self.completed_at: Optional[float] = None
+        self.result: object = None
+        self.outcome: Optional[str] = None
+
+    def freeze(self) -> DispatchRecord:
+        outcome = self.outcome
+        if outcome is None:
+            outcome = OUTCOME_ABANDONED if self.dispatched_at is not None else OUTCOME_NOT_DISPATCHED
+        return DispatchRecord(
+            index=self.index,
+            target_rate=self.target_rate,
+            scheduled_at=self.scheduled_at,
+            outcome=outcome,
+            dispatched_at=self.dispatched_at,
+            completed_at=self.completed_at if outcome == OUTCOME_COMPLETED else None,
+            result=self.result if outcome == OUTCOME_COMPLETED else None,
+            waited=self.waited,
+        )
+
+
+class _Run:
+    """Shared state of one live run: the slots, the lock, and the flag that
+    tells late workers the run is over."""
+
+    def __init__(self, plan: "RunPlan", send_fn: SendFn, clock, started_at: float):
+        self.plan = plan
+        self.send_fn = send_fn
+        self.clock = clock
+        self.started_at = started_at
+        self.end = started_at + plan.duration_seconds
+        self.deadline = self.end + plan.grace_seconds
+        self.lock = threading.Lock()
+        self.closed = False
+        self.slots: List[_Slot] = []
+
+    def send(self, slot: _Slot, *, check_backlog: bool) -> None:
+        """Send one request if the run still wants it, recording the outcome."""
+        with self.lock:
+            if self.closed:
+                return
+            now = self.clock()
+            if now >= self.deadline:
+                slot.outcome = OUTCOME_NOT_DISPATCHED
+                return
+            if check_backlog and now - slot.scheduled_at > self.plan.max_queue_seconds:
+                slot.outcome = OUTCOME_DROPPED_BACKLOG
+                return
+            slot.dispatched_at = now
+        result = self.send_fn(slot.index)
+        finished = self.clock()
+        with self.lock:
+            if not self.closed:
+                slot.result = result
+                slot.completed_at = finished
+                slot.outcome = OUTCOME_COMPLETED
+
+    def finalise(self) -> List[DispatchRecord]:
+        with self.lock:
+            self.closed = True
+            records = [slot.freeze() for slot in self.slots]
+        records.sort(key=lambda r: r.index)
+        return records
+
+
+# ---------------------------------------------------------------------------
+# Pacing
+# ---------------------------------------------------------------------------
+
+#: Headroom for the open-loop rate gate. The schedule is the pacer; the gate is
+#: an independent check on the schedule's interval arithmetic, and in a
+#: correctly paced run it never waits. See docs/decisions/0001-barrage-pacing.md.
 _GATE_CAPACITY = 2.0
 
-
-def _stage_dispatch_count(stage: RampStage) -> int:
-    """How many requests a stage is budgeted: rate * duration, rounded to
-    the nearest whole request.
-
-    Deliberately computed up front rather than by looping on
-    `while clock() - stage_start < stage.duration`. Every dispatch loop
-    below is bounded by this plain integer, so a stage always terminates in
-    exactly that many iterations no matter what the injected clock or sleep
-    do at the boundary. This is also the ceiling's per-stage budget: it is
-    what makes aggregate throughput bounded by the configured rate even
-    when concurrency is high and the target responds instantly.
-    """
-    return max(0, round(stage.rate * stage.duration))
+#: Float residue tolerated when comparing a clock reading with a boundary. An
+#: additive injected clock lands a hair short of a boundary it was told to
+#: reach, and treating that as "before" would ask for a sub-nanosecond sleep.
+_EPSILON = 1e-9
 
 
 def _sleep_until(deadline: float, clock: Callable[[], float], sleep: Callable[[float], None]) -> None:
-    """Sleep, via the injected sleep, until the clock reads `deadline`.
-    A no-op if the deadline has already passed."""
     now = clock()
     if deadline > now:
         sleep(deadline - now)
 
 
-def _hold_until_stage_end(
-    stage: RampStage,
-    stage_start: float,
-    clock: Callable[[], float],
-    sleep: Callable[[float], None],
-) -> None:
-    """Occupy the rest of the stage's nominal duration after its budget is
-    spent.
-
-    Without this, a stage ends the moment its last request is dispatched,
-    which is up to one full interval early, and collapses entirely when
-    rounding gives a stage a budget of 1 (a 0.3s stage at 2 req/s fires its
-    single request at stage_start and returns immediately). The ramp then
-    takes almost no wall time and dumps every warmup request at once: the
-    achieved rate overshoots the target, and the warmup ramp does the exact
-    opposite of its job, slamming a cold endpoint instead of easing into
-    it. Caught by a real run against a local sink, where the first second
-    of a 10 req/s run reported 15 req/s achieved.
-
-    Holding to the stage boundary is what makes a stage's rate mean what it
-    says, and is why the ramp actually occupies warmup_seconds.
-    """
-    _sleep_until(stage_start + stage.duration, clock, sleep)
-
-
 def _pace_and_gate(bucket: TokenBucket) -> float:
-    """Take one token from the rate-gate bucket and return seconds waited.
-
-    The schedule is the pacer. The caller sleeps to an absolute deadline
-    derived from the stage's rate, and this bucket is a check on that: the
-    schedule computes an interval by dividing, the bucket is handed the rate
-    itself, so a mistake in one is not automatically a mistake in the other,
-    and if the dispatch loop ever takes tokens faster than the rate refills,
-    this blocks and the run slows to the configured rate rather than exceeding
-    it. In a correctly paced run this returns exactly 0.0 for every dispatch.
-
-    That is a narrower claim than it looks, and worth stating plainly. Both
-    mechanisms read the rate from `stage.rate`, so this does NOT catch a
-    disagreement about the rate; it catches an error in the interval
-    arithmetic. `tests/unit/barrage/test_runner.py` pins both halves: that the
-    gate never waits on a correct run, and that it does block when tokens are
-    taken too fast, which is what makes it a check rather than decoration.
-
-    Why the gate is not the pacer, which is the actual decision here: a
-    blocking gate would throttle the offered load down exactly when the target
-    is slow, and measuring that is the whole point of an open-loop run. See
-    docs/decisions/0001-barrage-pacing.md, which records that decision and the
-    larger finding that came out of it: the dispatch here used to be serial, so
-    neither the gate nor the schedule was what limited throughput, and the
-    reported rate was a measurement of this loop. That is fixed, in
-    testinghq/barrage/executor.py.
-
-    Note the asymmetry if this is ever revisited: a closed-loop run has no
-    arrival schedule to hold, so a blocking acquire would be the right tool
-    there.
-    """
+    """Take one token from the open-loop gate and return seconds waited. Zero
+    on a correctly paced run; it blocks only if the schedule hands out arrivals
+    faster than the stage rate."""
     return bucket.acquire()
 
 
-def _submit(
-    executor: "DispatchExecutor",
-    send_fn: SendFn,
-    index: int,
-    dispatch_time: float,
-    target_rate: float,
-    waited: float,
-    records: List[DispatchRecord],
-    clock: Callable[[], float],
-) -> None:
-    """Hand one request to the executor and record it.
+class _ClosedLoopPacer:
+    """The shared token source for closed-loop workers.
 
-    The record is appended in submission order, before the request has
-    completed. `DispatchRecord.index` is the payload identity and the artifact's
-    ordering key, and both have to be a function of the plan rather than of how
-    the workers happened to interleave: a run artifact that reorders itself
-    between executions of the same plan cannot be compared, and `compare`
-    aligns on exactly that index.
-
-    `dispatch_time` on the finished record is when the request actually went
-    out, read from `clock` by the worker as it starts, not when it was handed to
-    the executor. The first version recorded the hand-off. With every worker
-    busy, requests wait in the pool's queue, and a hand-off timestamp reported
-    them as sent on schedule: achieved throughput equalled the target and the
-    knee never showed, while the target was in fact falling behind. The gap
-    between the two is kept as `queued`.
-
-    `result` is None until the request completes. Nothing reads a record's
-    result before the run is drained, and a partially filled record is what a
-    crash mid-run would leave behind, which is the honest state for one.
-    """
-    position = len(records)
-    records.append(
-        DispatchRecord(
-            index=index,
-            target_rate=target_rate,
-            dispatch_time=dispatch_time,
-            waited=waited,
-            result=None,
-        )
-    )
-
-    def _send():
-        started = clock()
-        # The future carries the RESULT and the start time only, not
-        # `send_fn`'s service seconds, which are an artefact of the loop.
-        return send_fn(index)[0], started
-
-    future = executor.submit(_send)
-    future.add_done_callback(_bind_result(records, position))
-
-
-def _bind_result(records: List[DispatchRecord], position: int):
-    """A callback that writes a completed request's result back into its record.
-
-    By position, captured at submission, rather than by searching for the
-    index. The first version scanned the list on every completion, which is
-    quadratic in the run: at the default ceiling that is 15,000 requests and
-    over a hundred million comparisons, on the worker threads that are meant
-    to be sending.
-
-    `DispatchRecord` is frozen, so this replaces the element rather than
-    mutating it. Item assignment on a list is atomic under the GIL, and each
-    position is written by exactly one callback.
+    One TokenBucket of capacity 1, so workers cannot burst, whose rate follows
+    the stage the run is in. `take` blocks the calling worker until its token
+    is earned, and returns None once the next token would land at or after the
+    end of the run. The lock serialises token takers, so token order is index
+    order.
     """
 
-    def _write(future) -> None:
-        # An exception inside send_fn is not raised here. It is re-raised by
-        # executor.drain() against the future that carries it, so a failure
-        # surfaces at the point the run waits for the request rather than
-        # inside a worker thread where the traceback would be lost.
-        if future.cancelled() or future.exception() is not None:
-            return
-        result, started = future.result()
-        record = records[position]
-        records[position] = DispatchRecord(
-            index=record.index,
-            target_rate=record.target_rate,
-            dispatch_time=started,
-            waited=record.waited,
-            result=result,
-            queued=max(started - record.dispatch_time, 0.0),
+    def __init__(self, stages: List[RampStage], run: _Run, clock, sleep):
+        self._run = run
+        self._clock = clock
+        self._sleep = sleep
+        self._lock = threading.Lock()
+        self._done = False
+        self._next_index = 0
+        self._bounds: List[Tuple[float, float]] = []  # (absolute stage end, rate)
+        at = run.started_at
+        for stage in stages:
+            if stage.duration > 0:
+                at += stage.duration
+                self._bounds.append((at, stage.rate))
+        self._bucket = TokenBucket(
+            rate_per_sec=self._bounds[0][1], capacity=1.0, clock=clock, sleep=sleep
         )
 
-    return _write
+    def stop(self) -> None:
+        self._done = True
+
+    def _stage_at(self, now: float) -> Tuple[float, float]:
+        for stage_end, rate in self._bounds:
+            if now < stage_end:
+                return stage_end, rate
+        return self._bounds[-1]
+
+    def take(self) -> Optional[_Slot]:
+        end = self._run.end - _EPSILON
+        with self._lock:
+            while True:
+                now = self._clock()
+                if self._done or self._run.closed or now >= end:
+                    self._done = True
+                    return None
+                stage_end, rate = self._stage_at(now + _EPSILON)
+                if self._bucket.rate != rate:
+                    self._bucket.set_rate(rate)
+                wait_for = self._bucket.wait_time()
+                boundary = min(stage_end, self._run.end)
+                if now + wait_for >= boundary - _EPSILON:
+                    if boundary >= end:
+                        self._done = True
+                        return None
+                    # The token falls in the next stage: move there and
+                    # re-price it at that stage's rate.
+                    self._sleep(boundary - now)
+                    continue
+                waited = self._bucket.acquire()
+                taken_at = self._clock()
+                if taken_at >= end:
+                    self._done = True
+                    return None
+                slot = _Slot(self._next_index, rate, taken_at, waited)
+                self._next_index += 1
+                return slot
 
 
-def _run_open_loop_stages(
-    stages: List[RampStage],
-    concurrency: int,
-    send_fn: SendFn,
-    clock: Callable[[], float],
-    sleep: Callable[[float], None],
-    executor: "DispatchExecutor",
-) -> List[DispatchRecord]:
-    """Open-loop dispatch: for each stage, dispatch on an absolute schedule of
-    `1 / rate` second arrivals from the stage's start, gated by a TokenBucket
-    at that stage's rate. Arrivals happen on schedule regardless of how long any
-    prior request took, which is what actually reveals a target's breaking
-    point.
+# ---------------------------------------------------------------------------
+# The two modes
+# ---------------------------------------------------------------------------
 
-    Requests are SUBMITTED on schedule, not completed on schedule. That
-    distinction is the whole tool: the previous version called `send_fn`
-    inline, so a target slower than the arrival interval pushed every
-    subsequent arrival into the past and the achieved rate silently became
-    `1 / response_time`. With `concurrency` in flight the arrivals stay on the
-    schedule and the target sees the load that was asked for, which is the only
-    way a p90 over a queue is a measurement of the target rather than of this
-    loop.
 
-    The loop records the hand-off, and the worker overwrites it with the time
-    the request actually went out (see `_submit`), so a pool that cannot keep
-    up shows as a shortfall rather than as a schedule met. A future returned
-    here is deliberately not awaited: an open-loop run's arrivals must not wait
-    on service, and draining happens at the stage boundary, below.
-    """
-    records: List[DispatchRecord] = []
-    index = 0
-    for stage in stages:
-        if stage.duration <= 0:
-            continue
-        stage_start = clock()
-        # A stage whose budget rounds to 0 (an early, low-rate ramp step
-        # too short to earn a whole request) still occupies its window.
-        # Skipping it outright would silently shorten the ramp.
-        count = _stage_dispatch_count(stage)
-        if count > 0:
-            bucket = TokenBucket(
-                rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
+def _run_open_loop(run: _Run, stages: List[RampStage], executor, clock, sleep) -> List:
+    futures = []
+    gate: Optional[TokenBucket] = None
+    schedule = arrival_schedule(stages)
+    for position, arrival in enumerate(schedule):
+        due = run.started_at + arrival.offset
+        _sleep_until(due, clock, sleep)
+        if clock() >= run.deadline:
+            # Only reachable when an inline send overran the whole run. Every
+            # remaining arrival was due and is accounted for as never sent.
+            with run.lock:
+                for late in schedule[position:]:
+                    slot = _Slot(late.index, late.rate, run.started_at + late.offset)
+                    slot.outcome = OUTCOME_NOT_DISPATCHED
+                    run.slots.append(slot)
+            break
+        if gate is None or gate.rate != arrival.rate:
+            gate = TokenBucket(
+                rate_per_sec=arrival.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
             )
-            interval = 1.0 / stage.rate
-            for step in range(count):
-                _sleep_until(stage_start + step * interval, clock, sleep)
-                waited = _pace_and_gate(bucket)
-                dispatch_time = clock()
-                _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records, clock)
-                index += 1
-        # Drain before the stage's window closes, so a request submitted in
-        # this stage cannot be reported in a later one and so a stage's error
-        # is attributed to the stage that caused it.
-        executor.drain()
-        _hold_until_stage_end(stage, stage_start, clock, sleep)
-    executor.drain()
-    return records
+        waited = _pace_and_gate(gate)
+        slot = _Slot(arrival.index, arrival.rate, due, waited)
+        with run.lock:
+            run.slots.append(slot)
+        futures.append(executor.submit(lambda s=slot: run.send(s, check_backlog=True)))
+    _sleep_until(run.end, clock, sleep)
+    return futures
 
 
-def _run_closed_loop_stages(
-    stages: List[RampStage],
-    concurrency: int,
-    send_fn: SendFn,
-    clock: Callable[[], float],
-    sleep: Callable[[float], None],
-    executor: "DispatchExecutor",
-) -> List[DispatchRecord]:
-    """Closed-loop dispatch across `concurrency` workers.
+def _run_closed_loop(run: _Run, executor, pacer: _ClosedLoopPacer) -> List:
+    def worker() -> None:
+        while True:
+            slot = pacer.take()
+            if slot is None:
+                return
+            with run.lock:
+                if run.closed:
+                    return
+                run.slots.append(slot)
+            run.send(slot, check_backlog=False)
 
-    Offered load self-limits against a slow target, which is the closed-loop
-    property: the pool has `concurrency` workers, so when they are all busy
-    further submissions queue rather than going out. That is the backpressure
-    arriving by construction, rather than the `free_at` arithmetic that used to
-    simulate `concurrency` workers inside a single-threaded loop.
-
-    Bounded by `_stage_dispatch_count(stage)`, the stage's rate budget, so
-    the loop always terminates; a slow target simply may not use its whole
-    budget before `stage.duration` elapses, which is correct.
-    """
-    records: List[DispatchRecord] = []
-    index = 0
-    for stage in stages:
-        if stage.duration <= 0:
-            continue
-        stage_start = clock()
-        # As in the open-loop path: a zero-budget ramp step still occupies
-        # its window rather than being skipped, so the ramp keeps its shape.
-        budget = _stage_dispatch_count(stage)
-        bucket = TokenBucket(
-            rate_per_sec=stage.rate, capacity=_GATE_CAPACITY, clock=clock, sleep=sleep
-        )
-        interval = 1.0 / stage.rate
-        dispatched = 0
-        while dispatched < budget:
-            deadline = stage_start + dispatched * interval
-            _sleep_until(deadline, clock, sleep)
-            if clock() - stage_start >= stage.duration:
-                break
-            waited = _pace_and_gate(bucket)
-            dispatch_time = clock()
-            _submit(executor, send_fn, index, dispatch_time, stage.rate, waited, records, clock)
-            index += 1
-            dispatched += 1
-        executor.drain()
-        _hold_until_stage_end(stage, stage_start, clock, sleep)
-    executor.drain()
-    return records
+    return [executor.submit(worker) for _ in range(run.plan.concurrency)]
 
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
+def _failed(future) -> bool:
+    return future.done() and not future.cancelled() and future.exception() is not None
+
 
 MODE_OPEN = "open"
 MODE_CLOSED = "closed"
@@ -500,14 +466,12 @@ VALID_MODES = (MODE_OPEN, MODE_CLOSED)
 
 @dataclass(frozen=True)
 class RunPlan:
-    """The full description of one Barrage run. `mode` is "open" or
-    "closed" (see module docstring). `rate` is the target requests/second
-    (open-loop: the exact arrival rate; closed-loop: the aggregate ceiling
-    workers are paced against). `concurrency` is the worker count
-    (closed-loop) or the max outstanding requests (open-loop, enforced by
-    the caller's executor, not by this module). `warmup_seconds` ramps from
-    0 to `rate`; `hold_seconds` is the steady-state duration at `rate`.
-    """
+    """One Barrage run. `rate` is requests per second (open: the arrival rate;
+    closed: the shared token rate). `concurrency` is the number of workers in
+    both modes. `warmup_seconds` ramps from 0 to `rate`, then `hold_seconds`
+    holds it. The run ends `grace_seconds` after `warmup + hold` at the latest.
+    `max_queue_seconds` bounds how long an open-loop request may wait for a
+    worker before it is dropped."""
 
     mode: str
     rate: float
@@ -515,6 +479,8 @@ class RunPlan:
     warmup_seconds: float
     hold_seconds: float
     ramp_step_count: int = 10
+    grace_seconds: float = DEFAULT_GRACE_SECONDS
+    max_queue_seconds: float = DEFAULT_MAX_QUEUE_SECONDS
 
     def __post_init__(self):
         if self.mode not in VALID_MODES:
@@ -529,10 +495,20 @@ class RunPlan:
             raise ValueError(f"hold_seconds must be > 0, got {self.hold_seconds!r}")
         if self.ramp_step_count < 0:
             raise ValueError(f"ramp_step_count must be >= 0, got {self.ramp_step_count!r}")
+        if self.grace_seconds < 0:
+            raise ValueError(f"grace_seconds must be >= 0, got {self.grace_seconds!r}")
+        if self.max_queue_seconds <= 0:
+            raise ValueError(
+                f"max_queue_seconds must be > 0, got {self.max_queue_seconds!r}"
+            )
 
     @property
     def duration_seconds(self) -> float:
         return total_duration(self.warmup_seconds, self.hold_seconds)
+
+    @property
+    def stages(self) -> List[RampStage]:
+        return build_stages(self.rate, self.warmup_seconds, self.hold_seconds, self.ramp_step_count)
 
 
 def run(
@@ -544,28 +520,16 @@ def run(
     allow_high_rate: bool = False,
     max_rate: float = DEFAULT_MAX_RATE_PER_SEC,
     max_duration: float = DEFAULT_MAX_DURATION_SEC,
-    executor: Optional["DispatchExecutor"] = None,
-) -> List[DispatchRecord]:
-    """Run `plan`, dispatching through `send_fn`, and return the ordered
-    list of DispatchRecord.
+    executor=None,
+) -> RunResult:
+    """Run `plan` through `send_fn` and return a RunResult.
 
-    Enforces the hard rate, duration and concurrency ceiling before building any stage
-    or dispatching anything: a run that would exceed it raises
-    RateCeilingError unless `allow_high_rate=True`.
+    The ceiling is checked before anything is dispatched. `executor` defaults
+    to one sized by `plan.concurrency`; an injected one is not shut down.
 
-    `clock` and `sleep` are threaded through to every TokenBucket this run
-    creates; passing fakes makes the whole run hermetic; no call in this
-    module ever touches the real wall clock or a real sleep except via
-    these defaults.
-
-    `executor` defaults to one sized by `plan.concurrency`: a thread pool of
-    that many workers for anything above 1, and inline dispatch for exactly 1.
-    The pool is what makes `concurrency` mean something, and injecting it is
-    what lets a test prove requests overlapped without a socket.
-
-    Records come back ordered by `index` and fully populated. A caller never
-    sees a half-filled record from a completed run, because the executor is
-    drained before `run` returns even when the caller supplied it.
+    A KeyboardInterrupt ends the run: it is not re-raised, the records gathered
+    so far come back, and `RunResult.aborted` is True. An exception raised by
+    `send_fn` is a bug in the hook and is re-raised after the run is closed.
     """
     check_rate_ceiling(
         plan.rate,
@@ -575,28 +539,50 @@ def run(
         max_duration=max_duration,
         concurrency=plan.concurrency,
     )
-    stages = build_stages(plan.rate, plan.warmup_seconds, plan.hold_seconds, plan.ramp_step_count)
+    stages = plan.stages
     owned = executor is None
-    if executor is None:
+    if owned:
         executor = make_executor(plan.concurrency)
+    live = _Run(plan, send_fn, clock, clock())
+    pacer = None
+    futures: List = []
+    aborted = False
+    failure: Optional[BaseException] = None
     try:
         if plan.mode == MODE_OPEN:
-            records = _run_open_loop_stages(
-                stages, plan.concurrency, send_fn, clock, sleep, executor
-            )
+            futures = _run_open_loop(live, stages, executor, clock, sleep)
         else:
-            records = _run_closed_loop_stages(
-                stages, plan.concurrency, send_fn, clock, sleep, executor
-            )
-        executor.drain()
-    except BaseException:
-        # An error or a Ctrl-C ends the run. Cancel what is still queued rather
-        # than draining it: a drain would keep sending to the target until the
-        # queue was empty, and would re-raise a worker's exception over the one
-        # that actually stopped the run.
+            pacer = _ClosedLoopPacer(stages, live, clock, sleep)
+            futures = _run_closed_loop(live, executor, pacer)
+        remaining = live.deadline - clock()
+        if futures and remaining > 0:
+            wait(futures, timeout=remaining, return_when=FIRST_EXCEPTION)
+        if plan.mode == MODE_CLOSED and not any(_failed(f) for f in futures):
+            _sleep_until(live.end, clock, sleep)
+    except KeyboardInterrupt:
+        aborted = True
+    finally:
+        if pacer is not None:
+            pacer.stop()
+        records = live.finalise()
         if owned:
-            executor.shutdown(wait=False, cancel_pending=True)
-        raise
-    if owned:
-        executor.shutdown(wait=True)
-    return records
+            executor.shutdown(cancel_pending=True)
+    for future in futures:
+        if not future.done() or future.cancelled():
+            continue
+        exc = future.exception()
+        if isinstance(exc, KeyboardInterrupt):
+            # Raised on a worker thread (an injected hook can do this); it
+            # still means "stop and keep what you have".
+            aborted = True
+        elif exc is not None and failure is None:
+            failure = exc
+    if failure is not None:
+        raise failure
+    return RunResult(
+        records=records,
+        started_at=live.started_at,
+        deadline=live.deadline,
+        ended_at=clock(),
+        aborted=aborted,
+    )

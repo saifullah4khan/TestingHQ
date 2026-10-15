@@ -20,6 +20,7 @@ import pytest
 from testinghq.cli import blast as blast_cli
 from testinghq.core import report as core_report
 from testinghq import cli
+from testinghq.core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED
 from testinghq.core.transport import ClientResponse
 
 
@@ -183,7 +184,7 @@ def test_run_fire_writes_artifact_matching_records_sent(tmp_path, forbid_network
         pairs, seed=4, count=2, target_name="local", rate=50.0, out=str(out_path),
         config_path=str(tmp_path / "target.toml"), client=client,
     )
-    assert rc == 0
+    assert rc == EXIT_FINDING
     artifact = json.loads(out_path.read_text(encoding="utf-8"))
     assert artifact["config"]["target"] == "local"
     assert artifact["config"]["dry_run"] is False
@@ -268,3 +269,272 @@ def test_replay_missing_file_is_reported_not_crashed(tmp_path, capsys):
     rc = cli.main(["blast", "replay", str(tmp_path / "does-not-exist.json")])
     assert rc == 1
     assert "replay" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# blast fire --send: the exit code is the verdict
+# ---------------------------------------------------------------------------
+
+
+def _fire_with(tmp_path, client, pairs=None, out=None, **kwargs):
+    _write_target_config(tmp_path)
+    if pairs is None:
+        pairs = blast_cli._build_corpus(seed=2, count=3)
+    return blast_cli._run_fire(
+        pairs, seed=2, count=len(pairs), target_name="local", rate=50.0, out=out,
+        config_path=str(tmp_path / "target.toml"), client=client, **kwargs,
+    )
+
+
+def test_a_clean_send_exits_ok(tmp_path, forbid_network):
+    assert _fire_with(tmp_path, FakeClient(status=200)) == EXIT_OK
+
+
+def test_a_5xx_on_a_messy_payload_exits_with_a_finding(tmp_path, forbid_network):
+    from testinghq.blast.corpus import CorpusPlan, parse_mix
+
+    plan = CorpusPlan(seed=2, count=5, mix=parse_mix("messy=100"))
+    rc = _fire_with(tmp_path, FakeClient(status=500), pairs=plan.build(), plan=plan)
+    assert rc == EXIT_FINDING
+
+
+class RefusingClient:
+    def send(self, request):
+        raise ConnectionRefusedError("[Errno 111] Connection refused")
+
+
+def test_no_response_is_recorded_with_its_reason(tmp_path, forbid_network, capsys):
+    out = tmp_path / "run.json"
+    rc = _fire_with(tmp_path, RefusingClient(), out=str(out))
+    assert rc == EXIT_FINDING
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    for record in artifact["records"]:
+        assert record["response"]["error_kind"] == "refused"
+        assert "Connection refused" in record["response"]["error"]
+    assert artifact["summary"]["transport_errors"]["refused"] == 3
+    printed = capsys.readouterr().out
+    assert "(refused 3, dns 0, timeout 0, tls 0, other 0)" in printed
+    assert "timed out" not in printed
+
+
+def test_fail_on_body_flags_a_2xx_that_says_error(tmp_path, forbid_network):
+    out = tmp_path / "run.json"
+    client = FakeClient(status=200, body=b'{"status":"error"}')
+    rc = _fire_with(tmp_path, client, out=str(out), fail_on_body='"status":"error"')
+    assert rc == EXIT_FINDING
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert artifact["config"]["fail_on_body"] == '"status":"error"'
+    assert all("failure body" in flag for flag in artifact["summary"]["flags"])
+    assert _fire_with(tmp_path, client) == EXIT_OK, "no pattern, no body inspection"
+
+
+def test_an_invalid_fail_on_body_pattern_is_refused(forbid_network, capsys):
+    rc = cli.main(["blast", "fire", "--count", "1", "--fail-on-body", "("])
+    assert rc == EXIT_REFUSED
+    assert "--fail-on-body" in capsys.readouterr().err
+
+
+class InterruptingClient:
+    """Answers once, then the operator presses Ctrl-C."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def send(self, request):
+        self.calls += 1
+        if self.calls > 1:
+            raise KeyboardInterrupt
+        return ClientResponse(status=200, body=b"ok")
+
+
+def test_ctrl_c_writes_what_was_sent_and_exits_with_a_finding(tmp_path, forbid_network):
+    out = tmp_path / "run.json"
+    rc = _fire_with(tmp_path, InterruptingClient(), out=str(out))
+    assert rc == EXIT_FINDING
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert artifact["aborted"] is True
+    assert len(artifact["records"]) == 1
+
+
+def test_the_send_artifact_carries_schema_version_tool_and_the_plan(tmp_path, forbid_network):
+    out = tmp_path / "run.json"
+    _fire_with(tmp_path, FakeClient(), out=str(out))
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert artifact["schema_version"] == 1
+    assert artifact["tool"] == "blast"
+    assert artifact["config"]["attachments"] == "seeded"
+    assert sum(artifact["config"]["mix_percent"].values()) == pytest.approx(100)
+
+
+# ---------------------------------------------------------------------------
+# --mix, --catalog, --attachments, --count from the command line
+# ---------------------------------------------------------------------------
+
+
+def _generate(tmp_path, *flags):
+    out_dir = tmp_path / "corpus"
+    rc = cli.main(["blast", "generate", "--out", str(out_dir), *flags])
+    manifest = None
+    if (out_dir / "manifest.json").exists():
+        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    return rc, manifest
+
+
+def test_generate_honours_mix(tmp_path, forbid_network):
+    rc, manifest = _generate(tmp_path, "--count", "20", "--mix", "degenerate=100")
+    assert rc == EXIT_OK
+    assert {item["category"] for item in manifest["items"]} == {"degenerate"}
+    assert manifest["schema_version"] == 1
+
+
+def test_generate_refuses_a_mix_that_does_not_add_up(tmp_path, forbid_network, capsys):
+    rc, manifest = _generate(tmp_path, "--mix", "clean=30,degenerate=30")
+    assert rc == EXIT_REFUSED
+    assert manifest is None
+    assert "add up to 100" in capsys.readouterr().err
+
+
+def test_generate_and_fire_reach_the_catalog(tmp_path, forbid_network):
+    from testinghq.blast.catalog import CATALOG
+
+    rc, manifest = _generate(tmp_path, "--catalog")
+    assert rc == EXIT_OK
+    assert sorted(item["case"] for item in manifest["items"]) == sorted(CATALOG)
+
+    out = tmp_path / "run.json"
+    rc = cli.main(["blast", "fire", "--catalog", "empty_subject,many_recipients", "--out", str(out)])
+    assert rc == EXIT_DRY_RUN
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert [r["case"] for r in artifact["records"]] == ["empty_subject", "many_recipients"]
+    assert artifact["config"]["catalog"] == ["empty_subject", "many_recipients"]
+
+
+def test_catalog_with_count_is_refused(tmp_path, forbid_network):
+    rc, _manifest = _generate(tmp_path, "--catalog", "--count", "5")
+    assert rc == EXIT_REFUSED
+
+
+def test_attachments_mode_reaches_the_corpus(tmp_path, forbid_network, capsys):
+    rc = cli.main(["blast", "fire", "--count", "60", "--attachments", "none"])
+    assert rc == EXIT_DRY_RUN
+    assert "with attachments: 0" in capsys.readouterr().out
+    rc = cli.main(["blast", "fire", "--count", "60"])
+    assert "with attachments: 0" not in capsys.readouterr().out, "seeded is the default"
+
+
+@pytest.mark.parametrize("command", ["generate", "fire"])
+def test_a_negative_count_is_a_refusal_not_a_traceback(tmp_path, forbid_network, capsys, command):
+    argv = ["blast", command, "--count", "-3"]
+    if command == "generate":
+        argv += ["--out", str(tmp_path / "corpus")]
+    rc = cli.main(argv)
+    assert rc == EXIT_REFUSED
+    assert "--count must be 0 or more" in capsys.readouterr().err
+
+
+def test_replay_rebuilds_a_catalog_and_mix_run(tmp_path, forbid_network):
+    for flags in (
+        ["--catalog", "zero_byte_attachment,oversized_body_1mb"],
+        ["--count", "6", "--mix", "clean=50,malformed=50", "--attachments", "adversarial"],
+    ):
+        run_path = tmp_path / "run.json"
+        assert cli.main(["blast", "fire", *flags, "--out", str(run_path)]) == EXIT_DRY_RUN
+        assert cli.main(["blast", "replay", str(run_path)]) == EXIT_DRY_RUN
+
+
+def test_replay_refuses_a_newer_schema_version(tmp_path, forbid_network, capsys):
+    run_path = tmp_path / "run.json"
+    cli.main(["blast", "fire", "--count", "2", "--out", str(run_path)])
+    data = json.loads(run_path.read_text(encoding="utf-8"))
+    data["schema_version"] = 2
+    run_path.write_text(json.dumps(data), encoding="utf-8")
+    assert cli.main(["blast", "replay", str(run_path)]) == EXIT_REFUSED
+    assert "schema_version" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# --catalog through the send guard
+# ---------------------------------------------------------------------------
+
+
+def test_the_full_catalog_passes_the_send_guard(tmp_path, forbid_network):
+    """Every catalog case, including the zero-length envelope with its empty
+    To, is synthetic enough to send."""
+    from testinghq.blast.corpus import CorpusPlan, parse_catalog
+
+    config = _write_target_config(tmp_path)
+    plan = CorpusPlan(seed=0, catalog=parse_catalog("all"))
+    pairs = plan.build()
+    assert any(email.to == "" for email, _label in pairs), "the empty-To case is in the catalog"
+    args = cli.build_parser().parse_args(
+        ["blast", "fire", "--target", "local", "--config", str(config), "--send", "--catalog"]
+    )
+    assert blast_cli._validate_send_plan(pairs, args, "local") is None
+
+
+def test_the_catalog_with_a_real_address_spliced_in_is_still_refused(tmp_path, forbid_network):
+    from testinghq.blast.corpus import CorpusPlan, parse_catalog
+
+    config = _write_target_config(tmp_path)
+    pairs = CorpusPlan(seed=0, catalog=parse_catalog("all")).build()
+    email, label = pairs[0]
+    pairs[0] = (email.with_changes(to="Someone <someone@gmail.com>"), label)
+    args = cli.build_parser().parse_args(
+        ["blast", "fire", "--target", "local", "--config", str(config), "--send", "--catalog"]
+    )
+    refusal = blast_cli._validate_send_plan(pairs, args, "local")
+    assert refusal is not None and "someone@gmail.com" in refusal
+
+
+def test_blast_fire_send_catalog_sends_every_case(tmp_path, forbid_network, monkeypatch, capsys):
+    """The README command, end to end in process: nothing refused, one request
+    per catalog case."""
+    from testinghq.blast.corpus import CorpusPlan, parse_catalog
+
+    fake = FakeClient(status=200)
+    real_post = blast_cli.post
+    monkeypatch.setattr(
+        blast_cli, "post",
+        lambda email, url, client=None, wire_format=None: real_post(
+            email, url, client=fake, wire_format=wire_format
+        ),
+    )
+    config = _write_target_config(tmp_path)
+    out = tmp_path / "blast.json"
+    rc = cli.main(["blast", "fire", "--target", "local", "--config", str(config),
+                   "--send", "--catalog", "--rate", "1000", "--out", str(out)])
+    captured = capsys.readouterr()
+    assert rc in (EXIT_OK, EXIT_FINDING), captured.err
+    assert "refused" not in captured.err
+    expected = len(CorpusPlan(seed=0, catalog=parse_catalog("all")).build())
+    assert len(fake.received) == expected
+    assert len(json.loads(out.read_text(encoding="utf-8"))["records"]) == expected
+
+
+# ---------------------------------------------------------------------------
+# A dry-run artifact through `report`
+# ---------------------------------------------------------------------------
+
+
+def test_report_reads_a_blast_dry_run_as_a_dry_run(tmp_path, forbid_network, capsys):
+    """A dry run sent nothing, so `report` must not grade its planned records
+    as a clean run that sent and passed every one."""
+    out = tmp_path / "blastdry.json"
+    assert cli.main(["blast", "fire", "--count", "10", "--out", str(out)]) == EXIT_DRY_RUN
+    capsys.readouterr()
+
+    assert cli.main(["report", str(out), "--json"]) == EXIT_OK
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["verdict"] == "DRY RUN"
+    assert summary["exit_code"] == EXIT_DRY_RUN
+    assert summary["dry_run"] is True
+    assert summary["counts"]["sent"] == 0
+    assert summary["counts"]["passed"] == 0
+    assert summary["counts"]["failed"] == 0
+    assert summary["counts"]["records"] == 10
+
+    assert cli.main(["report", str(out)]) == EXIT_OK
+    text = capsys.readouterr().out
+    assert "verdict: DRY RUN" in text
+    assert "exit code: 2" in text
+    assert "CLEAN" not in text

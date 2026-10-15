@@ -124,3 +124,72 @@ def test_ground_truth_is_a_required_field():
             html="<p></p>",
             envelope=Envelope(to=("a@example.com",), from_addr="b@example.com"),
         )
+
+
+# ---------------------------------------------------------------------------
+# with_changes keeps headers and raw_fields consistent
+# ---------------------------------------------------------------------------
+
+
+def _with_headers(**overrides):
+    return _make_email(
+        headers={
+            "From": "sender@example.com",
+            "To": "recipient@example.com",
+            "Subject": "Hello",
+            "Date": "Mon, 01 Jan 2024 00:00:00 +0000",
+        },
+        **overrides,
+    )
+
+
+def test_with_changes_rewrites_the_matching_headers():
+    email = _with_headers().with_changes(
+        subject="New subject", to="Bob <bob@example.com>", from_addr="a@example.org"
+    )
+    assert email.headers["Subject"] == "New subject"
+    assert email.headers["To"] == "Bob <bob@example.com>"
+    assert email.headers["From"] == "a@example.org"
+    assert list(email.headers) == ["From", "To", "Subject", "Date"]
+
+
+def test_with_changes_rfc2047_encodes_a_non_ascii_subject_and_keeps_the_field_decoded():
+    from email.header import decode_header, make_header
+
+    email = _with_headers().with_changes(subject="Café réservation 订单")
+    assert email.subject == "Café réservation 订单"
+    encoded = email.headers["Subject"]
+    assert encoded.isascii() and encoded.startswith("=?UTF-8?B?")
+    assert str(make_header(decode_header(encoded))) == email.subject
+    assert all(len(word) <= 75 for word in encoded.split(" "))
+
+
+def test_with_changes_encodes_only_the_display_name_of_an_address():
+    email = _with_headers().with_changes(from_addr="Zoë Müller <zoe@example.com>")
+    header = email.headers["From"]
+    assert header.endswith(" <zoe@example.com>")
+    assert header.startswith("=?UTF-8?B?")
+
+
+def test_with_changes_matches_header_names_case_insensitively():
+    email = _make_email(headers={"subject": "Hello"}).with_changes(subject="Bye")
+    assert email.headers == {"subject": "Bye"}
+
+
+def test_with_changes_leaves_headers_alone_when_they_are_passed_explicitly():
+    email = _with_headers().with_changes(subject="x", headers={"Subject": "y"})
+    assert email.headers == {"Subject": "y"}
+
+
+def test_with_changes_drops_a_stale_raw_field_and_keeps_the_others():
+    email = _make_email(raw_fields={"subject": b"\xe9", "text": b"\xe9"})
+    changed = email.with_changes(subject="plain")
+    assert changed.raw_fields == {"text": b"\xe9"}
+    from_changed = _make_email(raw_fields={"from": b"x"}).with_changes(from_addr="y@example.com")
+    assert from_changed.raw_fields == {}
+
+
+def test_with_changes_does_not_touch_its_input():
+    original = _with_headers()
+    original.with_changes(subject="other")
+    assert original.headers["Subject"] == "Hello"

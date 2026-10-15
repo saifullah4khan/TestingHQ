@@ -6,11 +6,43 @@ from pathlib import Path
 from typing import Optional
 
 from ..barrage import fire as barrage_fire
+from ..barrage.payloads import DEFAULT_POOL_SIZE
 from ..barrage.runner import RateCeilingError
+from ..compare import load as compare_load
 from ..compare import runs as compare_runs
 from ..core import guardrails
 from ..core.config import ConfigError
-from .common import DEFAULT_TARGET_CONFIG
+from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_REFUSED
+from .common import DEFAULT_TARGET_CONFIG, add_send_args, positive_number
+
+
+def _add_send_shape_args(parser) -> None:
+    """How each request is sent and when the run gives up. Recorded in the
+    artifact, so `replay` sends the same way."""
+    parser.add_argument(
+        "--timeout", type=float, default=barrage_fire.DEFAULT_TIMEOUT,
+        help="per-request timeout in seconds (default %(default)s)",
+    )
+    parser.add_argument(
+        "--grace", type=float, default=barrage_fire.DEFAULT_GRACE_SECONDS,
+        help=(
+            "seconds after --duration that in-flight requests may finish; the run "
+            "ends then and anything still out is recorded as abandoned "
+            "(default %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--max-queue-seconds", type=float, default=barrage_fire.DEFAULT_MAX_QUEUE_SECONDS,
+        help=(
+            "open loop: a request that waited this long for a free worker is "
+            "recorded as dropped_backlog and not sent (default %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--no-keepalive", action="store_true",
+        help="open a new connection per request instead of one kept-alive connection per worker",
+    )
+
 
 def _add_barrage_parser(sub) -> None:
     """The `barrage` subcommand: load-test a configured target.
@@ -28,41 +60,47 @@ def _add_barrage_parser(sub) -> None:
     barrage_sub = barrage.add_subparsers(dest="command", required=True)
 
     b_fire = barrage_sub.add_parser("fire", help="run a load test against a configured target")
-    b_fire.add_argument("--target")
-    b_fire.add_argument("--seed", type=int, default=barrage_fire.DEFAULT_SEED)
+    b_fire.add_argument("--target", help="name of a [targets.<name>] table in --config")
     b_fire.add_argument(
-        "--rate", type=float, default=barrage_fire.DEFAULT_RATE,
-        help="target requests per second",
+        "--seed", type=int, default=barrage_fire.DEFAULT_SEED,
+        help="payload pool seed (default %(default)s)",
+    )
+    b_fire.add_argument(
+        "--rate", type=positive_number, default=barrage_fire.DEFAULT_RATE,
+        help="target requests per second (default %(default)s)",
     )
     b_fire.add_argument(
         "--duration", type=float, default=barrage_fire.DEFAULT_DURATION,
-        help="total run duration in seconds, including the warmup ramp",
+        help="total run duration in seconds, including the warmup ramp (default %(default)s)",
     )
     b_fire.add_argument(
         "--concurrency",
         type=int,
         default=None,
         help=(
-            "requests in flight at once. Both modes dispatch through a pool of "
-            "this many worker threads, so one is a serial send. Each worker is "
-            "an interpreter thread, so it is capped at 64 unless "
-            "--allow-high-rate is passed. Open "
-            "mode's is a ceiling on what is outstanding rather than a worker "
-            "count, because its arrivals are on a schedule"
+            "worker threads, so requests in flight at once (default "
+            f"{barrage_fire.DEFAULT_CONCURRENCY}). Capped at 64 unless "
+            "--allow-high-rate is passed"
         ),
     )
     b_fire.add_argument(
         "--mode", choices=["open", "closed"], default=barrage_fire.DEFAULT_MODE,
-        help="open-loop (fixed arrival rate) or closed-loop (fixed concurrency)",
+        help=(
+            "open: arrivals on a fixed schedule whatever the target does. "
+            "closed: each worker sends its next request only after the previous "
+            "one completes, so offered load is min(rate, concurrency / latency) "
+            "(default %(default)s)"
+        ),
     )
     b_fire.add_argument(
         "--warmup", type=float, default=barrage_fire.DEFAULT_WARMUP,
-        help="seconds of ramp before steady state, taken out of --duration",
+        help="seconds of ramp before steady state, taken out of --duration (default %(default)s)",
     )
     b_fire.add_argument(
-        "--pool-size", type=int, default=barrage_fire.DEFAULT_POOL_SIZE,
-        help="how many distinct seeded payloads to cycle through",
+        "--pool-size", type=int, default=DEFAULT_POOL_SIZE,
+        help="how many distinct seeded payloads to cycle through (default %(default)s)",
     )
+    _add_send_shape_args(b_fire)
     b_fire.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
     )
@@ -70,17 +108,19 @@ def _add_barrage_parser(sub) -> None:
         "--allow-high-rate", action="store_true",
         help=(
             "raise the hard safety ceiling on rate, duration and concurrency. "
-            "This exists "
-            "so a mistake cannot become a self-inflicted denial of service; "
-            "pass it only deliberately, for a target you own"
+            "Pass it only deliberately, for a target you own"
         ),
     )
     b_fire.add_argument("--out", help="path to write the run artifact JSON")
     b_fire.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(b_fire)
 
-    b_replay = barrage_sub.add_parser("replay", help="re-run a saved barrage run")
+    b_replay = barrage_sub.add_parser(
+        "replay",
+        help="re-run a saved barrage run with the same schedule and send settings",
+    )
     b_replay.add_argument("run", help="path to a previously written barrage artifact JSON")
     b_replay.add_argument(
         "--send", action="store_true", help="actually send (default is dry-run)"
@@ -93,6 +133,7 @@ def _add_barrage_parser(sub) -> None:
     b_replay.add_argument(
         "--config", default=DEFAULT_TARGET_CONFIG, help="path to target config TOML"
     )
+    add_send_args(b_replay)
 
     # compare. Note the absence of --target, --send and --config, which is the
     # point: it reads two files and compares them. There is no network path to
@@ -101,6 +142,11 @@ def _add_barrage_parser(sub) -> None:
     compare = sub.add_parser(
         "compare",
         help="compare a baseline and a candidate run artifact and report what changed",
+        description=(
+            "Compare two blast runs payload by payload, or two barrage runs by "
+            "load metrics. A barrage candidate regressed when "
+            + compare_load.describe_thresholds() + "."
+        ),
     )
     compare.add_argument(
         "--baseline", required=True, help="path to the baseline run artifact JSON"
@@ -120,7 +166,8 @@ def _add_barrage_parser(sub) -> None:
     )
 
 
-def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optional[str]) -> int:
+def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optional[str],
+                     timeout: float, keepalive: bool) -> int:
     """Run the barrage send path, translating every refusal into an exit
     code rather than a traceback."""
     try:
@@ -132,6 +179,9 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
             args.config,
             args.out,
             allow_high_rate=args.allow_high_rate,
+            timeout=timeout,
+            keepalive=keepalive,
+            allow_public_target=args.allow_public_target,
         )
     except (
         guardrails.GuardrailError,
@@ -140,47 +190,46 @@ def _barrage_execute(args, plan, seed: int, pool_size: int, target_name: Optiona
         barrage_fire.BarrageError,
     ) as exc:
         print(f"refused: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
+    except KeyboardInterrupt:
+        # Only reachable before the run starts or after it ended; the run
+        # itself turns Ctrl-C into a partial artifact.
+        print("barrage: interrupted", file=sys.stderr)
+        return EXIT_FINDING
 
 
 def _cmd_barrage_fire(args) -> int:
-    # There is no longer a refusal of --concurrency here. It was refused in both
-    # modes because Barrage had no executor, so the flag could not mean
-    # anything; that was issue #38 and it is fixed. A run now dispatches
-    # through a pool of plan.concurrency workers, and the flag is the one
-    # control that decides how much load is in flight at once.
-    #
-    # It is capped instead, with the rate and duration, by the ceiling checked
-    # below: 64 in flight unless --allow-high-rate is passed, because each one
-    # is a worker thread. See testinghq/barrage/executor.py.
-    #
-    # Arguments are validated before anything is announced, so a refusal does
-    # not follow a line describing what the command was about to do.
+    # Validated before anything is announced, so a refusal does not follow a
+    # line describing what the command was about to do.
     try:
         plan = barrage_fire.build_plan(
-            args.mode, args.rate, args.duration, args.concurrency, args.warmup
+            args.mode, args.rate, args.duration, args.concurrency, args.warmup,
+            grace=args.grace, max_queue_seconds=args.max_queue_seconds,
         )
-        # The ceiling is checked here too, not only inside run(), so a
-        # dry run reports an over-limit plan as refused instead of
-        # cheerfully previewing a run that would never be allowed.
+        barrage_fire.check_timeout(args.timeout)
+        # Checked here too, not only inside run(), so a dry run reports an
+        # over-limit plan as refused instead of previewing it.
         barrage_fire.check_rate_ceiling(
             args.rate, args.duration, allow_high_rate=args.allow_high_rate,
             concurrency=plan.concurrency,
         )
     except (RateCeilingError, barrage_fire.BarrageError, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
 
-    # Announced only now that the plan is known to be legal. See the note at
-    # the top of this function.
+    keepalive = not args.no_keepalive
     decision = guardrails.evaluate_send(args.send)
     print(f"barrage fire: {decision.reason}")
 
     if not decision.will_send:
-        print(barrage_fire.format_dry_run_preview(plan, args.seed, args.pool_size))
-        return barrage_fire.EXIT_DRY_RUN
+        print(barrage_fire.format_dry_run_preview(
+            plan, args.seed, args.pool_size, timeout=args.timeout, keepalive=keepalive,
+        ))
+        return EXIT_DRY_RUN
 
-    return _barrage_execute(args, plan, args.seed, args.pool_size, args.target)
+    return _barrage_execute(
+        args, plan, args.seed, args.pool_size, args.target, args.timeout, keepalive,
+    )
 
 
 def _cmd_barrage_replay(args) -> int:
@@ -188,42 +237,30 @@ def _cmd_barrage_replay(args) -> int:
         data = json.loads(Path(args.run).read_text(encoding="utf-8"))
     except OSError as exc:
         print(f"barrage replay: could not read {args.run!r}: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
     except json.JSONDecodeError as exc:
         print(f"barrage replay: {args.run!r} is not valid JSON: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
-
-    seed = data.get("seed")
-    config = data.get("config") or {}
-    required = ("mode", "rate", "duration", "warmup", "concurrency", "pool_size")
-    if seed is None or any(config.get(key) is None for key in required):
-        print(
-            f"barrage replay: {args.run!r} is missing seed or config "
-            f"{required}, cannot reproduce the run",
-            file=sys.stderr,
-        )
-        return barrage_fire.EXIT_REFUSED
+        return EXIT_REFUSED
 
     try:
-        plan = barrage_fire.build_plan(
-            config["mode"],
-            config["rate"],
-            config["duration"],
-            config["concurrency"],
-            config["warmup"],
-        )
-    except (barrage_fire.BarrageError, ValueError) as exc:
-        print(f"refused: {exc}", file=sys.stderr)
-        return barrage_fire.EXIT_REFUSED
+        plan, seed, pool_size, target, options = barrage_fire.plan_from_artifact(data)
+        barrage_fire.check_timeout(options["timeout"])
+    except barrage_fire.BarrageError as exc:
+        print(f"barrage replay: {args.run!r}: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
 
     decision = guardrails.evaluate_send(args.send)
     print(f"barrage replay: {decision.reason}")
 
     if not decision.will_send:
-        print(barrage_fire.format_dry_run_preview(plan, seed, config["pool_size"]))
-        return barrage_fire.EXIT_DRY_RUN
+        print(barrage_fire.format_dry_run_preview(
+            plan, seed, pool_size, timeout=options["timeout"], keepalive=options["keepalive"],
+        ))
+        return EXIT_DRY_RUN
 
-    return _barrage_execute(args, plan, seed, config["pool_size"], config.get("target"))
+    return _barrage_execute(
+        args, plan, seed, pool_size, target, options["timeout"], options["keepalive"],
+    )
 
 
 def _cmd_compare(args) -> int:
@@ -240,21 +277,17 @@ def _cmd_compare(args) -> int:
     input file, not about a request.
     """
     try:
-        baseline = compare_runs.load_artifact(args.baseline)
-        candidate = compare_runs.load_artifact(args.candidate)
+        diff = compare_runs.compare_paths(args.baseline, args.candidate)
     except compare_runs.CompareError as exc:
         print(f"compare: {exc}", file=sys.stderr)
         return compare_runs.EXIT_USAGE
 
-    diff = compare_runs.compare(baseline, candidate)
-    print(compare_runs.format_diff(diff))
+    print(compare_runs.format_any(diff))
 
+    code = compare_runs.record_exit_code(diff, args.fail_on_regression)
     if args.out:
         Path(args.out).write_text(
             json.dumps(diff, indent=2, sort_keys=False), encoding="utf-8"
         )
         print(f"\nwrote {args.out}")
-
-    if args.fail_on_regression and diff["regressed"]:
-        return compare_runs.EXIT_REGRESSION
-    return compare_runs.EXIT_NO_REGRESSION
+    return code

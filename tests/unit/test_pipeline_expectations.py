@@ -151,6 +151,30 @@ def test_a_sender_that_lost_its_address_fails():
     assert email.ground_truth.from_addr in check.detail
 
 
+def test_a_last_comma_first_display_name_reads_the_address():
+    """`Last, First <addr>` is how Outlook and many CRMs store a sender. A
+    comma split reads it as two recipients, the first of which is "Last"."""
+    email = _email()
+    readback = Readback(
+        exists=True, ticket_id="T1",
+        from_addr=f"Smith, Alice <{email.ground_truth.from_addr.upper()}>",
+        fields=("from_addr",),
+    )
+    check = _status(exp.evaluate(email, readback), "sender")
+    assert check.status == exp.PASSED, check.detail
+
+
+def test_a_display_name_only_sender_says_so():
+    email = _email()
+    readback = Readback(
+        exists=True, ticket_id="T1", from_addr="Smith, Alice", fields=("from_addr",)
+    )
+    check = _status(exp.evaluate(email, readback), "sender")
+    assert check.status == exp.FAILED
+    assert "only a display name" in check.detail
+    assert "'Smith, Alice'" in check.detail
+
+
 def test_a_display_name_around_the_address_is_not_a_mismatch():
     """A ticket system that stores `Alice <a@example.com>` parsed correctly."""
     email = _email()
@@ -221,12 +245,58 @@ def test_a_subject_that_lost_its_reply_prefix_is_a_mismatch():
     assert _status(exp.evaluate(email, readback), "subject").status == exp.FAILED
 
 
-def test_a_subject_with_mojibake_fails():
+def test_a_subject_with_mojibake_inside_it_fails_in_every_mode():
     email = _email()
+    subject = email.ground_truth.subject
+    garbled = subject[:2] + "âœ”" + subject[3:]
+    readback = Readback(exists=True, ticket_id="T1", subject=garbled, fields=("subject",))
+    for mode in exp.SUBJECT_MATCH_MODES:
+        expectations = exp.Expectations.from_email(email, subject_match=mode)
+        check = _status(exp.evaluate(email, readback, expectations), "subject")
+        assert check.status == exp.FAILED, mode
+        assert f"match: {mode}" in check.detail
+
+
+def test_subject_match_defaults_to_contains_so_a_helpdesk_prefix_passes():
+    """Zendesk, Freshdesk and most helpdesks prefix the stored subject with a
+    ticket number. That is not a parse bug."""
+    email = _email()
+    stored = f"[Ticket #123] {email.ground_truth.subject}"
+    readback = Readback(exists=True, ticket_id="T1", subject=stored, fields=("subject",))
+    check = _status(exp.evaluate(email, readback), "subject")
+    assert check.status == exp.PASSED
+    assert "match: contains" in check.detail
+    assert exp.Expectations.from_email(email).subject_match == "contains"
+
+
+def test_subject_match_suffix_allows_a_prefix_but_not_a_suffix():
+    email = _email()
+    subject = email.ground_truth.subject
+    suffix = exp.Expectations.from_email(email, subject_match="suffix")
+    prefixed = Readback(exists=True, ticket_id="T1", subject=f"[#9] {subject}", fields=("subject",))
+    trailed = Readback(exists=True, ticket_id="T1", subject=f"{subject} (copy)", fields=("subject",))
+    assert _status(exp.evaluate(email, prefixed, suffix), "subject").status == exp.PASSED
+    assert _status(exp.evaluate(email, trailed, suffix), "subject").status == exp.FAILED
+
+
+def test_subject_match_exact_refuses_a_helpdesk_prefix():
+    email = _email()
+    exact = exp.Expectations.from_email(email, subject_match="exact")
     readback = Readback(
-        exists=True, ticket_id="T1", subject="âœ” " + email.ground_truth.subject, fields=("subject",)
+        exists=True, ticket_id="T1",
+        subject=f"[Ticket #123] {email.ground_truth.subject}", fields=("subject",),
     )
-    assert _status(exp.evaluate(email, readback), "subject").status == exp.FAILED
+    check = _status(exp.evaluate(email, readback, exact), "subject")
+    assert check.status == exp.FAILED
+    assert "match: exact" in check.detail
+
+
+def test_an_unknown_match_mode_is_a_caller_error():
+    email = _email()
+    with pytest.raises(exp.ExpectationError):
+        exp.Expectations.from_email(email, subject_match="fuzzy")
+    with pytest.raises(exp.ExpectationError):
+        exp.Expectations.from_email(email, attachment_match="close-enough")
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +370,46 @@ def test_body_exact_falls_back_to_the_core_when_no_full_body_was_supplied():
     assert _status(exp.evaluate(email, readback, from_record), "body").status == exp.PASSED
 
 
+def test_an_empty_expected_body_is_skipped_not_passed():
+    """An empty expectation is contained in every string, so a pass here would
+    be a check that never ran."""
+    email = _email()
+    expectations = exp.Expectations(
+        sender=email.ground_truth.from_addr, subject=email.ground_truth.subject,
+        body_core="",
+    )
+    readback = Readback(exists=True, ticket_id="T1", body="anything at all", fields=("body",))
+    check = _status(exp.evaluate(email, readback, expectations), "body")
+    assert check.status == exp.SKIPPED
+    assert check.reason == exp.SKIP_NOTHING_TO_CHECK
+
+
+def test_a_body_stored_as_html_is_compared_after_tag_stripping():
+    email = _email()
+    core = email.ground_truth.body_core
+    escaped = core.replace("&", "&amp;").replace("'", "&#39;")
+    words = escaped.split(" ")
+    middle = len(words) // 2
+    stored = (
+        '<html><body><div dir="ltr"><p>' + " ".join(words[:middle])
+        + "<br>" + " ".join(words[middle:]) + "</p></div></body></html>"
+    )
+    readback = Readback(exists=True, ticket_id="T1", body=stored, fields=("body",))
+    check = _status(exp.evaluate(email, readback), "body")
+    assert check.status == exp.PASSED, check.detail
+    assert "after HTML tag stripping" in check.detail
+
+
+def test_an_html_body_that_lost_the_text_still_fails():
+    email = _email()
+    readback = Readback(
+        exists=True, ticket_id="T1", body="<div><p>Thanks!</p></div>", fields=("body",)
+    )
+    check = _status(exp.evaluate(email, readback), "body")
+    assert check.status == exp.FAILED
+    assert "match: contains" in check.detail
+
+
 def test_a_body_the_adapter_cannot_see_is_skipped():
     email = _email()
     readback = Readback(exists=True, ticket_id="T1", fields=("subject",))
@@ -358,6 +468,46 @@ def test_an_invented_attachment_fails():
     assert "extra.bin" in check.detail
 
 
+def test_loose_attachment_matching_accepts_a_sanitised_filename():
+    """Sanitising a filename is common and is not losing the file."""
+    email = _email(
+        attachments=[
+            Attachment(filename="Q3 Report (final).pdf", content_type="application/pdf", content=b"%PDF"),
+            Attachment(filename="notes.txt", content_type="text/plain", content=b"hi"),
+        ]
+    )
+    readback = Readback(
+        exists=True, ticket_id="T1",
+        attachment_names=("q3_report_final.PDF", "uploads/NOTES.txt"),
+        fields=("attachment_names",),
+    )
+    exact = _status(exp.evaluate(email, readback), "attachments")
+    assert exact.status == exp.FAILED
+    assert "match: exact" in exact.detail
+
+    loose = exp.Expectations.from_email(email, attachment_match="loose")
+    check = _status(exp.evaluate(email, readback, loose), "attachments")
+    assert check.status == exp.PASSED, check.detail
+    assert "match: loose" in check.detail
+
+
+def test_loose_attachment_matching_still_catches_a_dropped_file():
+    email = _email(
+        attachments=[
+            Attachment(filename="invoice.pdf", content_type="application/pdf", content=b"%PDF"),
+            Attachment(filename="invoice copy.pdf", content_type="application/pdf", content=b"%PDF"),
+        ]
+    )
+    readback = Readback(
+        exists=True, ticket_id="T1", attachment_names=("Invoice.pdf",),
+        fields=("attachment_names",),
+    )
+    loose = exp.Expectations.from_email(email, attachment_match="loose")
+    check = _status(exp.evaluate(email, readback, loose), "attachments")
+    assert check.status == exp.FAILED
+    assert "invoice copy.pdf" in check.detail
+
+
 def test_attachment_order_is_not_a_property_any_system_preserves():
     email = _email(
         attachments=[
@@ -386,12 +536,21 @@ def test_a_payload_with_no_attachments_reports_not_checked_not_passed():
 # ---------------------------------------------------------------------------
 
 
-def test_routing_defaults_to_the_payload_own_recipient():
-    """The default is ground truth the generator already produced, not a guess
-    about the operator's business."""
+def test_there_is_no_default_route():
+    """A recipient address is not a routing decision. Helpdesks map routes to
+    groups, and defaulting to the recipient failed every message there."""
     email = _email()
     expectations = exp.Expectations.from_email(email)
-    assert expectations.route_for(email) == email.envelope.to[0]
+    assert expectations.route is None
+    assert expectations.route_for(email) is None
+
+
+def test_routing_without_an_expected_route_is_skipped_with_that_reason():
+    email = _email()
+    check = _status(exp.evaluate(email, _good(email)), "routing")
+    assert check.status == exp.SKIPPED
+    assert check.reason == exp.SKIP_NO_EXPECTED_ROUTE == "no expected route"
+    assert "--expect-route" in check.detail
 
 
 def test_a_declared_route_overrides_the_recipient_default():
@@ -402,7 +561,9 @@ def test_a_declared_route_overrides_the_recipient_default():
 
 def test_correct_routing_passes():
     email = _email()
-    assert _status(exp.evaluate(email, _good(email)), "routing").status == exp.PASSED
+    expectations = exp.Expectations.from_email(email, route="queue:support")
+    readback = _good(email, route="queue:support")
+    assert _status(exp.evaluate(email, readback, expectations), "routing").status == exp.PASSED
 
 
 def test_misrouted_mail_fails():
@@ -416,7 +577,8 @@ def test_misrouted_mail_fails():
         route="queue:unrouted",
         fields=("from_addr", "subject", "body", "route"),
     )
-    check = _status(exp.evaluate(email, readback), "routing")
+    expectations = exp.Expectations.from_email(email, route="queue:support")
+    check = _status(exp.evaluate(email, readback, expectations), "routing")
     assert check.status == exp.FAILED
     assert "queue:unrouted" in check.detail
 
@@ -544,6 +706,27 @@ def test_the_two_threading_checks_are_independent():
     assert exp.check_thread_together(readback, root).status == exp.FAILED
 
 
+def test_the_link_check_demands_the_full_ancestry_when_given_one():
+    """A pipeline that keeps only the last Reference has threaded the reply to
+    its parent and lost the rest of the conversation."""
+    chain = ("root@w.example", "r1@w.example")
+    partial = _threaded_readback(
+        "T1", in_reply_to="<r1@w.example>", references=("<r1@w.example>",)
+    )
+    check = exp.check_thread_link(partial, "r1@w.example", ancestry=chain)
+    assert check.status == exp.FAILED
+    assert "full ancestry" in check.detail
+    assert "root@w.example" in check.detail
+
+    whole = _threaded_readback(
+        "T1", in_reply_to="<r1@w.example>",
+        references=("<root@w.example>", "<r1@w.example>"),
+    )
+    passed = exp.check_thread_link(whole, "r1@w.example", ancestry=chain)
+    assert passed.status == exp.PASSED
+    assert "all 2 ancestor(s)" in passed.detail
+
+
 def test_threading_checks_skip_rather_than_invent_an_answer():
     assert exp.check_thread_link(None, "root@w.example").status == exp.SKIPPED
     assert exp.check_thread_link(_threaded_readback("T1"), "").status == exp.SKIPPED
@@ -669,3 +852,19 @@ def test_expectations_serialize_with_the_route_they_were_built_with():
     email = _email()
     assert exp.Expectations.from_email(email, route="q").to_json()["route"] == "q"
     assert exp.Expectations.from_email(email).to_json()["attachments"] == []
+
+
+def test_a_field_the_adapter_could_not_read_says_what_shape_it_found():
+    """A list of objects where names were expected is SKIPPED, and the detail
+    carries the adapter's note so the reader knows which path to map."""
+    from dataclasses import replace
+
+    email = _email(attachments=(Attachment(filename="a.pdf", content_type="application/pdf", content=b"x"),))
+    readback = replace(
+        _good(email),
+        fields=tuple(f for f in ALL_FIELDS if f != "attachment_names"),
+        field_notes=(("attachment_names", "a list of 1 object(s) with keys ['file_name']"),),
+    )
+    check = _status(exp.evaluate(email, readback, exp.Expectations.from_email(email)), exp.CHECK_ATTACHMENTS)
+    assert check.reason == exp.SKIP_NOT_VISIBLE
+    assert "list of 1 object(s) with keys ['file_name']" in check.detail

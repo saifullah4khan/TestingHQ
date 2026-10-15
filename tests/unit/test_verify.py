@@ -9,6 +9,7 @@ it as prominently as what was.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -364,7 +365,6 @@ def _verify_with(readbacks, target_config, tmp_path, spec_probe, **kwargs):
 
 
 def _one(tag, **kwargs):
-    from testinghq.pipeline.readback import FunctionAdapter
 
     return {tag: [Readback(exists=True, ticket_id="T1", **kwargs)]}
 
@@ -384,8 +384,10 @@ def test_the_summary_counts_the_checks_that_never_ran(target_config, tmp_path, s
     )
     grouped = artifact["summary"]["checks_skipped_by_reason"]
     not_visible = grouped[expectations_module.SKIP_NOT_VISIBLE]
-    assert set(not_visible) >= {"sender", "body", "attachments", "routing"}
+    assert set(not_visible) >= {"sender", "body", "attachments"}
     assert not_visible["sender"] == COUNT
+    # No --expect-route, so routing is filed under its own reason.
+    assert grouped[expectations_module.SKIP_NO_EXPECTED_ROUTE] == {"routing": COUNT}
     # The adapter COULD see the subject, so nothing is filed against it there,
     # and no other reason is credited with these.
     assert not grouped[expectations_module.SKIP_NOTHING_TO_CHECK]
@@ -451,12 +453,19 @@ def test_a_run_that_verified_nothing_says_nothing_checked(
 
     spec_probe["build"] = lambda: FunctionAdapter(lambda probe: [])
     lines: list = []
-    verify.execute(
+    code = verify.execute(
         SEED, COUNT, TARGET, target_config, str(tmp_path / "verify.json"),
         readback=_config(), client=_RecordingClient(),
         sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
     )
-    assert "MISMATCHED" in lines[0]
+    # Nothing was ever found and nothing changed, so the readback settled on
+    # an empty store: every message is missing, which is a loss and not an
+    # UNSETTLED run, and the exit code says something is wrong.
+    assert code == 3
+    assert lines[0].startswith("verify: MISMATCHED"), lines[0]
+    text = "\n".join(lines)
+    assert "UNSETTLED" not in text
+    assert "holds no record of this message" in text
 
 
 # ---------------------------------------------------------------------------
@@ -682,6 +691,38 @@ def test_verify_check_says_how_many_records_it_skipped(
     assert "correct parse" in text
 
 
+def test_verify_check_says_nothing_about_skipping_when_nothing_was_skipped(
+    target_config, tmp_path, spec_probe
+):
+    """"0 non-clean record(s) not verified, because ..." explained a skip that
+    did not happen. An artifact of clean records only prints no such line."""
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    corpus = verify.build_tagged_corpus(SEED, COUNT)
+    held = {t: [_good_for(e, t)] for e, t, _r in corpus}
+    spec_probe["build"] = lambda: FunctionAdapter(lambda probe: held.get(probe.tag, []))
+    records = [
+        {"id": record_id, "category": "clean", "tag": tag,
+         "payload_sha256": report.payload_sha256(email)}
+        for email, tag, record_id in corpus
+    ]
+    (tmp_path / "run.json").write_text(
+        json.dumps({"seed": SEED, "config": {"count": COUNT}, "records": records}),
+        encoding="utf-8",
+    )
+
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "run.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+    )
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "non-clean" not in text
+    assert "correct parse" not in text
+
+
 # ---------------------------------------------------------------------------
 # Dry run
 # ---------------------------------------------------------------------------
@@ -700,3 +741,379 @@ def test_the_dry_run_names_the_adapter_it_would_use():
     text = verify.format_dry_run(corpus, _config(), "hq")
     assert "python" in text
     assert "testinghq.verify_spec_probe:build" in text
+
+
+# ---------------------------------------------------------------------------
+# Match modes, route, artifact header
+# ---------------------------------------------------------------------------
+
+
+def _prefixed_subjects():
+    """A system that stores every subject behind a ticket number."""
+    corpus = {t: e for e, t, _r in verify.build_tagged_corpus(SEED, COUNT)}
+
+    def fetch(probe):
+        email = corpus.get(probe.tag)
+        if email is None:
+            return []
+        good = _good_for(email, probe.tag)
+        return [Readback(
+            exists=True, ticket_id=good.ticket_id, from_addr=good.from_addr,
+            subject=f"[Ticket #{probe.tag}] {good.subject}", body=good.body,
+            attachment_names=good.attachment_names, route=good.route,
+            fields=ALL_FIELDS,
+        )]
+
+    return fetch
+
+
+def test_a_helpdesk_subject_prefix_passes_by_default(target_config, tmp_path, spec_probe):
+    code, _client, text, artifact = _run(
+        target_config, tmp_path, spec_probe, _prefixed_subjects()
+    )
+    assert code == EXIT_OK, text
+    assert artifact["config"]["subject_match"] == "contains"
+
+
+def test_subject_match_exact_is_passed_through_execute(target_config, tmp_path, spec_probe):
+    code, _client, text, artifact = _run(
+        target_config, tmp_path, spec_probe, _prefixed_subjects(), subject_match="exact"
+    )
+    assert code == EXIT_MISMATCH
+    assert artifact["config"]["subject_match"] == "exact"
+    assert "match: exact" in text
+
+
+def test_an_unknown_match_mode_is_refused_before_anything_is_sent(
+    target_config, tmp_path, spec_probe
+):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    spec_probe["build"] = lambda: FunctionAdapter(_perfect())
+    client = _RecordingClient()
+    lines: list = []
+    code = verify.execute(
+        SEED, COUNT, TARGET, target_config, None, readback=_config(), client=client,
+        sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append, attachment_match="nope",
+    )
+    assert code == EXIT_REFUSED
+    assert client.sent == []
+
+
+def test_without_expect_route_routing_is_not_checked(target_config, tmp_path, spec_probe):
+    _code, _client, text, artifact = _run(target_config, tmp_path, spec_probe, _perfect())
+    grouped = artifact["summary"]["checks_skipped_by_reason"]
+    assert grouped[expectations_module.SKIP_NO_EXPECTED_ROUTE] == {"routing": COUNT}
+    assert "routing" not in artifact["summary"]["checks_passed_by_name"]
+    assert "no expected route" in text
+
+
+def test_the_artifact_leads_with_schema_version_and_tool(target_config, tmp_path, spec_probe):
+    _code, _client, _text, artifact = _run(target_config, tmp_path, spec_probe, _perfect())
+    assert list(artifact)[:2] == ["schema_version", "tool"]
+    assert artifact["schema_version"] == 1
+    assert artifact["tool"] == "verify"
+    assert artifact["config"]["tool"] == "verify"
+    assert artifact["summary"]["verdict"] == "VERIFIED"
+
+
+def test_preflight_runs_before_the_first_send_and_refuses(target_config, tmp_path, spec_probe):
+    """A readback that cannot authenticate is found before anything is sent."""
+    client = _RecordingClient()
+
+    class _Unauthorised:
+        def preflight(self):
+            assert client.sent == [], "preflight ran after a send"
+            raise RuntimeError("401 from the readback")
+
+        def fetch(self, probe):  # pragma: no cover - never reached
+            return []
+
+        def close(self):
+            return None
+
+    spec_probe["build"] = _Unauthorised
+    lines: list = []
+    code = verify.execute(
+        SEED, COUNT, TARGET, target_config, None, readback=_config(), client=client,
+        sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert client.sent == []
+    assert "401" in "\n".join(lines)
+
+
+def test_an_unsettled_readback_is_its_own_verdict(
+    target_config, tmp_path, spec_probe, monkeypatch
+):
+    """A message the readback has not seen yet is not a lost message when the
+    readback itself says it never settled."""
+    from testinghq.pipeline.common import ReadbackOutcome
+
+    class _Unsettled(ReadbackOutcome):
+        unsettled = True
+
+    def fake_read_back_all(adapter, probes, **kwargs):
+        return _Unsettled(readbacks={}, elapsed=60.0, polls=3, stable=False,
+                          missing=tuple(p.tag for p in probes))
+
+    monkeypatch.setattr(verify, "read_back_all", fake_read_back_all)
+    code, _client, text, artifact = _run(target_config, tmp_path, spec_probe, _perfect())
+    assert code == EXIT_MISMATCH
+    assert artifact["summary"]["verdict"] == "UNSETTLED"
+    assert artifact["summary"]["unsettled"] is True
+    assert text.splitlines()[0].startswith("verify: UNSETTLED")
+
+
+# ---------------------------------------------------------------------------
+# verify check: refusals
+# ---------------------------------------------------------------------------
+
+
+def test_verify_check_refuses_a_blast_artifact_in_one_line(target_config, tmp_path, spec_probe):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    spec_probe["build"] = lambda: FunctionAdapter(_perfect())
+    blast = {
+        "seed": SEED,
+        "config": {"count": 2, "target": TARGET},
+        "summary": {"by_status_class": {"2xx": 2}, "flags": []},
+        "records": [{"id": "clean-6-0000", "category": "clean"}],
+    }
+    (tmp_path / "blast.json").write_text(json.dumps(blast), encoding="utf-8")
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "blast.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert lines == ["verify check: blast artifacts carry no tags; run verify fire"]
+
+
+def test_verify_check_refuses_a_bad_adapter_spec_instead_of_raising(
+    target_config, tmp_path, spec_probe
+):
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "verify.json"), target_config, None,
+        readback=ReadbackConfig(kind="python", spec="no.such.module:build"),
+        printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert "no.such.module" in "\n".join(lines)
+
+
+def test_verify_check_refuses_a_schema_from_the_future(target_config, tmp_path, spec_probe):
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    data = json.loads((tmp_path / "verify.json").read_text(encoding="utf-8"))
+    data["schema_version"] = 99
+    (tmp_path / "future.json").write_text(json.dumps(data), encoding="utf-8")
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "future.json"), target_config, None,
+        readback=_config(), printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert "schema_version 99" in "\n".join(lines)
+
+
+def test_verify_check_takes_the_match_modes(target_config, tmp_path, spec_probe):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = verify.check_saved_run(
+        str(tmp_path / "verify.json"), target_config, str(tmp_path / "checked.json"),
+        readback=_config(), printer=lines.append, subject_match="exact",
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+    )
+    assert code == EXIT_MISMATCH
+    checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
+    assert checked["config"]["subject_match"] == "exact"
+    assert checked["tool"] == "verify" and checked["schema_version"] == 1
+
+
+def _routed(fetch, route):
+    """`fetch`, with every record filed under `route`."""
+    def routed(probe):
+        return [replace(r, route=route) for r in fetch(probe)]
+
+    return routed
+
+
+def _check(target_config, tmp_path, lines, **modes):
+    return verify.check_saved_run(
+        str(tmp_path / "verify.json"), target_config, str(tmp_path / "checked.json"),
+        readback=_config(), printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05, sleep=_CLOCK.sleep, clock=_CLOCK,
+        **modes,
+    )
+
+
+def test_verify_check_uses_the_match_modes_the_artifact_recorded(
+    target_config, tmp_path, spec_probe
+):
+    """A run fired with --expect-route and --subject-match exact is re-checked
+    with both; it used to be re-checked with the defaults, so a store that
+    later lost the routing and prefixed every subject still VERIFIED."""
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    code, _client, text, _artifact = _run(
+        target_config, tmp_path, spec_probe, _routed(_perfect(), "support"),
+        route="support", subject_match="exact",
+    )
+    assert code == EXIT_OK, text
+
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = _check(target_config, tmp_path, lines)
+    text = "\n".join(lines)
+    assert code == EXIT_MISMATCH, text
+    assert "route support" in text and "subject exact" in text
+    assert "subject, body, attachments, route recorded in the artifact" in text
+    checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
+    assert checked["config"]["expect_route"] == "support"
+    assert checked["config"]["subject_match"] == "exact"
+    assert set(checked["config"]["match_modes_from"].values()) == {"artifact"}
+
+
+def test_verify_check_flags_override_the_recorded_match_modes(
+    target_config, tmp_path, spec_probe
+):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    _run(target_config, tmp_path, spec_probe, _routed(_perfect(), "support"),
+         route="support", subject_match="exact")
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = _check(target_config, tmp_path, lines, route="", subject_match="contains")
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "subject, route given on the command line" in text
+    checked = json.loads((tmp_path / "checked.json").read_text(encoding="utf-8"))
+    assert checked["config"]["expect_route"] is None
+    assert checked["config"]["match_modes_from"]["subject_match"] == "flag"
+
+
+def test_verify_check_falls_back_to_the_defaults_for_an_artifact_without_modes(
+    target_config, tmp_path, spec_probe
+):
+    from testinghq.pipeline.readback import FunctionAdapter
+
+    _run(target_config, tmp_path, spec_probe, _perfect())
+    path = tmp_path / "verify.json"
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("expect_route", "subject_match", "attachment_match", "body_exact"):
+        artifact["config"].pop(key, None)
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+    spec_probe["build"] = lambda: FunctionAdapter(_prefixed_subjects())
+    lines: list = []
+    code = _check(target_config, tmp_path, lines)
+    text = "\n".join(lines)
+    assert code == EXIT_OK, text
+    assert "the default (the artifact recorded none)" in text
+
+
+# ---------------------------------------------------------------------------
+# Every lookup a 404
+# ---------------------------------------------------------------------------
+
+
+class _Store404:
+    """A readback API that answers 404 to every tag it does not hold. With
+    nothing held, every lookup of the run is a 404: a wrong readback url."""
+
+    def __init__(self, holds=()):
+        corpus = {t: e for e, t, _r in verify.build_tagged_corpus(SEED, COUNT)}
+        self.tickets = {
+            tag: {
+                "id": f"T-{tag}",
+                "from": email.ground_truth.from_addr,
+                "subject": email.ground_truth.subject,
+                "body": email.text,
+                "attachments": [a.filename for a in email.attachments],
+            }
+            for tag, email in corpus.items()
+            if tag in holds
+        }
+
+    def send(self, request):
+        from urllib.parse import parse_qs, urlsplit
+
+        query = parse_qs(urlsplit(request.url).query)
+        found = self.tickets.get((query.get("tag") or [""])[0])
+        if found is None:
+            return ClientResponse(status=404, body=b'{"error": "not found"}')
+        return ClientResponse(status=200, body=json.dumps({"items": [found]}).encode())
+
+
+def _run_against(store, tmp_path, target_config):
+    lines: list = []
+    client = _RecordingClient()
+    code = verify.execute(
+        SEED, COUNT, TARGET, target_config, str(tmp_path / "verify.json"),
+        readback=ReadbackConfig(
+            kind="http", url="http://localhost:8000/tickets", enumerate_records=False
+        ),
+        client=client, readback_client=store,
+        sleep=_CLOCK.sleep, clock=_CLOCK, printer=lines.append,
+        quiet_window=0.0, poll_interval=0.05,
+    )
+    artifact = json.loads((tmp_path / "verify.json").read_text(encoding="utf-8"))
+    return code, client, "\n".join(lines), artifact
+
+
+def test_a_store_that_404s_every_lookup_is_readback_failed_not_loss(
+    target_config, tmp_path
+):
+    from testinghq.core.exit_codes import EXIT_FINDING
+    from testinghq.reporting import summarize
+
+    code, client, text, artifact = _run_against(_Store404(), tmp_path, target_config)
+    assert len(client.sent) == COUNT
+    assert code == EXIT_FINDING, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "READBACK FAILED"
+    assert summary["verdict_source"] == "readback"
+    assert summary["failed"] == 0
+    assert summary["not_checked"] == COUNT
+    assert artifact["config"]["readback_poll"]["max_wait"] == 60.0
+    assert artifact["config"]["readback_poll"]["max_wait_source"] == "default"
+    assert text.splitlines()[0].startswith("verify: READBACK FAILED")
+    assert "  every lookup was 404: check the readback url" in text.splitlines()
+    assert "not checked: every lookup was 404" in text
+    assert "MISMATCHED" not in text
+    assert "holds no record" not in text
+    assert "mismatches (" not in text
+    # Nothing could be looked up, so nothing is called missing either: the
+    # console used to add "missing N: the store went quiet without them".
+    assert artifact["summary"]["readback"]["missing_tags"], "the readback found nothing"
+    assert not [line for line in text.splitlines() if "missing" in line], text
+    for record in artifact["records"]:
+        assert record["assertion"] == {
+            "passed": False, "mismatches": ["not checked: every lookup was 404"],
+        }
+
+    read = summarize(artifact)
+    assert read.verdict == "READBACK FAILED"
+    assert read.exit_code == EXIT_FINDING
+    assert read.counts.failed == 0
+    assert [f.kind for f in read.findings] == ["readback-failed"]
+
+
+def test_a_store_that_404s_some_tags_still_reports_them_mismatched(
+    target_config, tmp_path
+):
+    tags = [tag for _e, tag, _r in verify.build_tagged_corpus(SEED, COUNT)]
+    code, _client, text, artifact = _run_against(
+        _Store404(holds=tags[1:]), tmp_path, target_config
+    )
+    assert code == EXIT_MISMATCH, text
+    summary = artifact["summary"]
+    assert summary["verdict"] == "MISMATCHED"
+    assert summary["verdict_source"] == "tool"
+    assert summary["found"] == COUNT - 1
+    assert "holds no record" in text
+    assert "every lookup was 404" not in text

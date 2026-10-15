@@ -9,11 +9,12 @@ ground truth the tools built on it will check against.
   messages      the per-message tag that makes a sent payload findable again
   expectations  ground truth in, a PASSED/FAILED/SKIPPED verdict out
   adapters      turning `[readback]` configuration into a live adapter
-  common        the send and read phases, and the shared exit codes
-  corpus        the payloads all five tools send, and their tags
+  common        the send and read phases, `prepare_readback`, exit codes
 
-A tool is not in this package. `verify`, `ledger`, `redeliver`, `loop` and
-`steady` live beside it, one per concern, and none of them imports another.
+The tools live beside these: `verify`, `ledger`, `redeliver`, `loop` and
+`steady`, one per concern. `verify` owns the clean corpus every tool sends, and
+`ledger` and `redeliver` import it from there by design; `redeliver` also
+imports `ledger`'s stray classification.
 
 Two rules run through all of it, and they are the difference between this
 finding bugs and manufacturing green.
@@ -32,6 +33,7 @@ from __future__ import annotations
 from .adapters import (
     AdapterError,
     BUILTIN_KINDS,
+    BudgetExhausted,
     HttpJsonAdapter,
     MailboxAdapter,
     ReadbackConfig,
@@ -45,14 +47,18 @@ from .common import (
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
+    UNSETTLED,
     ReadbackOutcome,
     SentMessage,
+    prepare_readback,
     read_back_all,
+    readback_verdict,
     require_synthetic,
     resolve_target_url,
     send_all,
 )
-from .corpus import (
+from .verify import (
     DEFAULT_RATE,
     DEFAULT_SEED,
     build_clean_corpus,
@@ -74,9 +80,18 @@ from .expectations import (
     evaluate_sequence,
 )
 from .ledger import account, verdict as ledger_verdict
-from .messages import DEFAULT_TAG_PREFIX, make_tag, stamp, stamp_corpus, tag_marker
+from .messages import (
+    DEFAULT_TAG_PREFIX,
+    make_tag,
+    run_tag_prefix,
+    split_tag,
+    stamp,
+    stamp_corpus,
+    tag_marker,
+)
 from .redeliver import SCENARIOS, build_scenarios, judge_all
 from .readback import (
+    FetchResult,
     FunctionAdapter,
     MultiAdapter,
     Probe,
@@ -89,6 +104,7 @@ from .readback import (
 __all__ = [
     "AdapterError",
     "BUILTIN_KINDS",
+    "BudgetExhausted",
     "CHECKS",
     "DEFAULT_RATE",
     "DEFAULT_SEED",
@@ -98,12 +114,14 @@ __all__ = [
     "EXIT_OK",
     "EXIT_REFUSED",
     "Expectations",
+    "FetchResult",
     "FunctionAdapter",
     "GroundTruthMatcher",
     "HttpJsonAdapter",
     "MailboxAdapter",
     "MultiAdapter",
     "Probe",
+    "READBACK_FAILED",
     "SCENARIOS",
     "Readback",
     "ReadbackAdapter",
@@ -115,6 +133,7 @@ __all__ = [
     "SKIP_NO_RECORD",
     "SKIP_REASONS",
     "SentMessage",
+    "UNSETTLED",
     "Verification",
     "build_adapter",
     "account",
@@ -131,12 +150,16 @@ __all__ = [
     "ledger_verdict",
     "make_tag",
     "parse_readback_config",
+    "prepare_readback",
     "read_back_all",
+    "readback_verdict",
     "require_readback_target",
     "require_synthetic",
     "resolve_header_values",
     "resolve_target_url",
+    "run_tag_prefix",
     "send_all",
+    "split_tag",
     "stamp",
     "stamp_corpus",
     "tag_marker",

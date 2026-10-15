@@ -1,498 +1,250 @@
 # TestingHQ
 
-Self-testing tools for intake pipelines.
+Fuzz, load-test and verify your inbound email webhook. Catches lost, duplicated,
+mis-threaded and looped mail that a 200 OK hides.
 
-TestingHQ is a small suite of tools for stress-testing the systems that ingest
-messy real-world input. The first tool, Blast, generates a spectrum of
-realistic-to-garbled inbound-email payloads and fires them at an intake endpoint
-you control, so you can see how your parser behaves under real-world nonsense
-instead of hand-typed happy-path samples.
+TestingHQ posts provider-shaped inbound email (SendGrid, Mailgun, Postmark or raw
+MIME) at a webhook you run, then asks your system what it actually made of each
+message.
 
-## Tools
+## What it catches
 
-**Blast.** Generates inbound-email payloads across a spectrum
-of messiness, from clean and well-formed through typo-ridden, multilingual, and
-half-gibberish, up to structurally malformed and degenerate. It POSTs them as
-SendGrid Inbound Parse-shaped payloads to a configured endpoint and reports where
-the parser choked. Blast is about variety and correctness: finding the inputs
-that break extraction, reproducibly.
+- An email your endpoint answered 200 for and never turned into a ticket.
+- Two tickets for one email: a provider retry, a redelivery, a worker that ran twice.
+- A ticket nobody sent, carrying a test tag.
+- A mangled sender, a changed subject, a truncated body, a dropped attachment.
+- A reply filed as a new conversation, including one that arrives before its original.
+- An auto-reply to an out-of-office, a bounce or a mailing list: how a mail loop starts.
+- A triage label that moves when a signature, a forward or a translation is added.
+- A webhook that accepts unsigned, wrongly signed, stale or replayed requests.
+- A parser that answers 500 to messy, multilingual or malformed mail, or 200 with an error.
+- The request rate at which the endpoint starts slowing down or shedding load.
 
-**Barrage (v1).** Volume and throughput. Where Blast proves your parser is correct
-under messy input, Barrage proves your pipeline holds under load. It is a load
-generator: it fires clean, provider-shaped payloads at an endpoint you control, at
-a high but controlled rate, and reports throughput achieved versus targeted,
-latency percentiles (p50/p90/p99), error rate over time, and the knee where your
-endpoint starts shedding or slowing. Barrage is a load tester against your own
-infrastructure. It is not an email sender, not a flooding tool, and not for
-endpoints you do not own.
+## Which tool
 
-
-The suite ships as one installable package, `testinghq`, with subcommands
-(`testinghq blast ...`, `testinghq barrage ...`, `testinghq verify ...`,
-`testinghq ledger ...`, `testinghq redeliver ...`, `testinghq loop ...`,
-`testinghq steady ...`, `testinghq compare ...`, `testinghq report ...`,
-`testinghq config validate ...`). They share a common core: the firing
-transport, target configuration, guardrails, and rate limiting.
-A readback seam is built on that core, described below, and the five pipeline
-tools (`verify`, `ledger`, `redeliver`, `loop`, `steady`) are the tools on it.
-
-**Loop.** Auto-reply and mail-loop detection. Two auto-responders answering each
-other create thousands of tickets overnight. `loop` sends a corpus a correct
-pipeline must recognise as machine-originated and must not act on
-(`Auto-Submitted` per RFC 3834, `Precedence: bulk|list|junk`, out-of-office
-replies, bounces, `noreply@` senders, list mail) plus one loop bait: an
-auto-reply addressed to the pipeline's own reply address, carrying the
-`In-Reply-To` of a message the pipeline would itself have sent. It then reports
-which header marked each message as machine mail, whether a ticket was opened,
-and whether anything was emitted outbound. It reproduces the single-hop shape of
-a loop, not a live two-party loop.
-
-The auto-reply check needs somewhere to read what the pipeline tried to send.
-Configure `[loop.outbound]` and it becomes a finding; without it the check is
-reported as **NOT CHECKED, never passed**, because a tool that cannot see whether a
-reply was sent has no evidence that one was not, and the report says so in its
-own headline line.
-
-**Steady.** Metamorphic stability testing for AI triage. Blast, Barrage, loop
-and the rest all ask whether the pipeline did the right thing. `steady` asks a
-question none of them can: **does the label change when the input changes in a
-way that should not matter?** You cannot write an expected label for every input
-to an LLM triager, but you can assert that meaning-preserving edits keep the label
-the same. It sends a family of variants per intent (a signature added, a forward
-wrapper, quoted history, rewrapped whitespace, an equivalent greeting, and the
-same complaint in English, Urdu and Roman Urdu), reads back the label each got,
-and reports a flip rate.
-
-It reports two numbers separately, because they are different problems: a **flip
-rate**, which is sensitivity to how the input is worded, and **repeat
-instability**, which is the model answering identical bytes differently. A team
-that sees 8% and does not know which one it is looking at goes and fixes the
-wrong thing.
-
-The language variants come from a **reviewed fixture**,
-`testinghq/pipeline/fixtures/steady_intents.json`, not from a translation at
-run time, because a machine-translated variant would make the tool measure the
-translator. And a run that could not see the label exits 3 with nothing measured,
-never 0.
-
-`steady` measures **stability, not correctness**. A classifier that is
-consistently wrong scores 0% here. Use `verify` to check what the label should
-have been.
-
-**Verify.** What the pipeline actually produced. Every tool above judges a run by
-the HTTP status, and a 200 only means the endpoint accepted the POST. It does
-not mean a ticket was created, that the sender survived parsing, that the body
-arrived whole, that the attachments came through, or that the message went to the
-right place. Verify gives the seam an adapter that reads your system's own
-output and checks each payload against ground truth Blast already generates:
-was a ticket created, is the sender right, is the subject right, is the body
-intact, are the attachments there, was it routed correctly. That turns "did it
-crash" into "did it parse correctly", which is the question anyone actually has.
-
-**Ledger.** Exactly-once accounting. Sends N messages, each carrying a tag no
-other run could produce, then counts what the pipeline made of them: missing
-(an email your customer sent and you lost), extra (a ticket nobody sent), and
-duplicated (two tickets for one email). Point it at a system under Barrage load,
-or with a dependency failing, and it answers the question every intake owner
-asks and nothing else answers: did we lose anything?
-
-**Redeliver.** Delivery semantics. Webhook providers retry, deliver the same
-message twice, and deliver out of order. Redeliver does all three: the same
-Message-ID sent twice, re-sent after a delay the way a provider's retry would
-be, and a reply delivered before the message it answers. It then checks for no
-duplicate tickets and for correct threading, separately, so a report that says
-"the headers were right but the reply went to its own ticket" says something
-different from one that says the headers were wrong.
-
-### The readback seam
-
-Blast and Barrage both judge a run by the HTTP status, and a 200 only means the
-endpoint accepted the POST. It does not mean a ticket was created, that the
-sender survived parsing, that the body arrived whole, or that the message went
-anywhere useful. The seam is how a tool asks your system what it made of a
-message. It is small: an adapter that can read your system's output.
-
-```
-# a JSON API: GET the url with the tag as a query parameter, read the records
-[readback]
-kind = "http"
-url = "http://localhost:8000/tickets"
-
-# an outbound mail sink: a JSON Lines file, one delivered message per line
-[readback]
-kind = "mailbox"
-path = "./mail-sink.jsonl"
-```
-
-Anything else, including a database, is one import path: `--readback
-mypkg.myadapters:build`.
-
-The target may be a `ReadbackAdapter`, a factory taking the `[readback]` config
-table, or a plain function taking a `Probe`. A one-line lambda is a complete
-adapter, which is what makes the seam cheap enough that nobody skips checking
-and goes back to trusting the status code.
-
-**A check that could not run says so, and says why.** Three distinct causes, kept
-apart because they mean opposite things: `no record found` (the finding itself),
-`adapter cannot see field` (a gap in your integration), and `nothing to check`
-(most often a payload with no attachments). A run that verified nothing says so
-too, and the reports print what they skipped as prominently as what they found.
-
-**The readback polls until it settles.** After the last send it keeps asking, and
-believes the answer when every payload has been found AND the per-tag record
-counts have held steady for `--quiet-window` seconds. Waiting on the counts
-rather than on "did it create anything" is what catches a duplicate that lands
-after the first sighting. It gives up at `--max-wait` and says GAVE UP rather
-than claiming a quiet it did not hear, and the report always states how long it
-took.
-
-**Credentials come from the environment.** `[readback.headers]` takes
-`Authorization = "env:HQ_READBACK_TOKEN"` and nothing else. A literal value is
-refused rather than warned about, because a config file is a file that gets
-shared, and a missing variable is refused before the run sends anything. A run
-artifact records header names and never values.
-
-Readback URLs go through the same guardrail as firing targets, and a public host
-is refused unless you pass `--allow-public-readback`. On a real deployment the
-readback is a ticket store or a mail sink that may hold other people's data.
-
-## Status
-
-Ten commands on the command line, plus a web UI. Every one of them is complete
-and exercised end to end: the suite runs on every Python version this package
-claims to support, and CI runs on every change.
-
-Eight of the ten are testing tools: Blast, Barrage, Loop, Steady, Verify,
-Ledger, Redeliver and Compare. The other two are `testinghq report`, which reads
-a run artifact from any of them, and `testinghq config validate`, which checks a
-config file without sending anything.
-
-An earlier version of this section opened by naming a number of tools and then
-described a different number, and left out three tools that had already shipped.
-A status section that is quietly wrong is worse than none, because a reader who
-catches it once has a reason to distrust the parts that are true.
-`tests/unit/test_readme_status.py` derives the list below from the subcommands
-the CLI actually registers, so adding a command without adding a paragraph here
-fails the build.
-
-**Blast**: seeded deterministic generation, six mutators behind five messiness
-recipes, a 20-case named edge-case catalog, seeded attachments, SendGrid Inbound
-Parse-shaped serialization, the HTTP transport, target configuration from a TOML
-file, rate limiting, the safety guardrails, the run artifact, expectation-based
-reporting with pass/fail assertions, and byte-identical replay from a saved run.
-
-**Barrage**: closed-loop and open-loop firing, a rate-controlled schedule with a
-warmup ramp, throughput and latency percentile reporting, a run artifact, and
-replay from a saved run. `--concurrency` is the number of requests in flight at
-once, and it is honoured in both modes: runs dispatch through a pool of that
-many worker threads, so a slow target can no longer cap the achieved rate at
-`1 / its response time`. Each worker is one interpreter thread, so it is capped
-at 64 unless you pass `--allow-high-rate`. When every worker is busy and requests
-have to wait for one, the run says so, because the shortfall is then this tool's
-rather than the target's.
-
-**Loop**: auto-reply and mail-loop detection. Two auto-responders answering each
-other is the failure that never shows up in a test, and this is the tool that
-finds it.
-
-**Steady**: metamorphic stability testing for AI triage. Meaning-preserving
-transforms of the same input, to see whether a classifier's answer survives a
-rewrite it should not have noticed.
-
-**Verify**: the six per-field checks, per-message
-tagging so a run is reproducible and two concurrent runs cannot read each other's
-records, a readback phase that runs after every send, and an artifact that is a
-blast artifact with an extra block on each record, so `testinghq compare` reads
-it like any other run.
-
-**Ledger**: per-message tagging, an accounting that keeps missing, duplicated,
-misparsed and extra apart, and a verdict plus an exit code that is the answer. A
-lookup-only adapter reports `extra: null` and `UNVERIFIED STRAYS` rather than
-reporting none found for a question it never asked, so it cannot pass a CI gate
-by accident.
-
-**Redeliver**: four scenarios, a per-scenario tag and Message-ID scope so one
-scenario's deduplication cannot absorb another's deliveries, and threading checked
-as two things rather than one.
-
-**Compare**: two run artifacts in, one difference report out. Fixes and
-regressions kept apart, so a run that made things worse cannot hide inside a run
-that made some things better.
-
-**`report`**: reads a run artifact from any of the eight tools above and
-summarises it, as text or as one stable JSON shape whatever wrote the file.
-
-**`config validate`**: loads a config file with the real loaders and prints the
-config they resolved, as a report or as TOML. Sends nothing, and never prints a
-header value.
-
-**The web UI**: a dependency-free single-page app that runs the same engine, with
-dry-run as the default action and a configured-target allow-list plus an
-explicit confirm step before anything is sent.
+| Question | Tool | Answer | Exit 3 means |
+| --- | --- | --- | --- |
+| Does my parser survive messy mail? | `blast` | a seeded corpus fired at the webhook, every bad answer flagged | a payload was flagged |
+| How much load before it slows or sheds? | `barrage` | throughput, latency percentiles and the knee | the run was interrupted |
+| Did it store what was sent? | `verify` | six checks per message, read back from your system | a check failed, or the readback never settled |
+| Did we lose or duplicate anything? | `ledger` | missing, duplicated, misparsed and extra, counted | anything but BALANCED |
+| Are retries and out-of-order replies safe? | `redeliver` | four provider misbehaviours, one ticket and one thread each | a scenario failed |
+| Will it answer an auto-reply? | `loop` | twelve kinds of machine mail and a loop bait | a ticket or a reply for machine mail |
+| Is the triage label stable? | `steady` | label dissent across meaning-preserving rewrites | dissent above the gate |
+| Does it check the webhook signature? | `sigcheck` | six signed and mis-signed variants | it accepted one it should refuse |
+| Did my change make it worse? | `compare` | regressions, fixes and changes between two runs | a regression, with `--fail-on-regression` |
 
 ## Install
-
-From PyPI, once the first release is published:
 
 ```
 pip install testinghq
 ```
 
-From a clone, for development:
-
-```
-pip install -e ".[dev]"
-```
-
-TestingHQ needs Python 3.10 or newer. It has one runtime dependency, `tomli`,
-and only on Python 3.10: the TOML parser is in the standard library from 3.11.
+Python 3.10 or newer. Standard library only at run time, plus `tomli` on 3.10.
 
 ## Quick start
 
 ```
-# generate a corpus to disk, no network
-testinghq blast generate --count 100 --seed 1 --out corpus
+cat > target.toml <<'EOF'
+[targets.local]
+url = "http://127.0.0.1:8000/inbound"   # your webhook
+[targets.mailgun]                        # sigcheck --scheme mailgun needs format = "mailgun"
+url = "http://127.0.0.1:8000/inbound"
+format = "mailgun"
 
-# dry run by default: shows what it would send, makes no network calls
-testinghq blast fire --target local
-
-# actually fire at a configured target (explicit, rate limited, and paced)
-testinghq blast fire --target local --send --rate 5 --out run.json
-
-# --config points at your target TOML (see examples/target.example.toml);
-# defaults to ./target.toml
-testinghq blast fire --target local --send --config target.toml
-
-# re-fire the exact same corpus from a saved run, byte-identically
-testinghq blast replay run.json --send
+[readback]
+kind = "http"
+url = "http://127.0.0.1:8000/tickets"   # answers GET ?tag=<tag> with the records it made
+EOF
+testinghq config validate target.toml
+testinghq ledger fire --target local --count 50
+testinghq ledger fire --target local --count 50 --send --out ledger.json
+testinghq report ledger.json --html report.html
 ```
 
-Barrage, for load rather than variety:
+Every command is a dry run until you pass `--send`. Records are read with the
+field names in [docs/CONFIG.md](docs/CONFIG.md) unless `[readback.fields]` maps them; an unknown config key is refused (exit 1) with the closest known one.
+A target's `format` picks the wire format: `sendgrid` (default), `sendgrid-raw`, `mailgun`, `postmark` or `mime`; see [docs/FORMATS.md](docs/FORMATS.md).
+
+## What a finding looks like
+
+`ledger` against a pipeline whose worker writes every fifth ticket twice. Every
+POST in the run was answered 200. From `python examples/pipeline_demo.py`:
 
 ```
-# dry run by default: previews the load plan, makes no network calls
-testinghq barrage fire --target local --rate 20 --duration 60
+ledger fire: explicit --send flag set
+ledger: UNACCOUNTED  (12 message(s) sent, seed=0, tag prefix 'hq-2610142218-d0f4')
 
-# actually run the load test against a configured target
-testinghq barrage fire --target local --rate 20 --duration 60 --send
+  sent:            12
+  produced:        14
+  exactly once:    10
+  missing:         0
+  duplicated:      2
+  misparsed:       0
+  readback:        2.59s over 4 poll(s), settled
+  extra:           0
 
-# closed-loop is the other mode. Both dispatch through a pool of --concurrency
-# workers, so a slow target cannot cap the achieved rate at 1 / its latency
-testinghq barrage fire --target local --mode closed --send
+  missing: none
 
-# write the run artifact, then re-run it later from its seed and config
-testinghq barrage fire --target local --send --out load.json
-testinghq barrage replay load.json --send
+  duplicated (2):
+    hq-2610142218-d0f4-0-0004: 2 tickets ['T00005', 'T00006']
+    hq-2610142218-d0f4-0-0009: 2 tickets ['T00011', 'T00012']
+
+  misparsed: none
 ```
-Verify, for what the pipeline made of the payloads rather than what it answered:
-
-```
-# dry run by default: previews the corpus and the adapter, makes no calls
-testinghq verify fire --target local
-
-# fire the clean corpus, then read your system's output back and check it
-testinghq verify fire --target local --send
-
-# say where your system should have routed each message, if it has its own
-# routing taxonomy; without it, the expected route is the message's recipient
-testinghq verify fire --target local --send --expect-route queue/support
-
-# for a pipeline that creates the ticket on a queue consumer rather than inside
-# the request, keep asking until the record counts stop moving
-testinghq verify fire --target local --send --quiet-window 10 --max-wait 120
-
-# check a run that already happened. Sends nothing, so it has no --send.
-testinghq verify check verify.json
-```
-
-
-Ledger, for exactly-once accounting:
-
-```
-# 50 uniquely tagged messages, then reconcile them against what the system holds
-testinghq ledger fire --target local --send --count 50
-
-# change the tag prefix when two runs hit the same system at once
-testinghq ledger fire --target local --send --tag-prefix spike-2026-09
-```
-
-
-Loop, for auto-replies and mail loops:
-
-```
-# dry run by default: lists every machine-mail shape it would send
-testinghq loop fire --target local
-
-# send them and check the pipeline ignored all of them
-testinghq loop fire --target local --send
-
-# tickets for machine mail are findings by default. Allowing them keeps only
-# the auto-reply check, and answering the loop bait is still a finding.
-testinghq loop fire --target local --send --ticket-policy allowed
-```
-
-`loop` reads its outbound sink from config rather than a flag, because the sink
-is where your pipeline writes, which is a property of your deployment rather
-than of the run:
-
-```toml
-[loop.outbound]
-kind = "mailbox"
-path = "./outbound-sink.jsonl"
-
-[loop]
-reply_address = "no-reply@example.com"
-```
-
-Without `[loop.outbound]` the auto-reply check is reported as **NOT CHECKED, never
-passed**, and the verdict line says so.
-
-Steady, for how often the classifier's label moves when it should not:
-
-```
-# dry run by default: lists the intent families and their variant counts
-testinghq steady fire --target local
-
-# send the variants and gate on the flip rate, so it can sit in CI
-testinghq steady fire --target local --send --max-flip-rate 0.05
-
-# also measure model nondeterminism, separately from wording sensitivity
-testinghq steady fire --target local --send --repeats 5
-
-# read the label from category rather than route (the default)
-testinghq steady fire --target local --send --label-field category
-```
-
-Redeliver, for what your pipeline does when the provider misbehaves:
-
-```
-# four scenarios: duplicate, slow-retry, reply-first, references
-testinghq redeliver fire --target local --send
-
-# just one of them, and with a shorter retry gap than the default 120s
-testinghq redeliver fire --target local --send --scenario slow-retry --retry-after 30
-```
-
-The slow-retry scenario is the duplicate half of a provider retry, not a
-failure-driven one: it re-sends a message whose first delivery SUCCEEDED, which
-is what a correct pipeline should deduplicate by Message-ID. It cannot tell you
-how a pipeline behaves when the failure that caused a real retry is also
-present, and a pipeline that deduplicates only on a failure signal rather than on
-Message-ID will pass this and still duplicate a real retry.
-
-Every `testinghq` command in this file is executed as a dry run by
-`tests/unit/test_readme_examples.py`, so an example cannot rot into a command
-that exits non-zero without the suite noticing. The five pipeline commands are
-run with a mail-sink adapter the harness supplies, because they refuse to run
-without one by design.
 
 ## Exit codes
 
-Every subcommand returns a process exit code, and the code is the answer a
-script reads. There is one convention, across every tool:
-
 | Code | Meaning | A script should |
 | --- | --- | --- |
-| 0 | ran, answer was yes | carry on |
-| 1 | refused: guardrail, bad config, bad usage, unreadable file | fix the invocation; nothing was sent |
-| 2 | ran, sent nothing (no `--send`) | carry on; this was a dry run |
-| 3 | ran, answer was no | look at the report |
+| 0 | ran, the answer was yes | carry on |
+| 1 | refused: guardrail, bad config or bad usage; nothing was sent | fix the command |
+| 2 | dry run: no `--send`, nothing was sent | carry on |
+| 3 | ran, the answer was no | read the report |
 
-The three non-zero codes call for three different responses, which is why they
-are three different numbers. A refusal means nothing ran and the command has to
-change. A dry run is a successful run that was asked to hold back. A finding is
-a successful run that found something.
+Every tool uses the same four codes. `report` exits 0 whenever it could read the artifact.
 
-`compare` used to report a regression as 1 and a usage error as 2, so a script
-reading 1 as "refused" read a regression as the tool declining to run. It now
-follows the table: a regression is 3, a usage error is 1. **This is a breaking
-change for any script that calls `compare` and checks its exit code**, and it is
-the reason this table exists.
+## The tools
 
-The numbers are defined once, in `testinghq/core/exit_codes.py`, and
-`tests/unit/test_exit_codes.py` fails if any module defines its own or returns a
-code outside the set.
+**Blast.** Fires a seeded corpus (clean, messy, multilingual, malformed, degenerate) with one to three clean attachments on about a third of payloads (`--attachments none|seeded|adversarial`).
+`--mix clean=20,messy=40,...` sets the category percentages; `--catalog` fires the named edge cases instead, all of them or a comma-separated list.
+A 5xx or no response is flagged in every category, and a missing response says why (refused, DNS, timeout, TLS, other). `--fail-on-body REGEX` flags a 2xx whose body reports failure.
+The same seed and options rebuild a byte-identical corpus, and `blast replay` re-fires it.
 
-## Reading a run artifact
-
-Six tools write a run artifact and each grew its own shape, so a CI system that
-wanted to know what happened had to know which tool produced the file first.
-`testinghq report` is the one place that knows:
-
-```bash
-# a readable summary
-testinghq report run.json
-
-# one stable shape, for a machine
-testinghq report run.json --json
+```
+testinghq blast generate --count 100 --seed 1 --out corpus
+testinghq blast fire --target local --send --catalog --out blast.json
+testinghq blast replay blast.json --send
 ```
 
-It detects the tool, derives the verdict that tool would have printed, and
-reports counts and findings. With `--json` the output has the same keys whatever
-wrote the file, so a script parses one thing: `tool`, `verdict`,
-`verdict_source`, `exit_code`, `exit_code_source`, `counts`, `findings`, `seed`,
-`target` and `dry_run`.
+**Barrage.** Clean payloads at a controlled rate after a warmup ramp. `--mode open` (default) keeps arrivals on schedule whatever the target does; `--mode closed` runs `--concurrency` workers that each send the next request when the last completes.
+It reports achieved against target throughput, p50/p90/p99 latency, errors over time with 429 counted as shed load, and the knee where the endpoint gives way.
+The run ends `--grace` seconds (default 10) after `--duration`, and a request that waited longer than `--max-queue-seconds` (default 5) for a worker is dropped and counted. Each worker keeps one connection alive unless `--no-keepalive`.
+Ctrl-C writes a partial artifact with `aborted: true` and exits 3. Rate, duration and concurrency are capped at 50/s, 300s and 64 unless `--allow-high-rate`.
 
-It sends nothing, needs no config file, and has no `--send` or `--target`
-because it cannot reach the network. An artifact it cannot identify is refused
-with a message saying what the top-level keys were, rather than summarized as a
-run that never happened.
+```
+testinghq barrage fire --target local --rate 20 --duration 60 --send --out load.json
+testinghq barrage fire --target local --mode closed --concurrency 8 --send
+```
 
-Two things it reports are not in the artifact, and both are labelled. The
-verdict: `verify` and `loop` compute theirs at print time and never write it
-down, so `report` reimplements those derivations, pinned against the tools' own
-formatters by a test. The exit code: no artifact records one, so it is
-reconstructed from the same fields the tool used. It keeps the name `exit_code`,
-because that is what a consumer parses, and `exit_code_source` says where the
-number came from, the same way `verdict_source` does for the verdict.
+**Verify.** Fires clean tagged messages, reads back what the system stored, and checks that a record exists and that its sender, subject, body, attachments and route match.
+Routing is checked only when you pass `--expect-route`; without it the check is skipped. `--subject-match contains` (the default) accepts helpdesk prefixes like `[Ticket #123]`, and `--attachment-match loose` tolerates sanitised filenames.
+A check that could not run says why (no record found, adapter cannot see field, nothing to check) and never counts as a pass.
+`verify check` re-reads an earlier run without sending anything.
 
-Reading a report exits 0 whenever the artifact was readable, even when the run
-found something. The findings are in the output; deciding what to do about them
-is the caller's job.
+```
+testinghq verify fire --target local --send --expect-route support --out verify.json
+testinghq verify check verify.json
+```
+
+**Ledger.** Sends N uniquely tagged messages and reconciles them: missing, duplicated, misparsed, and extra (a record with this run's tag family that this run never sent).
+Each run draws its own tag prefix, `hq-<yymmddHHMM>-<4 hex>`, so runs never read each other's records; `--tag-prefix` fixes one.
+BALANCED exits 0. A readback that cannot list every record reports UNVERIFIED STRAYS, and one still changing at `--max-wait` reports UNSETTLED; both exit 3.
+Run it while Barrage holds the system under load to see what load loses.
+
+```
+testinghq ledger fire --target local --send --count 50
+```
+
+**Redeliver.** Four scenarios: the same Message-ID delivered twice; every message re-sent after one `--retry-after` wait (default 120s); two replies delivered before their original; a three-message thread whose last reply must carry the full References chain.
+Duplicate tickets and threading are checked separately. `--scenario` picks one, and can be repeated.
+
+```
+testinghq redeliver fire --target local --send --scenario slow-retry --retry-after 30
+```
+
+**Loop.** Sends machine mail a pipeline must not act on (Auto-Submitted, Precedence, out-of-office, a delivery-status bounce, noreply senders, list mail) and a loop bait: an ordinary message, then an autoresponder answering the pipeline's own acknowledgement of it.
+A ticket for machine mail is a finding unless `--ticket-policy allowed`; a reply to machine mail, or to the bait, is always a finding.
+Replies are read from `[loop.outbound]` in the config. Without it the reply check is NOT CHECKED, never passed, and outbound mail it cannot tie to a message is itself a finding.
+
+```
+testinghq loop fire --target local --send --ticket-policy allowed
+```
+
+**Steady.** Sends reviewed intents in English, Urdu and Roman Urdu, each with meaning-preserving edits: a signature, a forward wrapper, quoted history, reflowed whitespace, a reworded greeting.
+It reads back the label (`--label-field category|route|priority`) and reports the share of variants that dissent from their family's majority, by transform and by language. Above `--max-dissent-rate` (default 0.1) it exits 3.
+`--repeats N` measures answers to identical input separately. It measures stability, not correctness.
+
+```
+testinghq steady fire --target local --send --label-field category --repeats 3
+```
+
+**Sigcheck.** Sends one request per variant (valid, wrong-secret, unsigned, stale-timestamp, tampered-body, replayed-token) and reports which the endpoint accepted.
+Schemes: `mailgun` (HMAC of timestamp and token, as form fields); `sendgrid` (ECDSA over timestamp and raw body, on the curve SendGrid documents: give the private key matching the endpoint's public key, and the dry run prints that public key); `postmark-basic` (Postmark does not sign; its protection is Basic credentials).
+The secret is read only from the environment variable `env:NAME` names, and the artifact records the reference, never the value. For Mailgun, accepting a stale timestamp but refusing a replayed token follows Mailgun's own guidance and is informational.
+Exit 3: the endpoint accepted what it should refuse, refused a valid request, or answered 5xx.
+
+```
+testinghq sigcheck fire --target mailgun --scheme mailgun --secret env:MAILGUN_SIGNING_KEY --send
+```
+
+**Compare.** Two Blast runs are lined up payload by payload, with regressions, fixes and changes reported apart. Two Barrage runs are compared on load: error and unsent rate, hold-stage p99, and achieved rate when mode and rate match.
+A dry run on either side, or two runs with nothing in common, is refused.
+
+```
+testinghq compare --baseline before.json --candidate after.json --fail-on-regression
+```
+
+**Reports.** `testinghq report run.json` summarises any tool's artifact, and `testinghq report run.json --json` prints one shape for every tool. `testinghq report run.json --html report.html` writes a self-contained HTML report. `testinghq config validate` shows what the loaders resolved and never prints a header value.
+
+## Readback
+
+The pipeline tools ask your system what it made of each message, found by a tag
+in an `X-TestingHQ-Tag` header and `[testinghq:<tag>]` in the body. Three kinds:
+
+```toml
+[readback]                         # a JSON API: GET url?tag=<tag>
+kind = "http"
+url = "http://127.0.0.1:8000/tickets"
+query = "type:ticket tags:{tag}"   # optional template, for search APIs
+
+[readback.headers]
+Authorization = "env:HQ_READBACK_TOKEN"   # env: references only; a literal is refused
+```
+
+```toml
+[readback]                         # a JSON Lines file your pipeline writes
+kind = "mailbox"
+path = "./mail-sink.jsonl"
+```
+
+Anything else is an import path, `--readback mypkg.adapters:build`: a class, an
+object with `fetch`, or a function taking one probe and returning records.
+
+The readback settles once what it sees (which payloads are found, how many records each, the field
+values the checks read) has held still for `--quiet-window` seconds (default 5); a payload still not
+found then is lost. A store still changing when `--max-wait` (default 60, raised to fit a large run) runs out, or not polled twice by then, is UNSETTLED
+(exit 3), not a loss, and anything already proven, such as a duplicate, is still listed. A run whose
+every lookup was a 404 is READBACK FAILED (exit 3): the url is almost certainly wrong, so nothing is
+reported as lost. For a slow or async pipeline, raise `--quiet-window` above its worst processing
+latency. Lookups retry 429, 5xx and timeouts with backoff, honour `Retry-After`, and are paced to
+`--readback-rate` (default 4 per second). A public readback host needs `--allow-public-readback`.
+Recipes for Zendesk, Freshdesk, Mailpit, Chatwoot, a generic REST API and a mail sink are in
+[examples/readback/](examples/readback/).
 
 ## Responsible use
 
-Blast is a fuzzer and self-testing tool for endpoints you control. It POSTs
-provider-shaped payloads at your own ingest. It is not an email sender: it does
-not deliver mail to arbitrary inboxes, it does not try to defeat spam filters,
-and it does not forge sender authentication to fool real recipients. All
-generated content is synthetic and uses reserved example domains.
+TestingHQ is for endpoints you own or are authorised to test. It never sends
+email: it POSTs webhook payloads, and every address in them is on a reserved
+example domain.
 
-Dry-run is the default. Firing requires an explicit `--send` flag and a target
-you have declared in configuration. Rate limiting is on by default.
+- Dry run is the default; every run that sends needs `--send`. Only a target declared in `[targets.<name>]` can be fired at.
+- A public host needs `--allow-public-target`; Barrage at a public host also needs `public = true` on the target.
+- Every send is rate limited, and Barrage has hard ceilings.
 
-The same applies to Barrage, with one addition. Barrage is a load tester against
-your own infrastructure: it is not a flooding tool, and it must not be pointed at
-an endpoint you do not own. Three controls are what keep it a load tester rather
-than a weapon, and none of them are cosmetic:
+See [docs/SECURITY.md](docs/SECURITY.md) for the full model and how to report a vulnerability.
 
-- **Dry-run is the default.** A dry run makes zero network calls. It never
-  resolves a target and never builds a request. `--send` is required to put
-  anything on the wire.
-- **Configured targets only.** Both the target name and the URL it resolves to are
-  checked against the canonical guardrails, so a real public host cannot hide
-  behind a friendly name.
-- **A hard rate, duration and concurrency ceiling** (50 requests/second, 300
-  seconds, 64 requests in flight) that requires an explicit `--allow-high-rate`
-  to raise. This exists so that a typo in
-  `--rate` or `--duration` cannot become a self-inflicted denial of service. Pass
-  it deliberately, and only against infrastructure you own.
+## Documentation
 
-Barrage fires clean, valid payloads only. It reuses Blast's seeded generator for
-realistic bodies and deliberately never garbles them: Barrage is about volume, not
-malformed input. That is Blast's job.
-
-Verify also fires clean payloads only, for the same structural reason and a
-different one: verify grades results, and a deliberately mangled payload has no
-correct parse to grade against. Blast owns messy input.
-
-All five pipeline tools are correctness tools rather than load tools, so none
-of them carries `--allow-high-rate`: the thing that needs a hard ceiling is
-sustained load, and that is Barrage's job with the ceiling already in place.
-
+- [docs/README.md](docs/README.md): index of everything below
+- [docs/CONFIG.md](docs/CONFIG.md): every config key, generated from the code
+- [docs/FORMATS.md](docs/FORMATS.md): the five wire formats, field by field
+- [docs/SECURITY.md](docs/SECURITY.md): guardrails, public targets, threat model
+- [docs/DOGFOOD.md](docs/DOGFOOD.md): running against a real staging deployment
+- [docs/ROADMAP.md](docs/ROADMAP.md): goals, timeline and what comes after 1.0
+- [examples/README.md](examples/README.md): the demo scripts and sample configs
+- [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-Contact: saifullah4khan@gmail.com

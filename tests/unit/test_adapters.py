@@ -27,7 +27,6 @@ from testinghq.pipeline.adapters import (
     ReadbackError,
     build_adapter,
     parse_readback_config,
-    require_readback_target,
 )
 
 
@@ -282,11 +281,16 @@ def test_a_non_object_record_is_refused():
         adapters.readback_from_json(["not", "an", "object"], adapters.DEFAULT_FIELD_MAP)
 
 
-def test_a_non_scalar_field_is_refused_rather_than_stringified():
-    with pytest.raises(adapters.AdapterError):
-        adapters.readback_from_json(
-            {"id": "T1", "subject": {"nested": "object"}}, adapters.DEFAULT_FIELD_MAP
-        )
+def test_a_non_scalar_field_is_not_visible_and_says_what_was_there():
+    """Not stringified, and not an abort either. The record is still counted,
+    the subject check is SKIPPED as not visible, and the note names the shape
+    so the operator can fix the path."""
+    readback = adapters.readback_from_json(
+        {"id": "T1", "subject": {"nested": "object"}}, adapters.DEFAULT_FIELD_MAP
+    )
+    assert readback.has("subject") is False
+    assert readback.subject is None
+    assert "an object with keys ['nested']" in readback.note_for("subject")
 
 
 # ---------------------------------------------------------------------------
@@ -364,9 +368,12 @@ def test_a_404_is_not_an_error_but_not_found():
 
 def test_a_500_is_an_error_not_a_loss():
     """A server that could not answer is not a pipeline that lost a message,
-    and reporting it as one would be the worst kind of wrong."""
+    and reporting it as one would be the worst kind of wrong. With retries
+    turned off, the first 500 is the error."""
     client = _StubClient(_json_response({"error": "boom"}, status=500))
-    adapter = adapters.HttpJsonAdapter("http://localhost:8000/t", client=client)
+    adapter = adapters.HttpJsonAdapter(
+        "http://localhost:8000/t", client=client, retry_max=0
+    )
     with pytest.raises(adapters.AdapterError) as caught:
         adapter.fetch(_probe())
     assert "500" in str(caught.value)
@@ -390,7 +397,9 @@ def test_a_failing_enumeration_is_an_error_not_a_partial_list():
     """A partial enumeration reported as complete is how stray records go
     missing, so a 500 on the listing is a refusal rather than an empty list."""
     client = _StubClient(_json_response({"error": "boom"}, status=500))
-    adapter = adapters.HttpJsonAdapter("http://localhost:8000/t", client=client)
+    adapter = adapters.HttpJsonAdapter(
+        "http://localhost:8000/t", client=client, retry_max=0
+    )
     with pytest.raises(adapters.AdapterError):
         adapter.list_all()
 
@@ -513,6 +522,84 @@ def test_a_sink_references_chain_may_arrive_as_a_string(tmp_path):
     assert found[0].references == ("a@w", "b@w")
 
 
+def test_a_partly_written_last_line_is_left_for_the_next_poll(tmp_path):
+    """The case the mailbox adapter exists for: the pipeline is mid-write when
+    a poll reads the file. That line is not an error and not lost."""
+    sink = tmp_path / "sink.jsonl"
+    whole = _sink_line(id="M2")
+    sink.write_text(_sink_line(id="M1") + "\n" + whole[:20], encoding="utf-8")
+    adapter = adapters.MailboxAdapter(str(sink))
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["M1"]
+    with sink.open("a", encoding="utf-8") as handle:
+        handle.write(whole[20:] + "\n")
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["M1", "M2"]
+
+
+def test_a_last_line_with_no_newline_that_is_complete_is_read(tmp_path):
+    sink = tmp_path / "sink.jsonl"
+    sink.write_text(_sink_line(id="M1"), encoding="utf-8")
+    adapter = adapters.MailboxAdapter(str(sink))
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["M1"]
+    with sink.open("a", encoding="utf-8") as handle:
+        handle.write("\n" + _sink_line(id="M2") + "\n")
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["M1", "M2"]
+
+
+def test_each_line_is_parsed_once_however_many_tags_are_asked(tmp_path, monkeypatch):
+    """Re-parsing the whole sink per tag per poll was 39 seconds a poll at
+    100k lines and 50 tags."""
+    tags = [f"hq-1-{i:04d}" for i in range(10)]
+    sink = _write_sink(tmp_path, *(_sink_line(id=f"M{i}", tag=t) for i, t in enumerate(tags)))
+    parsed = []
+    real_loads = adapters.json.loads
+
+    def counting_loads(text, *args, **kwargs):
+        parsed.append(text)
+        return real_loads(text, *args, **kwargs)
+
+    monkeypatch.setattr(adapters.json, "loads", counting_loads)
+    adapter = adapters.MailboxAdapter(str(sink))
+    for _poll in range(3):
+        for tag in tags:
+            assert len(adapter.fetch(_probe(tag))) == 1
+    assert len(parsed) == len(tags)
+
+
+def test_a_sink_that_was_truncated_is_read_again_from_the_start(tmp_path):
+    sink = _write_sink(tmp_path, _sink_line(id="M1"), _sink_line(id="M2"))
+    adapter = adapters.MailboxAdapter(str(sink))
+    assert len(adapter.fetch(_probe())) == 2
+    sink.write_text(_sink_line(id="M3") + "\n", encoding="utf-8")
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["M3"]
+
+
+def test_a_very_large_sink_warns_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(adapters, "MAILBOX_WARN_LINES", 2)
+    sink = _write_sink(tmp_path, *(_sink_line(id=f"M{i}") for i in range(3)))
+    adapter = adapters.MailboxAdapter(str(sink))
+    with pytest.warns(adapters.ReadbackWarning, match="3 lines"):
+        adapter.fetch(_probe())
+    with sink.open("a", encoding="utf-8") as handle:
+        handle.write(_sink_line(id="M9") + "\n")
+    adapter.fetch(_probe())
+    assert len(adapter.warnings) == 1
+
+
+def test_mailbox_preflight_refuses_a_directory_that_does_not_exist(tmp_path):
+    adapter = adapters.MailboxAdapter(str(tmp_path / "missing" / "sink.jsonl"))
+    with pytest.raises(adapters.AdapterError, match="does not exist"):
+        adapter.preflight()
+
+
+def test_mailbox_preflight_refuses_a_path_that_is_a_directory(tmp_path):
+    with pytest.raises(adapters.AdapterError, match="directory"):
+        adapters.MailboxAdapter(str(tmp_path)).preflight()
+
+
+def test_mailbox_preflight_accepts_a_sink_not_written_yet(tmp_path):
+    adapters.MailboxAdapter(str(tmp_path / "sink.jsonl")).preflight()
+
+
 # ---------------------------------------------------------------------------
 # Enumeration
 # ---------------------------------------------------------------------------
@@ -570,11 +657,23 @@ def test_an_enumerating_adapter_says_so():
         adapters.HttpJsonAdapter(
             "http://localhost:8000/t", enumerate_records=False, client=client
         )
-    ) is True, (
-        "the method still exists so callers can ask; what changes is that it "
-        "raises rather than returning a partial list, which is what "
-        "can_enumerate on a caller side would otherwise treat as searchable"
+    ) is False, (
+        "enumerate = false must answer no before anything is sent, so a ledger "
+        "reports strays as unverified instead of refusing after the send"
     )
+
+
+def test_a_post_search_without_a_list_path_cannot_enumerate():
+    from testinghq.pipeline.readback import can_enumerate
+
+    adapter = adapters.HttpJsonAdapter(
+        "http://localhost:8000/search", method="POST", body='{"q": "{tag}"}',
+        client=_StubClient(),
+    )
+    assert can_enumerate(adapter) is False
+    with pytest.raises(ReadbackError) as caught:
+        adapter.list_all()
+    assert "list_path" in str(caught.value)
 
 
 # ---------------------------------------------------------------------------
@@ -729,8 +828,8 @@ def test_a_config_with_no_headers_still_sends_none():
 
 
 def test_a_custom_adapter_is_not_handed_the_secret():
-    """The factory receives `to_json`, which carries header names and not
-    values. A custom adapter that needs auth reads the environment itself."""
+    """The factory's table carries header names and not values. A custom
+    adapter that needs auth reads the environment itself."""
     module = types.ModuleType("hdr_spec_probe")
     module.seen = {}
 
@@ -939,27 +1038,247 @@ def test_a_spec_target_is_classified_by_its_parameter_name():
     def as_zero_arg():
         return None
 
-    def as_richer_fetch(probe, extra):
+    def as_two_args(probe, extra):
         return None
 
-    def as_mystery(thing):
+    def as_any_name(thing):
         return None
 
     assert adapters._classify_spec_target(as_factory, "m:f") == adapters._FACTORY_WITH_CONFIG
     assert adapters._classify_spec_target(as_fetch, "m:f") == adapters._FETCH_FUNCTION
     assert adapters._classify_spec_target(as_zero_arg, "m:f") == adapters._FACTORY_NO_ARGS
-    assert adapters._classify_spec_target(as_richer_fetch, "m:f") == adapters._FETCH_FUNCTION
+    assert adapters._classify_spec_target(as_any_name, "m:f") == adapters._FETCH_FUNCTION
     with pytest.raises(adapters.AdapterError) as caught:
-        adapters._classify_spec_target(as_mystery, "m:f")
-    assert "probe" in str(caught.value) and "config" in str(caught.value)
+        adapters._classify_spec_target(as_two_args, "m:f")
+    assert "2 arguments" in str(caught.value)
 
 
-def test_a_spec_target_named_ambiguously_is_refused_with_both_spellings(spec_module):
-    spec_module.mystery = lambda thing: None
+def test_a_lambda_with_any_parameter_name_is_a_fetch_function(spec_module):
+    """The README promises a one-line lambda is an adapter. Its parameter name
+    is whatever the author typed."""
+    spec_module.short = lambda p: [Readback(exists=True, ticket_id=f"L-{p.tag}")]
+    adapter = _spec("testinghq_spec_probe:short")
+    assert [r.ticket_id for r in adapter.fetch(_probe("hq-9-0001"))] == ["L-hq-9-0001"]
+
+
+class _ClassAdapterNoArgs:
+    def fetch(self, probe):
+        return [Readback(exists=True, ticket_id="C-none")]
+
+
+class _ClassAdapterWithConfig:
+    def __init__(self, table):
+        self.table = table
+
+    def fetch(self, probe):
+        return [Readback(exists=True, ticket_id=f"C-{self.table['kind']}")]
+
+
+def test_a_class_is_instantiated_with_no_arguments(spec_module):
+    """Returned uninstantiated, a class has a `fetch` attribute and crashes
+    mid-run, after sending, the first time it is called without `self`."""
+    spec_module.NoArgs = _ClassAdapterNoArgs
+    adapter = _spec("testinghq_spec_probe:NoArgs")
+    assert isinstance(adapter, _ClassAdapterNoArgs)
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["C-none"]
+
+
+def test_a_class_taking_one_argument_gets_the_config_table(spec_module):
+    spec_module.WithConfig = _ClassAdapterWithConfig
+    adapter = _spec("testinghq_spec_probe:WithConfig")
+    assert isinstance(adapter, _ClassAdapterWithConfig)
+    assert adapter.table["spec"] == "testinghq_spec_probe:WithConfig"
+    assert [r.ticket_id for r in adapter.fetch(_probe())] == ["C-python"]
+
+
+def test_a_class_whose_init_raises_is_a_refusal(spec_module):
+    class Broken:
+        def __init__(self):
+            raise RuntimeError("no database")
+
+        def fetch(self, probe):  # pragma: no cover - never reached
+            return []
+
+    spec_module.Broken = Broken
     with pytest.raises(adapters.AdapterError) as caught:
-        _spec("testinghq_spec_probe:mystery")
-    assert "'probe'" in str(caught.value)
-    assert "'config'" in str(caught.value)
+        _spec("testinghq_spec_probe:Broken")
+    assert "no database" in str(caught.value)
+
+
+def test_a_module_that_fails_to_import_is_a_refusal_not_a_traceback():
+    """A syntax error or an exception at import time is as much a refusal as
+    a missing module, and it happens before anything is sent."""
+    import importlib.abc
+    import importlib.machinery
+
+    class _Loader(importlib.abc.Loader):
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, module):
+            raise ValueError("bad settings at import time")
+
+    class _Finder(importlib.abc.MetaPathFinder):
+        def find_spec(self, name, path=None, target=None):
+            if name == "testinghq_broken_import_probe":
+                return importlib.machinery.ModuleSpec(name, _Loader())
+            return None
+
+    finder = _Finder()
+    sys.meta_path.insert(0, finder)
+    try:
+        with pytest.raises(adapters.AdapterError) as caught:
+            _spec("testinghq_broken_import_probe:build")
+        assert "bad settings at import time" in str(caught.value)
+    finally:
+        sys.meta_path.remove(finder)
+        sys.modules.pop("testinghq_broken_import_probe", None)
+
+
+# ---------------------------------------------------------------------------
+# A custom adapter's own keys reach it
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def keys_module(monkeypatch):
+    """A class adapter, a `config` factory, and a zero-argument factory that
+    returns the class, each recording the table it was built with."""
+    module = types.ModuleType("hq_adapter_keys_probe")
+    module.seen = []
+
+    class Recorder:
+        def __init__(self, table):
+            module.seen.append(table)
+
+        def fetch(self, probe):
+            return []
+
+    def build(config):
+        module.seen.append(config)
+        return Recorder.__new__(Recorder)
+
+    module.Recorder = Recorder
+    module.build = build
+    module.make_class = lambda: Recorder
+    monkeypatch.setitem(sys.modules, "hq_adapter_keys_probe", module)
+    return module
+
+
+def _readback_from_toml(tmp_path, readback: str, env=None):
+    """A `[readback]` table read the way every tool reads one: through the
+    config loader, which accepts a custom adapter's own keys."""
+    from testinghq.core.config import load_config
+
+    path = tmp_path / "target.toml"
+    path.write_text(
+        '[targets.local]\nurl = "http://127.0.0.1:9/intake"\n\n' + readback,
+        encoding="utf-8",
+    )
+    return parse_readback_config(load_config(str(path)).readback_table(), env=env)
+
+
+@pytest.mark.parametrize("attribute", ["Recorder", "build", "make_class"])
+def test_a_custom_adapter_receives_its_own_keys_from_the_toml(
+    tmp_path, keys_module, attribute
+):
+    """The config loader accepts `project_id` in a custom adapter's table
+    because it may be the adapter's own key. It used to be accepted and then
+    dropped: the class or factory got only the built-in keys, so an adapter
+    configured in the file could not read its own configuration."""
+    config = _readback_from_toml(
+        tmp_path,
+        f'[readback]\nkind = "hq_adapter_keys_probe:{attribute}"\n'
+        'project_id = "proj-42"\n'
+        "[readback.options]\nregion = \"eu\"\n",
+    )
+    build_adapter(config)
+    (table,) = keys_module.seen
+    assert table["project_id"] == "proj-42"
+    assert table["options"] == {"region": "eu"}
+
+
+def test_a_custom_adapter_still_gets_the_builtin_keys_as_normalised(
+    tmp_path, keys_module
+):
+    """Adapters written against the built-in keys see what they always saw:
+    the loader's defaults and its normalised spellings, `field_map` included."""
+    config = _readback_from_toml(
+        tmp_path,
+        '[readback]\nkind = "hq_adapter_keys_probe:Recorder"\n'
+        'url = "http://127.0.0.1:8000/tickets"\nmethod = "get"\n'
+        'project_id = "proj-42"\n'
+        '[readback.fields]\nsubject = "title"\n',
+    )
+    build_adapter(config)
+    (table,) = keys_module.seen
+    expected = config.to_json()
+    assert {key: table[key] for key in expected} == expected
+    assert table["method"] == "GET"
+    assert table["timeout"] == adapters.DEFAULT_HTTP_TIMEOUT
+    assert table["field_map"]["subject"] == "title"
+    assert table["fields"] == {"subject": "title"}
+    assert table["spec"] == "hq_adapter_keys_probe:Recorder"
+
+
+def test_an_env_reference_in_an_adapters_own_key_is_passed_through(
+    tmp_path, keys_module
+):
+    """Only `[readback.headers]` values are resolved, and those reach a custom
+    adapter by name only. An adapter's own key is its own business: a value
+    spelled `env:NAME` arrives as that string, for the adapter to resolve."""
+    config = _readback_from_toml(
+        tmp_path,
+        '[readback]\nkind = "hq_adapter_keys_probe:build"\n'
+        'api_key = "env:HQ_ADAPTER_KEY"\n'
+        '[readback.headers]\nAuthorization = "env:HQ_READBACK_TOKEN"\n',
+        env={"HQ_READBACK_TOKEN": "s3cr3t-value", "HQ_ADAPTER_KEY": "other-secret"},
+    )
+    build_adapter(config)
+    (table,) = keys_module.seen
+    assert table["api_key"] == "env:HQ_ADAPTER_KEY"
+    assert table["headers"] == ["Authorization"]
+    serialized = json.dumps(table)
+    assert "s3cr3t-value" not in serialized
+    assert "other-secret" not in serialized
+
+
+def test_an_adapter_that_edits_its_table_does_not_change_the_config(
+    tmp_path, keys_module
+):
+    config = _readback_from_toml(
+        tmp_path,
+        '[readback]\nkind = "hq_adapter_keys_probe:build"\n'
+        "[readback.options]\nregion = \"eu\"\n",
+    )
+    build_adapter(config)
+    keys_module.seen[0]["options"]["region"] = "us"
+    build_adapter(config)
+    assert keys_module.seen[1]["options"] == {"region": "eu"}
+
+
+def test_a_bare_spec_string_gives_a_table_with_its_kind(keys_module):
+    build_adapter(parse_readback_config("hq_adapter_keys_probe:Recorder"))
+    (table,) = keys_module.seen
+    assert table["kind"] == "hq_adapter_keys_probe:Recorder"
+
+
+def test_a_loop_outbound_adapter_receives_its_own_keys(tmp_path, keys_module):
+    """`[loop.outbound]` is read by the same loader and accepts the same
+    custom keys, so its adapter gets them the same way."""
+    from testinghq.pipeline import loop
+
+    path = tmp_path / "target.toml"
+    path.write_text(
+        '[targets.local]\nurl = "http://127.0.0.1:9/intake"\n\n'
+        '[loop.outbound]\nkind = "hq_adapter_keys_probe:Recorder"\n'
+        'mailbox_name = "replies"\n',
+        encoding="utf-8",
+    )
+    outbound = loop.build_outbound_config(loop.load_loop_config(str(path)), str(path))
+    build_adapter(outbound)
+    (table,) = keys_module.seen
+    assert table["mailbox_name"] == "replies"
 
 
 def test_required_positional_ignores_defaults_and_star_args():
@@ -975,3 +1294,120 @@ def test_required_positional_ignores_defaults_and_star_args():
     assert adapters._required_positional(with_default) == ["a"]
     assert adapters._required_positional(with_star) == []
     assert adapters._required_positional(plain) == ["a", "b", "c"]
+
+
+# ---------------------------------------------------------------------------
+# Field paths: wildcard, unmapping, and shapes the checks cannot read
+# ---------------------------------------------------------------------------
+
+
+def test_a_wildcard_segment_collects_from_every_list_element():
+    """Every REST ticket API returns attachments as a list of objects."""
+    readback = adapters.readback_from_json(
+        {"id": "T1", "attachments": [{"name": "a.pdf", "size": 3}, {"name": "b.png"}]},
+        {**DEFAULT_FIELD_MAP, "attachment_names": "attachments.*.name"},
+    )
+    assert readback.attachment_names == ("a.pdf", "b.png")
+    assert readback.has("attachment_names") is True
+
+
+def test_a_wildcard_over_an_empty_list_is_an_observed_empty_value():
+    readback = adapters.readback_from_json(
+        {"id": "T1", "attachments": []},
+        {**DEFAULT_FIELD_MAP, "attachment_names": "attachments.*.name"},
+    )
+    assert readback.attachment_names == ()
+    assert readback.has("attachment_names") is True
+
+
+def test_a_wildcard_whose_key_no_element_has_is_not_visible():
+    readback = adapters.readback_from_json(
+        {"id": "T1", "attachments": [{"file_name": "a.pdf"}]},
+        {**DEFAULT_FIELD_MAP, "attachment_names": "attachments.*.name"},
+    )
+    assert readback.has("attachment_names") is False
+
+
+def test_two_wildcards_in_one_path_are_refused():
+    with pytest.raises(adapters.AdapterError) as caught:
+        parse_readback_config(
+            {"kind": "http", "fields": {"attachment_names": "a.*.b.*.name"}}
+        )
+    assert "one is allowed" in str(caught.value)
+
+
+def test_false_unmaps_a_default_field():
+    """A default the API happens to share a name with, but which means
+    something else there, can be switched off rather than mis-checked."""
+    config = parse_readback_config({"kind": "http", "fields": {"route": False}})
+    assert "route" not in config.field_map()
+    assert config.unmapped_fields() == ["route"]
+    readback = adapters.readback_from_json({"id": "T1", "route": "x"}, config.field_map())
+    assert readback.has("route") is False
+
+
+def test_the_identifier_cannot_be_unmapped():
+    with pytest.raises(adapters.AdapterError):
+        parse_readback_config({"kind": "http", "fields": {"ticket_id": False}})
+
+
+def test_a_list_of_objects_at_attachments_is_skipped_with_its_shape():
+    """Previously a ReadbackError that aborted the run after sending."""
+    readback = adapters.readback_from_json(
+        {"id": "T1", "attachments": [{"file_name": "a.pdf", "size": 9}]},
+        DEFAULT_FIELD_MAP,
+    )
+    assert readback.has("attachment_names") is False
+    note = readback.note_for("attachment_names")
+    assert "a list of objects with keys ['file_name', 'size']" in note
+    assert 'attachments.*.file_name' in note
+    assert readback.to_json()["field_notes"]["attachment_names"] == note
+
+
+def test_an_attachment_count_is_skipped_not_read_as_a_name():
+    readback = adapters.readback_from_json(
+        {"id": "T1", "attachments": 2}, DEFAULT_FIELD_MAP
+    )
+    assert readback.has("attachment_names") is False
+    assert "a count is not a list of names" in readback.note_for("attachment_names")
+
+
+@pytest.mark.parametrize(
+    "sender",
+    [{"email": "alice@example.com", "name": "Alice"}, {"Address": "alice@example.com"}],
+)
+def test_a_sender_stored_as_an_object_is_read(sender):
+    readback = adapters.readback_from_json({"id": "T1", "from": sender}, DEFAULT_FIELD_MAP)
+    assert readback.from_addr == "alice@example.com"
+    assert readback.has("from_addr") is True
+
+
+def test_a_sender_object_with_no_address_key_is_skipped_with_its_shape():
+    readback = adapters.readback_from_json(
+        {"id": "T1", "from": {"id": 7, "name": "Alice"}}, DEFAULT_FIELD_MAP
+    )
+    assert readback.has("from_addr") is False
+    assert "no email or address key" in readback.note_for("from_addr")
+
+
+def test_a_single_tag_in_a_list_is_read_as_the_tag():
+    readback = adapters.readback_from_json(
+        {"id": "T1", "tags": ["hq-1-0000"]}, {**DEFAULT_FIELD_MAP, "tag": "tags"}
+    )
+    assert readback.tag == "hq-1-0000"
+
+
+def test_the_skipped_field_is_reported_not_visible_by_the_checks():
+    """Through the real checker: the attachment check is SKIPPED as not
+    visible, never FAILED and never PASSED."""
+    from testinghq.blast.generate import generate_corpus
+    from testinghq.pipeline.expectations import SKIP_NOT_VISIBLE, evaluate
+
+    email = generate_corpus(1, 1)[0]
+    readback = adapters.readback_from_json(
+        {"id": "T1", "attachments": [{"file_name": "a.pdf"}]}, DEFAULT_FIELD_MAP
+    )
+    verification = evaluate(email, readback)
+    attachments = [c for c in verification.checks if c.name == "attachments"][0]
+    assert attachments.passed is None
+    assert attachments.reason == SKIP_NOT_VISIBLE

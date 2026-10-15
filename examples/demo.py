@@ -13,7 +13,7 @@ that only records what it received; that client never opens a socket, so
 this script is safe to run with no configuration at all.
 
 For a real target, see examples/target.example.toml and examples/README.md
-(owned by another lane) and use `testinghq blast fire` instead.
+and use `testinghq blast fire` instead.
 """
 from __future__ import annotations
 

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "tool": "compare",
+  "comparable": true,
+  "warnings": [],
+  "aligned_by": "id",
+  "baseline_seed": 7,
+  "candidate_seed": 7,
+  "records_compared": 6,
+  "unchanged": 5,
+  "regressions": {
+    "count": 1,
+    "records": [
+      {
+        "id": "clean-7-0001",
+        "category": "clean",
+        "from": "ok",
+        "to": "clean_failed",
+        "status_from": "2xx",
+        "status_to": "5xx",
+        "flag": "clean payload clean-7-0001 did not 2xx"
+      }
+    ],
+    "truncated": false
+  },
+  "fixes": {
+    "count": 0,
+    "records": [],
+    "truncated": false
+  },
+  "changes": {
+    "count": 0,
+    "records": [],
+    "truncated": false
+  },
+  "totals": [
+    {
+      "key": "1xx",
+      "baseline": 0,
+      "candidate": 0,
+      "delta": 0
+    },
+    {
+      "key": "2xx",
+      "baseline": 1,
+      "candidate": 1,
+      "delta": 0
+    },
+    {
+      "key": "3xx",
+      "baseline": 0,
+      "candidate": 0,
+      "delta": 0
+    },
+    {
+      "key": "4xx",
+      "baseline": 2,
+      "candidate": 2,
+      "delta": 0
+    },
+    {
+      "key": "5xx",
+      "baseline": 2,
+      "candidate": 2,
+      "delta": 0
+    },
+    {
+      "key": "other",
+      "baseline": 0,
+      "candidate": 0,
+      "delta": 0
+    },
+    {
+      "key": "no_response",
+      "baseline": 1,
+      "candidate": 1,
+      "delta": 0
+    },
+    {
+      "key": "clean",
+      "baseline": 2,
+      "candidate": 2,
+      "delta": 0
+    },
+    {
+      "key": "messy-but-valid",
+      "baseline": 0,
+      "candidate": 0,
+      "delta": 0
+    },
+    {
+      "key": "multilingual-gibberish",
+      "baseline": 0,
+      "candidate": 0,
+      "delta": 0
+    },
+    {
+      "key": "structurally-malformed",
+      "baseline": 1,
+      "candidate": 1,
+      "delta": 0
+    },
+    {
+      "key": "degenerate",
+      "baseline": 3,
+      "candidate": 3,
+      "delta": 0
+    }
+  ],
+  "flags": {
+    "baseline": 2,
+    "candidate": 3
+  },
+  "regressed": true
+}

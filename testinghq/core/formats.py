@@ -1,50 +1,34 @@
 """Wire formats: how an InboundEmail becomes request bytes.
 
-Until this module existed there was exactly one wire format, multipart/form-data
-in the SendGrid Inbound Parse shape, hardcoded into `build_request`. That is the
-right format for a SendGrid webhook and the wrong one for everything else, so
-most users could not point Blast at their own pipeline without proxying through
-something that translated for them.
+A format is one method: take an `InboundEmail`, return bytes plus a content
+type. It knows nothing about HTTP, targets, guardrails or the clock.
 
-A format is one method: take an `InboundEmail`, return bytes plus a content type.
-Nothing else. A format does not know about HTTP, about targets, about the
-guardrails, or about the clock, which is what keeps adding one from being a
-change to the sending machinery.
+Every format is deterministic: the same InboundEmail produces the same bytes,
+because artifacts record what was sent and a replay has to match. JSON is
+encoded with sorted keys and multipart boundaries are fixed.
 
-Determinism is a property of every format here, not just the original. The same
-InboundEmail must produce the same bytes every time, because run artifacts
-record what was sent and a replay has to match. That rules out anything whose
-output depends on dict iteration order or on the wall clock, and it is why the
-JSON formats sort their keys.
-
-`sendgrid` is the default and is byte-for-byte what this project emitted before
-the format layer existed. That is the compatibility promise: an existing config
-with no `format` key keeps producing the identical request, and the test that
-says so compares against bytes captured before this module did.
-
-PROVENANCE, because it decides how much a passing test is worth. `sendgrid` and
-`mime` are the shapes this project already emitted or that RFC 5322 and RFC 2046
-define, so their tests are checks against a specification. `mailgun` and
-`postmark` are written from those vendors' published field lists and have not
-been fired at a live account of either, so their tests check that the bytes
-match the documented shape and nothing more. A real end-to-end run is task 10,
-and claiming these are verified against a live provider before that has happened
-is the specific dishonesty the rest of this project is careful about.
+Formats: `sendgrid` (Inbound Parse, parsed mode, the default), `sendgrid-raw`
+(Inbound Parse, raw mode), `mailgun`, `postmark`, `mime`. The field lists and
+the synthetic values used for provider-computed fields are in docs/FORMATS.md.
+`sendgrid` and `mime` are checked against SendGrid's documented field list and
+RFC 5322; `mailgun` and `postmark` against those vendors' published field lists.
+None has been verified against a live provider account.
 """
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Dict, List, Optional, Tuple
+from email.policy import SMTP
+from typing import Dict, List, Optional
 
 from ..blast.payload import InboundEmail
 from ..blast.serialize import (
     FormField,
     FormFile,
-    attachment_info_json,
-    charsets_json,
+    FormPart,
     envelope_json,
     to_multipart_parts,
 )
@@ -80,18 +64,61 @@ class WireFormat:
 
 
 # ---------------------------------------------------------------------------
-# sendgrid: the current behaviour, preserved exactly
+# sendgrid: Inbound Parse, parsed and raw mode
 # ---------------------------------------------------------------------------
+
+#: Fixed synthetic values for the fields SendGrid computes on its own side
+#: (authentication results, spam scoring, the connecting IP). They have
+#: SendGrid's shape and assert nothing about a real domain or host:
+#: 192.0.2.1 is TEST-NET-1 (RFC 5737).
+SENDGRID_SYNTHETIC = {
+    "dkim": "{@example.com : pass}",
+    "SPF": "pass",
+    "sender_ip": "192.0.2.1",
+    "spam_score": "0.0",
+    "spam_report": "",
+}
+
+
+def _json(value) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _content_id(index: int, attachment) -> Optional[str]:
+    """The Content-ID SendGrid reports for an attachment, or None.
+
+    An attachment that carries its own `content_id` keeps it. Otherwise an
+    image is treated as inline and given a deterministic Gmail-style id, and
+    any other attachment has none, which is how SendGrid's documented example
+    looks."""
+    explicit = getattr(attachment, "content_id", None)
+    if explicit:
+        return str(explicit)
+    if not attachment.content_type.lower().startswith("image/"):
+        return None
+    digest = hashlib.sha256(
+        f"{index}:{attachment.filename}".encode("utf-8")
+    ).hexdigest()
+    return f"ii_{digest[:16]}"
+
+
+def _sendgrid_charsets(payload: InboundEmail, keys=None) -> str:
+    charsets = dict(payload.charsets)
+    charsets.setdefault("text", "UTF-8")
+    if keys is not None:
+        charsets = {key: charsets.get(key, "UTF-8") for key in keys}
+    return _json(charsets)
 
 
 class SendgridFormat(WireFormat):
-    """SendGrid Inbound Parse, in parsed mode.
+    """SendGrid Inbound Parse, parsed mode: multipart/form-data with one text
+    field per part of the message and one file part per attachment.
 
-    The field order, names and JSON encodings come from
-    `blast.serialize.to_multipart_parts`, which is the single place that knows
-    the SendGrid shape. This class adds nothing but the boundary-aware content
-    type, because guessing that here would mean two sources of truth for a
-    wire format that operators debug by reading raw bytes.
+    The base parts come from `blast.serialize.to_multipart_parts`; this adds
+    the fields SendGrid documents that the serializer does not carry (`dkim`,
+    `content-ids`, `cc`, `sender_ip`, `spam_report`, `spam_score`, `SPF`),
+    adds `text` to `charsets`, and adds `name` and `content-id` to each
+    `attachment-info` entry.
     """
 
     name = "sendgrid"
@@ -99,12 +126,99 @@ class SendgridFormat(WireFormat):
     def __init__(self, boundary: str) -> None:
         self._boundary = boundary
 
+    def parts(self, payload: InboundEmail) -> List[FormPart]:
+        base = {part.name: part for part in to_multipart_parts(payload)}
+        content_ids: Dict[str, str] = {}
+        info: Dict[str, Dict[str, str]] = {}
+        for index, attachment in enumerate(payload.attachments, start=1):
+            entry = {
+                "filename": attachment.filename,
+                "name": attachment.filename,
+                "type": attachment.content_type,
+            }
+            cid = _content_id(index, attachment)
+            if cid is not None:
+                entry["content-id"] = cid
+                content_ids[cid] = f"attachment{index}"
+            info[f"attachment{index}"] = entry
+
+        parts: List[FormPart] = [
+            base["headers"],
+            FormField("dkim", SENDGRID_SYNTHETIC["dkim"]),
+            FormField("content-ids", _json(content_ids)),
+            base["to"],
+            FormField("cc", _first_header(payload.headers, "Cc") or ""),
+            base["from"],
+            base["subject"],
+            base["text"],
+            base["html"],
+            FormField("sender_ip", SENDGRID_SYNTHETIC["sender_ip"]),
+            FormField("spam_report", SENDGRID_SYNTHETIC["spam_report"]),
+            FormField("spam_score", SENDGRID_SYNTHETIC["spam_score"]),
+            base["envelope"],
+            FormField("charsets", _sendgrid_charsets(payload)),
+            FormField("SPF", SENDGRID_SYNTHETIC["SPF"]),
+            base["attachments"],
+        ]
+        if payload.attachments:
+            parts.append(FormField("attachment-info", _json(info)))
+        parts.extend(
+            part for part in to_multipart_parts(payload) if isinstance(part, FormFile)
+        )
+        parts.extend(FormField(name, value) for name, value in payload.extra_form_fields)
+        return parts
+
     def encode(self, payload: InboundEmail) -> EncodedBody:
         from .transport import encode_multipart
 
-        body = encode_multipart(to_multipart_parts(payload), self._boundary)
         return EncodedBody(
-            body=body, content_type=f"multipart/form-data; boundary={self._boundary}"
+            body=encode_multipart(self.parts(payload), self._boundary),
+            content_type=f"multipart/form-data; boundary={self._boundary}",
+        )
+
+
+class SendgridRawFormat(WireFormat):
+    """SendGrid Inbound Parse, raw mode ("POST the raw, full MIME message").
+
+    The whole RFC 5322 message, as the `mime` format builds it, goes in the
+    `email` field. Alongside it SendGrid sends the envelope, the address and
+    subject fields, their charsets, and its own authentication and spam
+    results. No `text`, `html`, `headers` or attachment parts: a raw-mode
+    receiver parses the message itself.
+    """
+
+    name = "sendgrid-raw"
+
+    def __init__(self, boundary: str) -> None:
+        self._boundary = boundary
+
+    def parts(self, payload: InboundEmail) -> List[FormPart]:
+        # The message's own boundaries must not contain the form boundary, or
+        # a receiver splitting the form would split the message too.
+        inner = "mime-" + hashlib.sha256(self._boundary.encode("utf-8")).hexdigest()[:24]
+        message = MimeFormat(inner).message_bytes(payload)
+        return [
+            FormField("dkim", SENDGRID_SYNTHETIC["dkim"]),
+            FormField("email", message.decode("utf-8", errors="replace")),
+            FormField("to", payload.to),
+            FormField("from", payload.from_addr),
+            FormField("sender_ip", SENDGRID_SYNTHETIC["sender_ip"]),
+            FormField("spam_report", SENDGRID_SYNTHETIC["spam_report"]),
+            FormField("envelope", envelope_json(payload)),
+            FormField("subject", payload.subject),
+            FormField("spam_score", SENDGRID_SYNTHETIC["spam_score"]),
+            FormField(
+                "charsets", _sendgrid_charsets(payload, ("to", "from", "subject"))
+            ),
+            FormField("SPF", SENDGRID_SYNTHETIC["SPF"]),
+        ]
+
+    def encode(self, payload: InboundEmail) -> EncodedBody:
+        from .transport import encode_multipart
+
+        return EncodedBody(
+            body=encode_multipart(self.parts(payload), self._boundary),
+            content_type=f"multipart/form-data; boundary={self._boundary}",
         )
 
 
@@ -280,20 +394,12 @@ class PostmarkFormat(WireFormat):
 
 
 class MimeFormat(WireFormat):
-    """A whole RFC 5322 message as the body, rather than a form encoding of one.
+    """A whole RFC 5322 message as the body, posted as `message/rfc822`.
 
-    This is the format for a receiver that expects to be handed a message
-    instead of a submission about one: an SMTP-to-HTTP bridge, a Lambda that
-    takes a raw message, or anything that re-injects the mail later and needs it
-    to still be a valid message.
-
-    Built with the stdlib `email` package, because hand-rolling MIME headers and
-    boundary quoting is exactly the kind of code that is wrong in a way no
-    hermetic test will notice until a real receiver parses it.
-
-    The multipart boundary is fixed, not random. `email` would otherwise pick
-    one per message, which would make the same payload produce different bytes
-    on every run and break the determinism every other format here guarantees.
+    For a receiver that takes a raw message: an SMTP-to-HTTP bridge, a Lambda,
+    osTicket's `api/tickets.email`. Built with the stdlib `email` package and
+    serialized with CRLF line endings. Every multipart boundary is derived from
+    the configured one (`<boundary>`, `<boundary>-1`, ...), never random.
     """
 
     name = "mime"
@@ -301,7 +407,7 @@ class MimeFormat(WireFormat):
     def __init__(self, boundary: str) -> None:
         self._boundary = boundary
 
-    def encode(self, payload: InboundEmail) -> EncodedBody:
+    def message(self, payload: InboundEmail) -> EmailMessage:
         message = EmailMessage()
         message["To"] = payload.to
         message["From"] = payload.from_addr
@@ -309,12 +415,12 @@ class MimeFormat(WireFormat):
         message.set_content(payload.text or "", charset="utf-8")
         if payload.html:
             message.add_alternative(payload.html, subtype="html", charset="utf-8")
-            message.set_boundary(self._boundary)
         for attachment in payload.attachments:
+            maintype, _, subtype = attachment.content_type.partition("/")
             message.add_attachment(
                 attachment.content,
-                maintype=attachment.content_type.split("/", 1)[0],
-                subtype=attachment.content_type.split("/", 1)[-1],
+                maintype=maintype or "application",
+                subtype=subtype or "octet-stream",
                 filename=attachment.filename,
             )
         for name, value in payload.headers.items():
@@ -322,7 +428,16 @@ class MimeFormat(WireFormat):
                 continue
             message[name] = value
 
-        return EncodedBody(body=message.as_bytes(), content_type=message.get_content_type())
+        multiparts = [part for part in message.walk() if part.is_multipart()]
+        for depth, part in enumerate(multiparts):
+            part.set_boundary(self._boundary if depth == 0 else f"{self._boundary}-{depth}")
+        return message
+
+    def message_bytes(self, payload: InboundEmail) -> bytes:
+        return self.message(payload).as_bytes(policy=SMTP)
+
+    def encode(self, payload: InboundEmail) -> EncodedBody:
+        return EncodedBody(body=self.message_bytes(payload), content_type="message/rfc822")
 
 
 #: Headers the MIME format sets from the payload's own fields, plus the ones
@@ -355,6 +470,7 @@ _NOT_COPIED_HEADERS = frozenset(
 #: in at lookup time breaks that without a lazy import.
 _CONSTRUCTORS = {
     SendgridFormat.name: SendgridFormat,
+    SendgridRawFormat.name: SendgridRawFormat,
     MailgunFormat.name: MailgunFormat,
     PostmarkFormat.name: PostmarkFormat,
     MimeFormat.name: MimeFormat,

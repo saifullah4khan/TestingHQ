@@ -1,5 +1,8 @@
 # Readback recipe: any REST API
 #
+# STATUS: RUN by this repository's own tests over loopback, not against a
+# third-party API.
+#
 # WHAT IS VERIFIED AND WHAT IS NOT
 #
 #   This one WAS run. The record shape below is what
@@ -75,13 +78,14 @@ timeout = 10.0
 #
 #   from_addr   normalized before comparison, so "Alice <a@example.com>" and
 #               "a@example.com" both work.
-#   subject     compared case- and whitespace-insensitively.
+#   subject     compared by --subject-match: `contains` (the default),
+#               `suffix` or `exact`.
 #   body        the payload's substantive text has to APPEAR inside it. A system
 #               that reformats or truncates the body will fail this, which is
 #               usually the finding you wanted. Use --body-exact only for a
 #               system that stores the field verbatim.
-#   route       compared case-insensitively. Without --expect-route the expected
-#               value is the message's own recipient address.
+#   route       compared case-insensitively, and only when --expect-route is
+#               given. Without it the routing check is skipped.
 
 [readback.fields]
 ticket_id = "id"
@@ -117,3 +121,21 @@ priority = "priority"
 
 # enumerate = true
 # list_path = "https://api.example.com/v1/records"
+
+# ---------------------------------------------------------------------------
+# Search syntax, POST searches and pagination
+# ---------------------------------------------------------------------------
+#
+# `query` wraps the tag in your API's search syntax before it goes in
+# tag_param. `method = "POST"` with a `body` template sends the search as JSON
+# instead. A paginated API is followed through `next_path` (a JSON pointer to
+# the next page's url) or `page_param` (and `page_size_param`), at most
+# `max_pages` pages; a result cut short there is marked partial.
+
+# query = "tag:{tag}"
+# method = "POST"
+# body = '{"filter": {"tag": "{tag}"}}'
+# next_path = "/links/next"
+# page_param = "page"
+# page_size_param = "per_page"
+# max_pages = 10

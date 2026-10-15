@@ -17,19 +17,27 @@ other's records.
 Four failure classes, kept separate because they are four bugs in four
 places:
 
-  missing     sent, and the system holds nothing. A lost email.
+  missing     sent, and the system holds nothing once the readback has
+              settled. A lost email. While the store is still changing at
+              --max-wait the run is UNSETTLED and these are "not seen yet".
   duplicated  more than one record for one message. Two tickets for one
               customer's email, which is what an intake owner actually feels.
   wrong       exactly one record, and its content does not match what was sent.
               A ticket that is the right ticket with a mangled sender is a
               different bug from no ticket, and lumping them together sends the
               reader somewhere else entirely.
-  extra       a record this run never sent.
+  extra       a record carrying a tag of this run's prefix family that this
+              run did not send.
+
+`extra` is scoped. A record with no TestingHQ tag is not a stray: it is the
+store's own traffic. A record with a TestingHQ tag from another prefix is
+listed as "other runs", for information, and does not unbalance the ledger.
 
 `extra` needs the system enumerated, which not every integration can do. When it
-cannot, `strays_searched` is null rather than false and the verdict is
-`UNVERIFIED STRAYS`. A ledger that reported "extra: 0" for a question it never
-asked would be worse than one that reports nothing.
+cannot (no `list_all`, `can_enumerate()` False, `[readback].enumerate = false`,
+or the enumeration itself failed), `strays_searched` is false, `extra` is null
+and the verdict is `UNVERIFIED STRAYS`: the run is reported, never refused
+after sending.
 
 Point this at a system under Barrage load, or with a dependency failing. Both
 are just conditions the pipeline is in while these N messages go out. What needs
@@ -39,37 +47,151 @@ ledger's tags cannot collide with them.
 
 from __future__ import annotations
 
-import json
+import re
 import time
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+from ..core.targets import resolve_target
 from . import messages
-from .adapters import ReadbackConfig, build_adapter
+from .adapters import ReadbackConfig
 from .common import (
+    ALL_404_NOT_CHECKED,
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     SentMessage,
     close_adapter,
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
+    prepare_readback,
     read_back_all,
+    readback_failed,
+    readback_poll_settings,
+    readback_state_phrase,
+    readback_verdict,
     require_synthetic,
-    resolve_target_url,
     send_all,
 )
-from .expectations import Expectations, evaluate_sequence
+from .expectations import (
+    DEFAULT_ATTACHMENT_MATCH,
+    DEFAULT_SUBJECT_MATCH,
+    Expectations,
+    evaluate_sequence,
+    match_options,
+    validate_match_modes,
+)
 from .readback import Readback, can_enumerate
-from .verify import DEFAULT_RATE, build_items, build_tagged_corpus
+from .verify import (
+    DEFAULT_RATE,
+    abort_run,
+    artifact_header,
+    build_items,
+    build_tagged_corpus,
+    readback_note,
+    readback_unsettled,
+    write_artifact,
+)
 
 DEFAULT_COUNT = 50
 
 #: Cap on listed details per section. The counts are always exact; only the
 #: lists truncate, and each says so. Mirrors compare/runs.py and verify.py.
 MAX_LISTED = 20
+
+#: Cap on the `extra` and `other_runs` lists in the artifact. The counts beside
+#: them are exact.
+MAX_ARTIFACT_STRAYS = 200
+
+#: The shape of a tag `messages.make_tag` produces: `<prefix>-<seed>-<index>`.
+_TAG_SHAPE = re.compile(r"^\S+-(-?\d+)-\d{4,}$")
+
+#: What follows the prefix in such a tag: `<seed>-<index>`.
+_TAG_TAIL = re.compile(r"-?\d+-\d{4,}")
+
+
+# ---------------------------------------------------------------------------
+# Strays
+# ---------------------------------------------------------------------------
+
+
+def stray_tag(record: Readback) -> Tuple[Optional[str], bool]:
+    """(tag, is_testinghq) for an enumerated record.
+
+    The adapter's `tag` field is used when it has the shape TestingHQ stamps.
+    Otherwise the tag is recovered from the stored body or subject, which a
+    store that does not expose a tag field still carries. A tag field holding
+    something else (a helpdesk's own label) is not a TestingHQ tag.
+    """
+    tag = record.tag.strip() if isinstance(record.tag, str) else ""
+    if tag and _TAG_SHAPE.match(tag):
+        return tag, True
+    harvested = messages.harvest_tag(record.body, record.subject)
+    if harvested:
+        return harvested, True
+    return (tag or None), False
+
+
+def _prefixes(family: Union[str, Sequence[str]]) -> Tuple[str, ...]:
+    if isinstance(family, str):
+        return (family,) if family else ()
+    return tuple(p for p in family if p)
+
+
+def minted_by(tag: str, family: Union[str, Sequence[str]]) -> Optional[str]:
+    """The prefix in `family` that minted `tag`, or None.
+
+    Exact: the tag must be `<prefix>-<seed>-<index>` for one of the prefixes,
+    so a run with prefix `hq` does not claim `hq-2610141200-ab12-0-0001`, which
+    another run minted under its own per-run prefix. The longest prefix wins.
+    """
+    for prefix in sorted(_prefixes(family), key=len, reverse=True):
+        head = f"{prefix}-"
+        if tag.startswith(head) and _TAG_TAIL.fullmatch(tag[len(head):]):
+            return prefix
+    return None
+
+
+def in_family(tag: str, family: Union[str, Sequence[str]]) -> bool:
+    """True when `tag` was minted under this run's prefix (or one of them),
+    by this run or by an earlier run that reused the same prefix."""
+    return minted_by(tag, family) is not None
+
+
+def classify_strays(
+    strays: Sequence[Readback],
+    sent_tags: Sequence[str],
+    own_tickets: Sequence[str],
+    family: Union[str, Sequence[str]],
+) -> Dict[str, Any]:
+    """Sort enumerated records into this run's, extra, other runs' and untagged.
+
+    `family` is the run's tag prefix as recorded in its artifact (redeliver
+    passes its scenario prefixes too). A record is this run's when its tag was
+    sent or its ticket id is one the per-tag lookups already found, which
+    covers a store that returns no tag field at all. `extra` is a TestingHQ
+    tag minted under `family` that this run did not send; `other_runs` is any
+    other TestingHQ tag; a record with no TestingHQ tag is only counted.
+    """
+    sent = set(sent_tags)
+    own = {str(t) for t in own_tickets}
+    extra: List[Dict[str, Any]] = []
+    other_runs: List[Dict[str, Any]] = []
+    untagged = 0
+    for record in strays:
+        tag, is_ours = stray_tag(record)
+        if (tag and tag in sent) or str(record.ticket_id) in own:
+            continue
+        if not is_ours or not tag:
+            untagged += 1
+            continue
+        entry = {"tag": tag, "ticket": str(record.ticket_id)}
+        if in_family(tag, family):
+            extra.append(entry)
+        else:
+            other_runs.append(entry)
+    return {"extra": extra, "other_runs": other_runs, "untagged": untagged}
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +203,16 @@ def account(
     sent: Sequence[SentMessage],
     readbacks: Dict[str, List[Readback]],
     strays: Optional[Sequence[Readback]],
+    *,
+    tag_prefix: str = messages.DEFAULT_TAG_PREFIX,
+    route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    strays_reason: Optional[str] = None,
+    strays_partial: bool = False,
+    unsettled: bool = False,
+    readback_failed: bool = False,
 ) -> Dict[str, Any]:
     """Reconcile what was sent against what the system holds.
 
@@ -92,7 +224,20 @@ def account(
     A message with exactly one record that is also content-correct counts as
     `exactly_once`. A message with one record whose content is wrong counts as
     `wrong` and NOT as `exactly_once`, because "exactly once" that is wrong is
-    not the property anyone means by it.
+    not the property anyone means by it. Content is graded with the run's
+    match modes and `--expect-route`.
+
+    `strays` is None when the store could not be enumerated, and
+    `strays_partial` is True when the enumeration stopped short (pagination
+    truncated); `strays_reason` says why in either case. A partial search still
+    reports the extras it found, but is not a searched store. `tag_prefix` is
+    the prefix this run stamped, as recorded in its artifact. The `extra` and
+    `other_runs` lists are capped at `MAX_ARTIFACT_STRAYS`, with exact counts
+    beside them.
+
+    `readback_failed` means every lookup of the run was a 404: nothing was
+    checked, so a message not found is listed under `not_checked` rather than
+    `missing`, and the ledger is not balanced.
     """
     sent_tags = [message.tag for message in sent]
 
@@ -100,13 +245,14 @@ def account(
     duplicated: List[Dict[str, Any]] = []
     wrong: List[Dict[str, Any]] = []
     exactly_once: List[str] = []
+    not_checked: List[str] = []
     produced = 0
 
     for message in sent:
         found = readbacks.get(message.tag, [])
         produced += len(found)
         if not found:
-            missing.append(message.tag)
+            (not_checked if readback_failed else missing).append(message.tag)
             continue
         if len(found) > 1:
             duplicated.append(
@@ -118,7 +264,13 @@ def account(
             )
             continue
 
-        expectations = Expectations.from_email(message.email)
+        expectations = Expectations.from_email(
+            message.email,
+            route=route,
+            body_exact=body_exact,
+            subject_match=subject_match,
+            attachment_match=attachment_match,
+        )
         verification = evaluate_sequence(
             message.email, found, expectations, record_id=message.record_id, tag=message.tag
         )
@@ -133,14 +285,18 @@ def account(
                 }
             )
 
+    searched = strays is not None and not strays_partial
     extra: Optional[List[Dict[str, Any]]] = None
+    other_runs: Optional[List[Dict[str, Any]]] = None
+    untagged: Optional[int] = None
     if strays is not None:
-        sent_set = set(sent_tags)
-        extra = [
-            {"tag": r.tag, "ticket": str(r.ticket_id)}
-            for r in strays
-            if not r.tag or r.tag not in sent_set
+        own_tickets = [
+            str(r.ticket_id) for found in readbacks.values() for r in found
         ]
+        sorted_strays = classify_strays(strays, sent_tags, own_tickets, tag_prefix)
+        extra = sorted_strays["extra"]
+        other_runs = sorted_strays["other_runs"]
+        untagged = sorted_strays["untagged"]
 
     return {
         "sent": len(sent_tags),
@@ -149,8 +305,19 @@ def account(
         "missing": missing,
         "duplicated": duplicated,
         "wrong": wrong,
-        "extra": extra,
-        "strays_searched": strays is not None,
+        "extra": None if extra is None else extra[:MAX_ARTIFACT_STRAYS],
+        "extra_count": None if extra is None else len(extra),
+        "other_runs": None if other_runs is None else other_runs[:MAX_ARTIFACT_STRAYS],
+        "other_runs_count": None if other_runs is None else len(other_runs),
+        "untagged_count": untagged,
+        "strays_searched": searched,
+        "strays_partial": strays is not None and strays_partial,
+        "strays_not_searched_reason": None if searched else (
+            strays_reason or "this adapter cannot enumerate its records"
+        ),
+        "unsettled": unsettled,
+        "readback_failed": readback_failed,
+        "not_checked": not_checked,
         # Strays are part of the balance, and an unsearched stray hunt is not
         # a pass. The rule is deliberately the strict one: a ledger that exits
         # 0 while knowing it could not check for tickets it never sent is a
@@ -162,8 +329,10 @@ def account(
             not missing
             and not duplicated
             and not wrong
-            and strays is not None
+            and searched
             and not extra
+            and not unsettled
+            and not readback_failed
         ),
     }
 
@@ -178,10 +347,19 @@ def verdict(accounting: Dict[str, Any]) -> str:
     BALANCED from an adapter that could not enumerate would be claiming an
     answer nobody obtained.
     """
-    if accounting["missing"] or accounting["duplicated"] or accounting["extra"]:
+    if accounting.get("readback_failed"):
+        return READBACK_FAILED
+    if accounting["duplicated"] or accounting.get("extra"):
+        return "UNACCOUNTED"
+    if accounting.get("unsettled") and accounting["missing"]:
+        # Not found yet, and the readback never settled: in flight, not lost.
+        return "UNSETTLED"
+    if accounting["missing"]:
         return "UNACCOUNTED"
     if accounting["wrong"]:
         return "MISPARSED"
+    if accounting.get("unsettled"):
+        return "UNSETTLED"
     if not accounting["strays_searched"]:
         return "UNVERIFIED STRAYS"
     return "BALANCED"
@@ -199,19 +377,32 @@ def run_config(
     target_name: Optional[str],
     readback: ReadbackConfig,
     route: Optional[str],
-    readback_poll: Dict[str, float],
+    readback_poll: Dict[str, Any],
+    *,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    wire_format: Optional[str] = None,
+    allow_public_target: bool = False,
 ) -> Dict[str, Any]:
-    return {
+    config: Dict[str, Any] = {
         "tool": "ledger",
         "seed": seed,
         "count": count,
         "tag_prefix": tag_prefix,
         "target": target_name,
         "readback": readback.to_json(),
-        "expect_route": route,
-        "readback_poll": dict(readback_poll),
-        "dry_run": False,
     }
+    config.update(match_options(route, body_exact, subject_match, attachment_match))
+    config.update(
+        {
+            "readback_poll": dict(readback_poll),
+            "format": wire_format,
+            "allow_public_target": allow_public_target,
+            "dry_run": False,
+        }
+    )
+    return config
 
 
 def build_artifact(
@@ -232,25 +423,34 @@ def build_artifact(
                 "tag": message.tag,
                 "message_id": message.probe.message_id,
                 "payload_sha256": message.probe.payload_sha256,
-                "intended": Expectations.from_email(message.email).to_json(),
+                "intended": Expectations.from_email(
+                    message.email,
+                    route=config.get("expect_route"),
+                    body_exact=bool(config.get("body_exact", False)),
+                    subject_match=config.get("subject_match") or DEFAULT_SUBJECT_MATCH,
+                    attachment_match=config.get("attachment_match")
+                    or DEFAULT_ATTACHMENT_MATCH,
+                ).to_json(),
                 "response": message.response_json(),
                 "tickets": [str(r.ticket_id) for r in found],
                 "ticket_count": len(found),
             }
         )
 
-    summary = dict(accounting, verdict=verdict(accounting))
+    summary = dict(accounting)
+    summary["verdict"], summary["verdict_source"] = readback_verdict(
+        verdict(accounting), readback_outcome
+    )
     if readback_outcome is not None:
         # The accounting is only as settled as the read it came from. A run
         # that gave up before the counts held steady is reported as such rather
         # than as a balance it has not established.
         summary["readback"] = readback_outcome.to_json()
-    return {
-        "seed": seed,
-        "config": config,
-        "summary": summary,
-        "records": records,
-    }
+    artifact = artifact_header("ledger")
+    artifact.update(
+        {"seed": seed, "config": config, "summary": summary, "records": records}
+    )
+    return artifact
 
 
 def format_ledger(artifact: Dict[str, Any]) -> str:
@@ -274,25 +474,49 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
     lines.append(f"  sent:            {sent}")
     lines.append(f"  produced:        {produced}")
     lines.append(f"  exactly once:    {summary.get('exactly_once', 0)}")
-    lines.append(f"  missing:         {len(summary.get('missing') or [])}")
+    if summary.get("readback_failed"):
+        lines.append(f"  missing:         {ALL_404_NOT_CHECKED}")
+    else:
+        lines.append(f"  missing:         {len(summary.get('missing') or [])}")
     lines.append(f"  duplicated:      {len(summary.get('duplicated') or [])}")
     lines.append(f"  misparsed:       {len(summary.get('wrong') or [])}")
 
     readback = summary.get("readback")
     if readback:
-        settled = "settled" if readback.get("stable") else "GAVE UP before settling"
+        settled = readback_state_phrase(readback)
         lines.append(
             f"  readback:        {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
     extra = summary.get("extra")
-    if summary.get("strays_searched"):
-        lines.append(f"  extra:           {len(extra or [])}")
+    extra_count = summary.get("extra_count")
+    if extra_count is None:
+        extra_count = len(extra or [])
+    reason = (
+        summary.get("strays_not_searched_reason")
+        or "this adapter cannot enumerate its records"
+    )
+    if summary.get("strays_searched") or summary.get("strays_partial"):
+        partial = (
+            f" found in a PARTIAL search ({reason}); more may exist"
+            if summary.get("strays_partial") else ""
+        )
+        lines.append(f"  extra:           {extra_count}{partial}")
+        other = summary.get("other_runs_count") or 0
+        untagged = summary.get("untagged_count") or 0
+        if other or untagged:
+            lines.append(
+                f"  not counted:     {other} record(s) from other runs' tags, "
+                f"{untagged} untagged record(s)"
+            )
     else:
         lines.append(
-            "  extra:           NOT SEARCHED (this adapter cannot enumerate its "
-            "records, so a ticket this run never sent could have been missed)"
+            f"  extra:           NOT SEARCHED ({reason}, so a ticket this run "
+            "never sent could have been missed)"
         )
+    note = readback_note(summary)
+    if note:
+        lines.append(f"  {note}")
 
     def _section(title: str, items: Sequence[Any], render) -> None:
         lines.append("")
@@ -305,7 +529,28 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
         if len(items) > MAX_LISTED:
             lines.append(f"    ... and {len(items) - MAX_LISTED} more, not shown")
 
-    _section("missing", summary.get("missing") or [], lambda t: f"{t}: sent, and the system holds nothing")
+    if summary.get("readback_failed"):
+        # Every lookup was a 404, so nothing is known to be lost.
+        not_checked = summary.get("not_checked") or []
+        lines.append("")
+        lines.append(
+            f"  missing: {ALL_404_NOT_CHECKED} ({len(not_checked)} message(s) "
+            "sent, none looked up successfully)"
+        )
+    elif summary.get("unsettled"):
+        # The store was still changing at --max-wait, so an absence is not yet
+        # a loss: say what is known, which is that it had not been seen.
+        _section(
+            "missing",
+            summary.get("missing") or [],
+            lambda t: f"{t}: sent, not seen yet (the readback never settled)",
+        )
+    else:
+        _section(
+            "missing",
+            summary.get("missing") or [],
+            lambda t: f"{t}: sent, and the system holds nothing",
+        )
     _section(
         "duplicated",
         summary.get("duplicated") or [],
@@ -321,6 +566,17 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
             "extra",
             extra,
             lambda e: f"ticket {e['ticket']} (tag {e['tag'] or 'none'!r}) was never sent by this run",
+        )
+        if extra_count > len(extra):
+            lines.append(
+                f"    the artifact lists the first {len(extra)} of {extra_count}"
+            )
+    other_runs = summary.get("other_runs") or []
+    if other_runs:
+        _section(
+            "other runs (informational)",
+            other_runs,
+            lambda e: f"ticket {e['ticket']} carries tag {e['tag']!r} from another run",
         )
 
     if summary.get("balanced"):
@@ -341,7 +597,14 @@ def format_ledger(artifact: Dict[str, Any]) -> str:
 
 
 def format_dry_run(
-    count: int, seed: int, tag_prefix: str, readback: ReadbackConfig
+    count: int,
+    seed: int,
+    tag_prefix: str,
+    readback: ReadbackConfig,
+    *,
+    route: Optional[str] = None,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
 ) -> str:
     lines = [
         f"dry-run preview: {count} uniquely tagged message(s), "
@@ -355,10 +618,34 @@ def format_dry_run(
         lines.append(f"  readback url:     {readback.url}")
     if readback.path:
         lines.append(f"  readback path:    {readback.path}")
-    if not can_enumerate_from(readback):
+    lines.append(
+        f"  checks:           subject match {subject_match}, attachments "
+        f"{attachment_match}, "
+        + (f"route {route!r}" if route else "routing skipped (no --expect-route)")
+    )
+    enumerable = can_enumerate_from(readback)
+    if enumerable is False:
         lines.append(
-            "  note: this adapter will report 'extra' as NOT SEARCHED unless it "
-            "can enumerate its records"
+            "  strays:           NOT SEARCHED. This adapter cannot enumerate its "
+            "records, so the run will report UNVERIFIED STRAYS (exit 3) at best"
+        )
+    else:
+        if enumerable is None:
+            lines.append(
+                "  strays:           searched only if the custom adapter defines "
+                "list_all; otherwise reported as NOT SEARCHED"
+            )
+        else:
+            lines.append(
+                "  strays:           the store is enumerated after the readback"
+            )
+        lines.append(
+            f"                    'extra' counts records tagged {tag_prefix}-* that "
+            "this run did not send;"
+        )
+        lines.append(
+            "                    other runs' tags are listed, untagged records "
+            "are ignored"
         )
     lines.append("  point this at a system under barrage load, or with a "
                  "dependency failing, to answer")
@@ -367,12 +654,74 @@ def format_dry_run(
     return "\n".join(lines)
 
 
-def can_enumerate_from(readback: ReadbackConfig) -> bool:
+def can_enumerate_from(readback: ReadbackConfig) -> Optional[bool]:
     """Whether this kind of adapter can look for records it was not asked
-    about. Used only for the dry-run note, which is why it works from the config
-    rather than from a built adapter: a dry run must not construct an adapter,
-    because constructing one may connect to something."""
-    return readback.kind == "mailbox" or bool(readback.spec)
+    about, from the config alone (a dry run must not build an adapter). None
+    for a custom adapter, which is only known once built."""
+    if readback.spec:
+        return None
+    if readback.kind == "mailbox":
+        return True
+    if readback.kind == "http":
+        return bool(getattr(readback, "enumerate_records", True))
+    return None
+
+
+_CANNOT_ENUMERATE = "this adapter cannot enumerate its records"
+
+
+def adapter_can_enumerate(adapter: Any) -> Tuple[bool, Optional[str]]:
+    """(can, reason why not) for a built adapter.
+
+    Asks, in order: `[readback].enumerate = false`; a `can_enumerate()`
+    method (False, or raising, means no); a declared boolean `can_enumerate`
+    attribute; and finally whether there is a `list_all` to call at all.
+    """
+    if getattr(adapter, "enumerate_records", True) is False:
+        return False, "[readback].enumerate is false"
+    declared = getattr(adapter, "can_enumerate", None)
+    if callable(declared):
+        try:
+            if not declared():
+                return False, _CANNOT_ENUMERATE
+        except Exception as exc:
+            return False, f"can_enumerate() failed: {exc}"
+    elif not can_enumerate(adapter):
+        return False, _CANNOT_ENUMERATE
+    if not callable(getattr(adapter, "list_all", None)):
+        return False, _CANNOT_ENUMERATE
+    return True, None
+
+
+def enumerate_store(
+    adapter: Any,
+) -> Tuple[Optional[List[Readback]], Optional[str], bool]:
+    """(strays, reason, partial) after the readback.
+
+    `strays` is None when the store cannot be enumerated, or when `list_all`
+    raised: the messages have already been sent and their accounting stands,
+    so a failure here becomes UNVERIFIED STRAYS, never a refusal. `partial` is
+    True when the listing says pagination stopped short."""
+    able, reason = adapter_can_enumerate(adapter)
+    if not able:
+        return None, reason, False
+    try:
+        listed = adapter.list_all()
+        records = list(listed)
+    except Exception as exc:
+        return None, f"enumerating the store failed: {exc}", False
+    if getattr(listed, "partial", False) is True:
+        return records, "the enumeration was truncated (partial)", True
+    return records, None, False
+
+
+def enumerate_strays(adapter: Any) -> Tuple[Optional[List[Readback]], Optional[str]]:
+    """(strays, reason). As `enumerate_store`, with a truncated listing
+    treated as not searched at all."""
+    records, reason, partial = enumerate_store(adapter)
+    if partial:
+        return None, reason
+    return records, reason
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +740,12 @@ def execute(
     tag_prefix: str = messages.DEFAULT_TAG_PREFIX,
     rate: float = DEFAULT_RATE,
     route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    allow_public_target: bool = False,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     client: Any = None,
     readback_client: Any = None,
@@ -403,62 +756,89 @@ def execute(
     """Send N tagged messages, reconcile, report. Never called unless
     `guardrails.evaluate_send` already said yes.
 
-    The exit code is the accounting: 0 when every message was accounted for
-    exactly once with correct content, 3 when one was not. Not opt-in behind a
-    flag, because the question this tool answers is binary and a ledger that
-    exits 0 having found a lost email is a footgun in exactly the pipeline it
-    was bought for. 1 is a refusal, 2 is a dry run.
+    0 when every message was accounted for exactly once with correct content
+    and strays were searched; 3 otherwise, including UNVERIFIED STRAYS; 1 a
+    refusal, which only happens before anything is sent or when the per-tag
+    readback itself fails.
     """
     corpus = build_tagged_corpus(seed, count, tag_prefix)
     items = build_items(corpus)
 
     try:
         require_synthetic([email for email, _tag, _rid in corpus])
-        url = resolve_target_url(target_name, config_path)
+        validate_match_modes(subject_match, attachment_match)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED
 
-    adapter = None
     try:
-        # Inside the try, not before it: an adapter that cannot be built is as
-        # much a refusal as a target that cannot be resolved, and an
-        # unimportable spec left out here escaped as a traceback.
-        adapter = build_adapter(readback, client=readback_client)
-        sent = send_all(items, url, rate, client=client, sleep=sleep, clock=clock)
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
+        )
+    except Exception as exc:
+        printer(f"refused: the readback adapter could not be prepared: {exc}")
+        return EXIT_REFUSED
+
+    poll = readback_poll_settings(
+        len(items), readback, quiet_window=quiet_window, max_wait=max_wait,
+        poll_interval=poll_interval,
+    )
+    config = run_config(
+        seed, count, tag_prefix, target_name, readback, route,
+        poll,
+        body_exact=body_exact,
+        subject_match=subject_match,
+        attachment_match=attachment_match,
+        wire_format=target.format_name,
+        allow_public_target=bool(target.public),
+    )
+    sent: Optional[List[SentMessage]] = None
+    phase = "send"
+    try:
+        sent = send_all(
+            items, target.url, rate, client=client, sleep=sleep, clock=clock,
+            wire_format=target.wire_format,
+        )
+        phase = "readback"
         outcome = read_back_all(
             adapter,
             [probe for _e, _t, _r, probe in items],
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks
-        strays: Optional[List[Readback]] = None
-        if can_enumerate(adapter):
-            strays = list(adapter.list_all())
+        phase = "stray search"
+        strays, strays_reason, strays_partial = enumerate_store(adapter)
+    except KeyboardInterrupt:
+        return abort_run("ledger", seed, config, phase, sent, out, printer)
     except Exception as exc:
         printer(f"ledger: could not complete the run: {exc}")
         return EXIT_REFUSED
     finally:
         close_adapter(adapter)
 
-    accounting = account(sent, readbacks, strays)
+    accounting = account(
+        sent, readbacks, strays,
+        tag_prefix=tag_prefix, route=route, body_exact=body_exact,
+        subject_match=subject_match, attachment_match=attachment_match,
+        strays_reason=strays_reason, strays_partial=strays_partial,
+        unsettled=readback_unsettled(outcome),
+        readback_failed=readback_failed(outcome),
+    )
     artifact = build_artifact(
         seed,
-        run_config(
-            seed, count, tag_prefix, target_name, readback, route,
-            {"quiet_window": quiet_window, "max_wait": max_wait,
-             "poll_interval": poll_interval},
-        ),
+        config,
         sent,
         accounting,
         readbacks,
         outcome,
     )
     printer(format_ledger(artifact))
-    if out:
-        Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
+    write_artifact(out, artifact)
     return EXIT_OK if accounting["balanced"] else EXIT_MISMATCH

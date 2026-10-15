@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import math
 import sys
-from typing import Optional
+from pathlib import Path
 
-from ..core import guardrails
-from ..core.config import ConfigError, load_config
+from ..core.config import ConfigError, UnknownKeyError, load_config
 from ..core.exit_codes import EXIT_REFUSED, MEANINGS as _EXIT_MEANINGS
+from ..core.targets import ResolvedTarget, resolve_target
 from ..pipeline import adapters as pipeline_adapters
 from ..pipeline import common
 from ..pipeline.adapters import AdapterError
@@ -48,28 +50,6 @@ class _Parser(argparse.ArgumentParser):
         )
 
 
-def _not_yet(command):
-    """Fallback for a subcommand argparse accepted but main() has no handler
-    for. Every current subcommand is implemented, so reaching this means the
-    parser and the dispatcher disagree, which is a bug in this file rather than
-    a missing feature. The message says so instead of describing a milestone
-    that finished long ago.
-
-    Returns EXIT_REFUSED, not EXIT_DRY_RUN. A dry run is a successful run that
-    was asked to hold back, so a script reads 2 as "nothing was sent, all well".
-    What actually happened is that the tool could not do what was asked because
-    its own parser and dispatcher disagree, and that is the one code in this
-    table that means "fix the tool". Returning 2 hid a bug behind a code that
-    reads as a deliberate choice.
-    """
-    print(
-        f"testinghq blast {command}: no handler is wired up for this "
-        f"subcommand, which is a bug (argparse offered it anyway)",
-        file=sys.stderr,
-    )
-    return EXIT_REFUSED
-
-
 def _resolve_readback(args):
     """Build the ReadbackConfig for whichever pipeline command is running.
 
@@ -84,34 +64,73 @@ def _resolve_readback(args):
     false green this package was built to eliminate.
     """
     spec = getattr(args, "readback", None)
-    override = getattr(args, "allow_public_readback", False)
+    override = bool(getattr(args, "allow_public_readback", False))
+    config_path = getattr(args, "config", DEFAULT_TARGET_CONFIG)
 
     try:
-        config = load_config(getattr(args, "config", DEFAULT_TARGET_CONFIG))
+        config = load_config(config_path)
+    except UnknownKeyError:
+        # A typo in the file is refused here too, rather than read as "no
+        # config" and reported as a missing readback.
+        raise
     except ConfigError:
         config = None
     raw = config.readback_table() if config is not None else None
 
     if spec:
-        if isinstance(raw, dict):
-            merged = dict(raw)
-            merged["kind"] = spec
-            merged.setdefault("allow_public_hosts", override)
-            return pipeline_adapters.parse_readback_config(merged)
-        return pipeline_adapters.parse_readback_config(
-            {"kind": spec, "allow_public_hosts": override}
-        )
-
-    if raw is None:
+        raw = dict(raw) if isinstance(raw, dict) else {}
+        raw["kind"] = spec
+    elif raw is None:
         raise AdapterError(
             "no readback adapter configured. Pass --readback http, --readback "
             "mailbox, or --readback module:attribute, or declare a [readback] "
             "table in the target config."
         )
     if override and isinstance(raw, dict):
+        # The flag wins over the file in both directions it can be read: a
+        # table that says false does not cancel a flag that says true.
         raw = dict(raw)
         raw["allow_public_hosts"] = True
-    return pipeline_adapters.parse_readback_config(raw)
+    readback = pipeline_adapters.parse_readback_config(raw)
+
+    changes = {}
+    rate = getattr(args, "readback_rate", None)
+    if rate is not None:
+        changes["rate"] = rate
+    if config is not None:
+        changes["config_dir"] = str(Path(config_path).resolve().parent)
+    return dataclasses.replace(readback, **changes) if changes else readback
+
+
+def _number(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if value != value or value in (float("inf"), float("-inf")):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {text}")
+    return value
+
+
+def positive_seconds(text: str) -> float:
+    """argparse type for --max-wait and --poll-interval: a number above zero.
+
+    Checked by the parser, so a bad value is a refusal (exit 1) before anything
+    is sent. Checked only by the readback, it was a refusal after the whole
+    corpus had gone out, which broke "exit 1 means nothing was sent"."""
+    value = _number(text)
+    if not value > 0:
+        raise argparse.ArgumentTypeError(f"must be > 0 seconds, got {text}")
+    return value
+
+
+def non_negative_seconds(text: str) -> float:
+    """argparse type for --quiet-window: zero or more seconds. Zero is a legal
+    window meaning "settle on the first two identical polls"."""
+    value = _number(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0 seconds, got {text}")
+    return value
 
 
 def _add_readback_poll_args(parser) -> None:
@@ -119,32 +138,65 @@ def _add_readback_poll_args(parser) -> None:
 
     A fixed sleep before looking once is wrong in both directions: too short and
     a queue consumer's output is reported as a loss, too long and every run pays
-    for the slowest pipeline that ever was. Polling until the counts stop moving
-    is the version that adapts, and the counts rather than the messages are what
-    it waits on, so a duplicate that lands late is still caught.
+    for the slowest pipeline that ever was. Polling until what it sees stops
+    changing is the version that adapts, and it watches the record counts and
+    field values rather than "did it create anything", so a duplicate that
+    lands late is still caught. The flags sit in their own help group whose
+    description is `common.SETTLING_RULE`, the one statement of when the poll
+    ends and what a tag still missing then means.
     """
-    parser.add_argument(
+    group = parser.add_argument_group("readback polling", common.SETTLING_RULE)
+    group.add_argument(
         "--quiet-window",
-        type=float,
+        type=non_negative_seconds,
         default=common.DEFAULT_QUIET_WINDOW,
         help=(
-            "seconds the record counts must hold steady before a read is "
-            "believed. Not a timeout: a longer window costs a slower run, not a "
-            "wrong one"
+            "seconds what the readback sees (which tags are found, their "
+            "record counts and the field values the checks read) must hold "
+            "steady before the read is settled; a tag still not found then is "
+            "reported as lost (default %(default)s). For a slow or async "
+            "pipeline, raise it above the pipeline's worst processing latency"
         ),
     )
-    parser.add_argument(
+    # None means not given: the tool then sizes it to the plan
+    # (`common.resolve_max_wait`), and a value given is honoured exactly.
+    group.add_argument(
         "--max-wait",
-        type=float,
-        default=common.DEFAULT_MAX_WAIT,
-        help="seconds to keep polling before reporting whatever was seen",
+        type=positive_seconds,
+        default=None,
+        help=(
+            f"seconds to keep polling (default {common.DEFAULT_MAX_WAIT:g}, "
+            "raised to fit a bigger plan: 2 x tags / --readback-rate plus "
+            # %% because argparse %-formats help text.
+            f"--quiet-window, plus {common.MAX_WAIT_MARGIN:.0%}%; the dry run "
+            "prints it). A run whose readback is still changing then, or that "
+            "could not poll every tag twice, is UNSETTLED, not lost. A value "
+            "given is used as is: keep it well above --quiet-window, and above "
+            "2 x tags / --readback-rate"
+        ),
     )
-    parser.add_argument(
+    group.add_argument(
         "--poll-interval",
-        type=float,
+        type=positive_seconds,
         default=common.DEFAULT_POLL_INTERVAL,
         help="seconds between lookups while waiting",
     )
+
+
+def positive_number(text: str) -> float:
+    """Argparse `type=` for a rate: a finite number above zero.
+
+    Checked by the parser so a zero, negative or non-finite rate is refused
+    (exit 1) before anything is announced or sent, rather than reaching a
+    token bucket that raises mid-run.
+    """
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not (value > 0 and math.isfinite(value)):
+        raise argparse.ArgumentTypeError(f"must be a number > 0, got {text}")
+    return value
 
 
 def _add_readback_args(parser) -> None:
@@ -157,6 +209,7 @@ def _add_readback_args(parser) -> None:
     names an import path is the only way to bring your own, because a Python
     object cannot be spelled on a command line.
     """
+
     parser.add_argument(
         "--readback",
         help=(
@@ -175,31 +228,48 @@ def _add_readback_args(parser) -> None:
         ),
     )
     parser.add_argument(
-        "--expect-route",
+        "--readback-rate",
+        type=positive_number,
+        default=pipeline_adapters.DEFAULT_READBACK_RATE,
         help=(
-            "the route every message should have been routed to, checked "
-            "against what the system recorded. Without it, the expected route "
-            "is the message's own recipient, and with no notion of routing the "
-            "check reports as not-checked rather than passing"
+            "most readback requests per second, across every lookup, page and "
+            "retry (default %(default)s). Vendor APIs allow 40 to 700 requests "
+            "a minute, and an unpaced poll over many tags exceeds that"
         ),
     )
 
 
-def _resolve_target_url(target_name: Optional[str], config_path: str) -> str:
-    """Load the target config and resolve `target_name` to a URL, enforcing
-    the canonical guardrail twice: once on the configured name (the
-    allow-list check) and once on the resolved URL (the public-host check),
-    mirroring web/adapter.py's pattern. A bare target name has no dot, so
-    the public-host check on the name alone would pass vacuously; checking
-    the resolved URL too is what makes that hardening actually bite.
+#: Default for `resolve_for_send(target_name=...)`: read `--target` from args.
+_FROM_ARGS = object()
+
+
+def add_send_args(parser) -> None:
+    """Add `--allow-public-target` to a command that can send."""
+    parser.add_argument(
+        "--allow-public-target",
+        action="store_true",
+        help=(
+            "allow firing at a public host: one that is not a reserved test "
+            "domain, an internal name or a private address, and does not "
+            "resolve only to private addresses. Refused by default. Only for "
+            "an endpoint you own. barrage also needs public = true on the "
+            "target's config table"
+        ),
+    )
+
+
+def resolve_for_send(args, tool: str, *, target_name=_FROM_ARGS) -> ResolvedTarget:
+    """Resolve the target a sending command will fire at, or raise.
+
+    Reads `--target`, `--config` and `--allow-public-target` from `args`.
+    `target_name` overrides `--target` (replay takes it from the artifact).
+    `tool` is the command name; "barrage" applies the double opt-in rule.
+    Raises `GuardrailError` or `ConfigError`.
     """
-    if not target_name:
-        raise guardrails.GuardrailError(
-            "refusing to fire: --send requires --target"
-        )
-    config = load_config(config_path)
-    allowed = config.allowed_target_names()
-    guardrails.require_configured_target(target_name, allowed)
-    url = config.get(target_name).url
-    guardrails.require_configured_target(url, (url,))
-    return url
+    name = getattr(args, "target", None) if target_name is _FROM_ARGS else target_name
+    return resolve_target(
+        name,
+        getattr(args, "config", DEFAULT_TARGET_CONFIG),
+        allow_public_target=bool(getattr(args, "allow_public_target", False)),
+        load_tool=tool,
+    )

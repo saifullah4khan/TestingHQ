@@ -19,10 +19,13 @@ later. `loop` does the same. This module reimplements those two derivations,
 and `tests/unit/test_report_command.py` pins them against the tools' own
 formatters, so the two copies cannot drift without a test noticing.
 
-The exit code. No artifact records one, because the exit code is the process's
-answer and the artifact is the run's. This module derives the code the same way
-each tool does, from the same fields, so `report --json` gives a CI system the
-number it would have got from the shell. The field is called `exit_code`,
+The exit code. Most artifacts record none, because the exit code is the
+process's answer and the artifact is the run's. `compare` is the exception: its
+code depends on `--fail-on-regression`, which nothing else in its artifact
+shows, so it writes the code down. For the others this module derives the
+code the same way each tool does, from the same fields, so `report --json`
+gives a CI system the number it would have got from the shell. The field is
+called `exit_code`,
 because that is the name the contract calls for and a consumer has one shape to
 parse. Where it came from is a separate field, `exit_code_source`, exactly as
 `verdict_source` is for the verdict: derived where the tool computed it only at
@@ -49,7 +52,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .core.exit_codes import EXIT_FINDING, EXIT_OK
+from .core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK
 
 
 class ArtifactError(RuntimeError):
@@ -109,7 +112,12 @@ class ArtifactSummary:
     `tool` is what wrote it. `verdict` is the tool's own word where it has one
     and a derived word where it does not, in which case `verdict_source` says so
     rather than leaving the reader to assume. `exit_code_source` does the same
-    for the exit code.
+    for the exit code. `schema_version` is the artifact's (0 when it records
+    none) and `aborted` says the run was interrupted. `to_json` emits exactly
+    `JSON_KEYS`, the frozen `report --json` shape. `mode` is the subcommand
+    for a tool that has several (verify fire or check); it is shown in the
+    text report and is not one of the JSON keys, so `tool` is always the
+    tool's own name, the one the artifact records.
     """
 
     tool: str
@@ -122,12 +130,15 @@ class ArtifactSummary:
     seed: Optional[int] = None
     target: Optional[str] = None
     dry_run: bool = False
+    schema_version: int = 0
+    aborted: bool = False
+    mode: Optional[str] = None
 
     def to_json(self) -> Dict[str, Any]:
         payload = asdict(self)
         payload["findings"] = [asdict(f) for f in self.findings]
         payload["counts"] = asdict(self.counts)
-        return payload
+        return {key: payload[key] for key in JSON_KEYS}
 
 
 # ---------------------------------------------------------------------------
@@ -190,21 +201,84 @@ def detect_tool(artifact: Dict[str, Any]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def _base(artifact: Dict[str, Any], tool: str) -> Dict[str, Any]:
+#: The newest artifact schema_version the readers below know, for every tool.
+KNOWN_SCHEMA_VERSION = 1
+
+#: The top-level keys of `report --json`, frozen for 1.0.
+JSON_KEYS = (
+    "tool", "verdict", "verdict_source", "exit_code", "exit_code_source",
+    "counts", "findings", "seed", "target", "dry_run", "schema_version",
+    "aborted",
+)
+
+
+def _schema_version(
+    artifact: Dict[str, Any], tool: str, known: int = KNOWN_SCHEMA_VERSION
+) -> int:
+    """The artifact's schema_version: missing is 0, above `known` is refused."""
+    version = artifact.get("schema_version", 0)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version!r}, which is not "
+            "a non-negative integer"
+        )
+    if version > known:
+        raise ArtifactError(
+            f"this {tool} artifact has schema_version {version}; this build "
+            f"reads {tool} artifacts up to schema_version {known}"
+        )
+    return version
+
+
+def _base(
+    artifact: Dict[str, Any], tool: str, *, aborted: Optional[bool] = None
+) -> Dict[str, Any]:
+    """The fields every reader fills the same way. `aborted` defaults to the
+    artifact's top-level flag; a reader that knows better passes its own."""
     config = _config(artifact)
     return {
         "tool": tool,
         "seed": artifact.get("seed") if isinstance(artifact.get("seed"), int) else None,
         "target": config.get("target") if isinstance(config.get("target"), str) else None,
         "dry_run": bool(config.get("dry_run", False)),
+        "schema_version": _schema_version(artifact, tool),
+        "aborted": artifact.get("aborted") is True if aborted is None else bool(aborted),
     }
 
 
+#: The verdict for an artifact a dry run wrote: nothing was sent, so there is
+#: nothing to grade, and the exit code is the dry run's own.
+DRY_RUN = "DRY RUN"
+
+
+def _read_dry_run(artifact: Dict[str, Any], tool: str) -> Optional[ArtifactSummary]:
+    """The summary of an artifact whose `config.dry_run` is true, or None.
+
+    A dry run sent nothing, so its records are the plan, not results: grading
+    them would report a run that sent and passed everything. It reads as the
+    command did, verdict DRY RUN and exit 2, with nothing counted as sent,
+    passed or failed. `records` still says how many payloads were planned."""
+    if _config(artifact).get("dry_run") is not True:
+        return None
+    records = artifact.get("records")
+    return ArtifactSummary(
+        verdict=DRY_RUN,
+        verdict_source="derived",
+        exit_code=EXIT_DRY_RUN,
+        exit_code_source="derived",
+        counts=Counts(records=len(records) if isinstance(records, list) else 0),
+        **_base(artifact, tool),
+    )
+
+
 def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
+    dry_run = _read_dry_run(artifact, "blast")
+    if dry_run is not None:
+        return dry_run
     summary = _summary(artifact)
     records = artifact.get("records") or []
-    by_status = summary.get("by_status_class") or {}
     flags = summary.get("flags") or []
+    aborted = artifact.get("aborted") is True
 
     passed = sum(
         1 for r in records
@@ -212,15 +286,25 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
     failed = len(records) - passed
 
-    findings = tuple(
-        Finding(kind="flag", detail=str(flag)) for flag in flags
-    )
-    verdict = "FLAGGED" if flags else "CLEAN"
+    # Each flag names its own reason, including why a request got no
+    # response, so the flags are the findings.
+    findings = [Finding(kind="flag", detail=str(flag)) for flag in flags]
+    if aborted:
+        findings.append(
+            Finding(
+                kind="aborted",
+                detail="interrupted before every payload was sent; the counts are partial",
+            )
+        )
+        verdict = "ABORTED"
+    else:
+        verdict = "FLAGGED" if flags else "CLEAN"
     return ArtifactSummary(
         verdict=verdict,
-        # blast never recorded a verdict, so this one is derived from flags.
+        # blast prints its verdict but the artifact carries the flags it is
+        # derived from, so it is derived here the same way.
         verdict_source="derived",
-        exit_code=EXIT_FINDING if flags else EXIT_OK,
+        exit_code=EXIT_FINDING if (flags or aborted) else EXIT_OK,
         exit_code_source="derived",
         counts=Counts(
             sent=len(records),
@@ -228,7 +312,7 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
             failed=failed,
             records=len(records),
         ),
-        findings=findings,
+        findings=tuple(findings),
         **_base(artifact, "blast"),
     )
 
@@ -237,8 +321,15 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
     summary = _summary(artifact)
     buckets = artifact.get("buckets") or []
     knee = summary.get("knee")
+    requests = summary.get("requests") if isinstance(summary.get("requests"), dict) else {}
+    aborted = artifact.get("aborted") is True
 
     findings: List[Finding] = []
+    if aborted:
+        findings.append(Finding(
+            kind="aborted",
+            detail="interrupted before the plan finished; the counts are partial",
+        ))
     if isinstance(knee, dict):
         findings.append(
             Finding(
@@ -247,23 +338,93 @@ def _read_barrage(artifact: Dict[str, Any]) -> ArtifactSummary:
                        f"{knee.get('at_seconds')}s: {knee.get('detail', '')}".strip(),
             )
         )
-    total = sum(b.get("count", 0) for b in buckets if isinstance(b, dict))
+    for key, words in (
+        ("dropped_backlog", "waited too long for a worker and were never sent"),
+        ("abandoned", "were still in flight at the run deadline"),
+        ("not_dispatched", "were never sent before the run deadline"),
+    ):
+        if requests.get(key):
+            findings.append(Finding(kind=key, detail=f"{requests[key]} request(s) {words}"))
 
+    if requests:
+        sent = requests.get("sent", 0)
+    else:
+        sent = sum(b.get("count", 0) for b in buckets if isinstance(b, dict))
+
+    if aborted:
+        verdict = "ABORTED"
+    elif isinstance(knee, dict):
+        verdict = "KNEE"
+    else:
+        verdict = "STEADY"
     return ArtifactSummary(
-        verdict="KNEE" if isinstance(knee, dict) else "STEADY",
+        verdict=verdict,
         verdict_source="derived",
-        # barrage's execute returns EXIT_OK for any completed run. Its health is
-        # in the artifact, not the exit code, and pretending otherwise would
-        # change what a CI script gating on the code does.
-        exit_code=EXIT_OK,
+        # A completed barrage run exits 0 whatever it measured: its health is
+        # the report, and a knee is a finding in it. An aborted run exits 3.
+        exit_code=EXIT_FINDING if aborted else EXIT_OK,
         exit_code_source="derived",
-        counts=Counts(sent=total, buckets=len(buckets)),
+        counts=Counts(
+            sent=sent,
+            produced=requests.get("scheduled", 0),
+            records=len(artifact.get("records") or []),
+            buckets=len(buckets),
+        ),
         findings=tuple(findings),
         **_base(artifact, "barrage"),
     )
 
 
+#: The pipeline tools' verdict for a run whose every readback lookup was a 404
+#: (`testinghq.pipeline.common.READBACK_FAILED`). Written out here, like
+#: UNSETTLED, so reading a report does not import the pipeline package.
+READBACK_FAILED = "READBACK FAILED"
+
+
+def _readback_failed_finding(summary: Dict[str, Any]) -> Finding:
+    """The one finding a READBACK FAILED run carries in place of any loss."""
+    not_checked = summary.get("not_checked")
+    count = len(not_checked) if isinstance(not_checked, list) else not_checked
+    detail = "every lookup was 404: check the readback url"
+    if isinstance(count, int) and not isinstance(count, bool):
+        detail += f"; {count} message(s) not checked, none reported as lost"
+    return Finding(kind="readback-failed", detail=detail)
+
+
+def _read_aborted(
+    artifact: Dict[str, Any], label: str, mode: Optional[str] = None
+) -> Optional[ArtifactSummary]:
+    """A verify, ledger or redeliver run stopped by Ctrl-C, or None.
+
+    Nothing in such an artifact was graded, so it reads as ABORTED with exit 3
+    and the number of messages sent (when known), never as a pass."""
+    if artifact.get("aborted") is not True:
+        return None
+    summary = _summary(artifact)
+    sent = summary.get("sent")
+    phase = summary.get("aborted_during") or "unknown"
+    detail = f"interrupted during the {phase} phase; nothing was graded"
+    if not isinstance(sent, int):
+        detail += ", and how many messages were sent is unknown"
+    return ArtifactSummary(
+        verdict=str(summary.get("verdict") or "ABORTED"),
+        verdict_source="recorded",
+        exit_code=EXIT_FINDING,
+        exit_code_source="derived",
+        counts=Counts(
+            sent=sent if isinstance(sent, int) else 0,
+            records=len(artifact.get("records") or []),
+        ),
+        findings=(Finding(kind="aborted", detail=detail),),
+        mode=mode,
+        **_base(artifact, label),
+    )
+
+
 def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
+    aborted = _read_aborted(artifact, "verify", _config(artifact).get("mode", "fire"))
+    if aborted is not None:
+        return aborted
     summary = _summary(artifact)
     sent = summary.get("sent", 0)
     found = summary.get("found", 0)
@@ -272,36 +433,66 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
     config = _config(artifact)
     mode = config.get("mode", "fire")
 
-    findings = _skip_findings(summary.get("checks_skipped_by_reason") or {})
+    findings = list(_skip_findings(summary.get("checks_skipped_by_reason") or {}))
 
-    # The verdict verify prints, reproduced rather than read, because it never
-    # writes it down. Pinned against verify's own formatter in the tests.
-    if verified + failed == 0:
-        verdict = "NOTHING CHECKED"
-    elif failed == 0:
-        verdict = "VERIFIED"
+    recorded = summary.get("verdict")
+    if isinstance(recorded, str) and recorded:
+        verdict, source = recorded, "recorded"
     else:
-        verdict = "MISMATCHED"
+        # Schema 0 artifacts never wrote a verdict; derived the way verify's
+        # own formatter derives it.
+        source = "derived"
+        if summary.get("readback_failed"):
+            verdict = READBACK_FAILED
+        elif summary.get("unsettled"):
+            verdict = "UNSETTLED"
+        elif verified + failed == 0:
+            verdict = "NOTHING CHECKED"
+        elif failed == 0:
+            verdict = "VERIFIED"
+        else:
+            verdict = "MISMATCHED"
+    if verdict == "UNSETTLED":
+        findings.append(
+            Finding(
+                kind="unsettled",
+                detail="the readback never settled; messages not found may still "
+                       "be in flight",
+            )
+        )
+    if verdict == READBACK_FAILED:
+        findings.append(_readback_failed_finding(summary))
 
     return ArtifactSummary(
         verdict=verdict,
-        verdict_source="derived",
-        exit_code=EXIT_OK if failed == 0 else EXIT_FINDING,
+        verdict_source=source,
+        exit_code=EXIT_OK if verdict in ("VERIFIED", "NOTHING CHECKED") else EXIT_FINDING,
         exit_code_source="derived",
         counts=Counts(
             sent=sent, found=found, passed=verified, failed=failed,
             records=len(artifact.get("records") or []),
         ),
-        findings=findings,
-        **_base(artifact, f"verify {mode}"),
+        findings=tuple(findings),
+        mode=mode,
+        **_base(artifact, "verify"),
     )
 
 
 def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
+    aborted = _read_aborted(artifact, "ledger")
+    if aborted is not None:
+        return aborted
     summary = _summary(artifact)
     findings: List[Finding] = []
+    readback_failed = (
+        summary.get("readback_failed") is True
+        or summary.get("verdict") == READBACK_FAILED
+    )
 
-    for entry in summary.get("missing") or []:
+    if readback_failed:
+        # Nothing was looked up successfully, so nothing is listed as lost.
+        findings.append(_readback_failed_finding(summary))
+    for entry in [] if readback_failed else summary.get("missing") or []:
         findings.append(Finding(kind="missing", detail=str(entry)))
     for entry in summary.get("duplicated") or []:
         if isinstance(entry, dict):
@@ -322,14 +513,16 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
                 )
             )
     extra = summary.get("extra")
+    extra_count = summary.get("extra_count")
     if extra is None:
         # Not "no strays", but "strays were not searched for". A consumer has
         # to be able to tell those apart, so it is its own finding.
+        reason = summary.get("strays_not_searched_reason")
         findings.append(
             Finding(
                 kind="strays-not-searched",
                 detail="the adapter could not enumerate, so stray records were "
-                       "never looked for",
+                       "never looked for" + (f" ({reason})" if reason else ""),
             )
         )
     else:
@@ -338,6 +531,42 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
                 findings.append(
                     Finding(kind="extra", detail=str(entry.get("ticket") or entry))
                 )
+        if isinstance(extra_count, int) and extra_count > len(extra):
+            findings.append(
+                Finding(
+                    kind="truncated",
+                    detail=f"only the first {len(extra)} of {extra_count} extra "
+                           "records are listed in the artifact",
+                )
+            )
+        if summary.get("strays_partial"):
+            reason = summary.get("strays_not_searched_reason")
+            findings.append(
+                Finding(
+                    kind="strays-partial",
+                    detail="the store was only partly enumerated, so more stray "
+                           "records may exist" + (f" ({reason})" if reason else ""),
+                )
+            )
+    other_runs = summary.get("other_runs_count")
+    if isinstance(other_runs, int) and other_runs:
+        findings.append(
+            Finding(
+                kind="other-runs",
+                detail=f"{other_runs} record(s) carry another run's tag "
+                       "(informational, not counted as extra)",
+            )
+        )
+    if summary.get("verdict") == "UNSETTLED":
+        findings.append(
+            Finding(
+                kind="unsettled",
+                detail="the readback never settled; messages not found may still "
+                       "be in flight",
+            )
+        )
+    if not isinstance(extra_count, int):
+        extra_count = len(extra or [])
 
     return ArtifactSummary(
         # ledger is the one tool that writes its verdict down, so it is read
@@ -350,9 +579,9 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
             sent=summary.get("sent", 0),
             produced=summary.get("produced", 0),
             passed=summary.get("exactly_once", 0),
-            missing=len(summary.get("missing") or []),
+            missing=0 if readback_failed else len(summary.get("missing") or []),
             duplicated=len(summary.get("duplicated") or []),
-            extra=len(extra or []),
+            extra=extra_count,
             records=len(artifact.get("records") or []),
         ),
         findings=tuple(findings),
@@ -361,6 +590,9 @@ def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
 
 
 def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
+    aborted = _read_aborted(artifact, "redeliver")
+    if aborted is not None:
+        return aborted
     summary = _summary(artifact)
     scenarios = artifact.get("scenarios") or []
     findings: List[Finding] = []
@@ -374,11 +606,49 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
                     detail=str(finding),
                 )
             )
+    for entry in summary.get("unattributed_strays") or []:
+        if isinstance(entry, dict):
+            findings.append(
+                Finding(
+                    kind="extra",
+                    detail=f"ticket {entry.get('ticket')} carries this run's tag "
+                           f"prefix ({entry.get('tag')}) but no scenario's",
+                )
+            )
+    other_runs = summary.get("other_runs_count")
+    if isinstance(other_runs, int) and other_runs:
+        findings.append(
+            Finding(
+                kind="other-runs",
+                detail=f"{other_runs} record(s) carry another run's tag "
+                       "(informational)",
+            )
+        )
+    if summary.get("verdict") == "UNSETTLED":
+        findings.append(
+            Finding(
+                kind="unsettled",
+                detail="the readback never settled; messages not found may still "
+                       "be in flight",
+            )
+        )
+    verdict = str(summary.get("verdict", "UNKNOWN"))
+    if verdict == READBACK_FAILED:
+        # The summary counts scenarios; the finding counts messages.
+        unchecked = sum(
+            len(s.get("not_checked") or []) for s in scenarios if isinstance(s, dict)
+        )
+        findings.append(_readback_failed_finding({"not_checked": unchecked}))
 
     return ArtifactSummary(
-        verdict=str(summary.get("verdict", "UNKNOWN")),
+        verdict=verdict,
         verdict_source="recorded",
-        exit_code=EXIT_OK if summary.get("failed", 0) == 0 else EXIT_FINDING,
+        exit_code=(
+            EXIT_OK
+            if summary.get("failed", 0) == 0
+            and verdict not in ("UNSETTLED", READBACK_FAILED)
+            else EXIT_FINDING
+        ),
         exit_code_source="derived",
         counts=Counts(
             sent=summary.get("deliveries", 0),
@@ -391,50 +661,210 @@ def _read_redeliver(artifact: Dict[str, Any]) -> ArtifactSummary:
     )
 
 
+def _int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def _read_loop(artifact: Dict[str, Any]) -> ArtifactSummary:
-    """The same verdict `loop` prints, including its qualifier.
+    """`loop`'s own verdict, recorded since schema 1 and derived before it,
+    including the NOT CHECKED qualifier: a run that skipped the auto-reply
+    check and one that passed it must not read the same on one line.
 
-    `loop` puts "(auto-reply NOT CHECKED)" in its own headline when no outbound
-    sink was configured, because a run that skipped the auto-reply check and a
-    run that passed it are otherwise identical on one line. A report that
-    dropped the qualifier would be the false green `loop` was built to refuse,
-    so it is carried here, and the skip is also listed as a `not-checked` note.
-    The exit code is unaffected by the skip, exactly as in `loop`.
-
-    `passed` is messages checked minus messages that failed. It is not
-    `checked`, which counts every machine-generated message looked at.
+    `passed` is messages checked minus messages with a finding.
     """
     summary = _summary(artifact)
-    findings = summary.get("findings", 0)
-    findings = findings if isinstance(findings, int) else 0
-    checked = summary.get("checked", 0)
-    checked = checked if isinstance(checked, int) else 0
-    skipped = summary.get("auto_reply_skipped", 0)
-    skipped = skipped if isinstance(skipped, int) else 0
+    aborted = artifact.get("aborted") is True or summary.get("aborted") is True
+    findings_count = _int(summary.get("findings"))
+    message_findings = _int(summary.get("message_findings", findings_count))
+    checked = _int(summary.get("checked"))
+    skipped = _int(summary.get("auto_reply_skipped"))
 
-    verdict = "LOOP-SAFE" if findings == 0 else "LOOPS-DETECTED"
-    notes = []
+    recorded = summary.get("verdict")
+    if isinstance(recorded, str) and recorded:
+        verdict, source = recorded, "recorded"
+    else:
+        source = "derived"
+        verdict = "LOOP-SAFE" if findings_count == 0 else "LOOPS-DETECTED"
+        if skipped:
+            verdict = f"{verdict} (auto-reply NOT CHECKED)"
+
+    notes: List[Finding] = []
+    if aborted:
+        notes.append(Finding(kind="aborted",
+                             detail="interrupted before the run finished; nothing was judged"))
+    for line in summary.get("run_findings") or []:
+        kind = "unattributed" if str(line).startswith("outbound, unattributed") else "run"
+        if str(line).startswith("UNSETTLED"):
+            kind = "unsettled"
+        elif str(line).startswith(READBACK_FAILED):
+            kind = "readback-failed"
+        notes.append(Finding(kind=kind, detail=str(line)))
+    for message in artifact.get("messages") or []:
+        result = message.get("result") if isinstance(message, dict) else None
+        if not isinstance(result, dict):
+            continue
+        for finding in result.get("findings") or []:
+            kind = "loop-bait-answered" if result.get("is_loop_bait") and "bait" in str(finding) \
+                else "machine-mail"
+            notes.append(Finding(kind=kind, detail=f"{result.get('tag')}: {finding}"))
     if skipped:
-        verdict = f"{verdict} (auto-reply NOT CHECKED)"
         notes.append(
             Finding(
                 kind="not-checked",
-                detail=f"auto-reply check skipped for {skipped} message(s): "
-                       "no [loop.outbound] sink was configured",
+                detail=f"auto-reply check not run for {skipped} message(s): no sink "
+                       "configured ([loop.outbound])",
             )
         )
+    elif summary.get("outbound_enumerated") is False:
+        notes.append(
+            Finding(
+                kind="not-checked",
+                detail="the outbound sink cannot be enumerated, so an auto-reply "
+                       "that carries no tag would not have been seen",
+            )
+        )
+    parent = summary.get("bait_parent")
+    if isinstance(parent, dict) and parent.get("source") == "fabricated":
+        notes.append(
+            Finding(
+                kind="bait-fabricated",
+                detail="the loop bait replied to a fabricated Message-ID"
+                       + (f": {parent['reason']}" if parent.get("reason") else ""),
+            )
+        )
+
+    failed = (
+        findings_count != 0
+        or aborted
+        or verdict.startswith("UNSETTLED")
+        or verdict.startswith(READBACK_FAILED)
+    )
     return ArtifactSummary(
         verdict=verdict,
-        verdict_source="derived",
-        exit_code=EXIT_OK if findings == 0 else EXIT_FINDING,
+        verdict_source=source,
+        exit_code=EXIT_FINDING if failed else EXIT_OK,
         exit_code_source="derived",
         counts=Counts(
-            sent=summary.get("sent", 0),
-            passed=max(checked - findings, 0),
-            failed=findings,
+            sent=_int(summary.get("sent")),
+            passed=max(checked - message_findings, 0),
+            failed=findings_count,
+            records=checked,
         ),
         findings=tuple(notes),
-        **_base(artifact, "loop"),
+        **_base(artifact, "loop", aborted=aborted),
+    )
+
+
+def _read_steady(artifact: Dict[str, Any]) -> ArtifactSummary:
+    """`steady`'s recorded verdict and gate. The exit code is the gate's."""
+    stability = artifact.get("stability")
+    stability = stability if isinstance(stability, dict) else {}
+    gate = stability.get("gate") if isinstance(stability.get("gate"), dict) else {}
+    aborted = artifact.get("aborted") is True
+
+    recorded = stability.get("verdict")
+    verdict = recorded if isinstance(recorded, str) and recorded else (
+        "ABORTED" if aborted else "UNKNOWN"
+    )
+    source = "recorded" if isinstance(recorded, str) and recorded else "derived"
+    failed = bool(gate.get("failed")) or aborted or not (isinstance(recorded, str) and recorded)
+
+    findings: List[Finding] = []
+    if aborted:
+        findings.append(Finding(kind="aborted",
+                                detail="interrupted before the run finished; nothing was measured"))
+    if gate.get("failed") and gate.get("reason"):
+        findings.append(Finding(kind="gate", detail=str(gate["reason"])))
+    for family in stability.get("families") or []:
+        if not isinstance(family, dict) or family.get("consistent", True):
+            continue
+        dissent = ", ".join(
+            f"{d.get('transform')} ({d.get('language')}) got {d.get('label')!r}"
+            for d in family.get("dissenters") or [] if isinstance(d, dict)
+        )
+        findings.append(Finding(
+            kind="dissent",
+            detail=f"{family.get('intent_id')}: majority {family.get('majority')!r}; {dissent}",
+        ))
+    unlabelled = stability.get("unlabelled_families") or []
+    if unlabelled:
+        findings.append(Finding(
+            kind="not-measured",
+            detail=f"{len(unlabelled)} family(ies) not fully labelled: "
+                   + ", ".join(str(u) for u in unlabelled),
+        ))
+    reads = stability.get("label_reads") if isinstance(stability.get("label_reads"), dict) else {}
+    unread = {k: v for k, v in reads.items() if k != "labelled" and _int(v)}
+    if unread:
+        findings.append(Finding(
+            kind="label-reads",
+            detail=", ".join(f"{v} {k}" for k, v in sorted(unread.items())),
+        ))
+    if stability.get("constant_label") is not None:
+        findings.append(Finding(
+            kind="constant-label",
+            detail=f"every family read {stability['constant_label']!r}; check the label field",
+        ))
+
+    labelled = _int(stability.get("labelled_variants"))
+    dissenters = _int(stability.get("dissenters"))
+    variants = sum(
+        len(f.get("variants") or []) for f in artifact.get("families") or [] if isinstance(f, dict)
+    )
+    return ArtifactSummary(
+        verdict=verdict,
+        verdict_source=source,
+        exit_code=EXIT_FINDING if failed else EXIT_OK,
+        exit_code_source="derived",
+        counts=Counts(
+            sent=_int(stability.get("sent")),
+            found=labelled,
+            passed=max(labelled - dissenters, 0),
+            failed=dissenters,
+            records=variants,
+        ),
+        findings=tuple(findings),
+        **_base(artifact, "steady"),
+    )
+
+
+def _read_sigcheck(artifact: Dict[str, Any]) -> ArtifactSummary:
+    """`sigcheck`'s recorded verdict; each variant the endpoint got wrong is a
+    finding, and informational answers are listed apart."""
+    summary = _summary(artifact)
+    aborted = artifact.get("aborted") is True
+    findings: List[Finding] = []
+    if aborted:
+        findings.append(Finding(kind="aborted",
+                                detail="interrupted before every variant was sent"))
+    passed = failed = 0
+    for item in artifact.get("variants") or []:
+        if not isinstance(item, dict):
+            continue
+        verdict = item.get("verdict")
+        if verdict == "FINDING":
+            failed += 1
+            findings.append(Finding(kind=str(item.get("variant")), detail=str(item.get("detail"))))
+        elif verdict == "OK":
+            passed += 1
+        elif verdict == "INFO":
+            findings.append(Finding(kind=f"info:{item.get('variant')}",
+                                    detail=str(item.get("detail"))))
+    for note in summary.get("notes") or []:
+        findings.append(Finding(kind="note", detail=str(note)))
+    recorded = summary.get("verdict")
+    verdict = recorded if isinstance(recorded, str) and recorded else (
+        "ENFORCED" if failed == 0 and not aborted else "GAPS"
+    )
+    return ArtifactSummary(
+        verdict=verdict,
+        verdict_source="recorded" if isinstance(recorded, str) and recorded else "derived",
+        exit_code=EXIT_FINDING if failed or aborted else EXIT_OK,
+        exit_code_source="derived",
+        counts=Counts(sent=_int(summary.get("sent")), passed=passed, failed=failed,
+                      records=len(artifact.get("variants") or [])),
+        findings=tuple(findings),
+        **_base(artifact, "sigcheck"),
     )
 
 
@@ -443,8 +873,10 @@ def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
     fixes = artifact.get("fixes") or {}
     regressed = bool(artifact.get("regressed"))
 
+    # A barrage comparison's entries name a metric and carry a detail line;
+    # a blast comparison's name the record.
     findings = [
-        Finding(kind="regression", detail=str(r.get("id")))
+        Finding(kind="regression", detail=str(r.get("detail") or r.get("id")))
         for r in (regressions.get("records") or [])
         if isinstance(r, dict)
     ]
@@ -467,11 +899,22 @@ def _read_compare(artifact: Dict[str, Any]) -> ArtifactSummary:
             )
         )
 
+    # The exit code is the one the compare command returned, which depends on
+    # --fail-on-regression as well as on `regressed`. An artifact that records
+    # it is reported as recorded. One written before the field existed does
+    # not say whether the flag was set, so it gets the command's default:
+    # without the flag, compare exits 0 whatever it found.
+    recorded = artifact.get("exit_code")
+    if isinstance(recorded, int) and not isinstance(recorded, bool):
+        exit_code, exit_code_source = recorded, "recorded"
+    else:
+        exit_code, exit_code_source = EXIT_OK, "derived"
+
     return ArtifactSummary(
         verdict="REGRESSED" if regressed else "NO REGRESSION",
         verdict_source="recorded",
-        exit_code=EXIT_FINDING if regressed else EXIT_OK,
-        exit_code_source="derived",
+        exit_code=exit_code,
+        exit_code_source=exit_code_source,
         counts=Counts(
             records=artifact.get("records_compared", 0),
             failed=regressions.get("count", 0),
@@ -489,6 +932,8 @@ _READERS = {
     "ledger": _read_ledger,
     "redeliver": _read_redeliver,
     "loop": _read_loop,
+    "steady": _read_steady,
+    "sigcheck": _read_sigcheck,
     "compare": _read_compare,
 }
 
@@ -561,6 +1006,9 @@ def summarize(data: Any) -> ArtifactSummary:
             "Add a reader rather than letting it fall through to a guess."
         )
 
+    # Refused before the reader looks at anything, so a newer shape is never
+    # half-read. The readers fill the field through `_base`.
+    _schema_version(data, tool)
     return reader(data)
 
 
@@ -604,7 +1052,7 @@ def render(summary: ArtifactSummary) -> str:
     terminal shows with no width. The machine-readable form is `--json`.
     """
     lines = [
-        f"tool:    {summary.tool}",
+        f"tool:    {summary.tool}" + (f" ({summary.mode})" if summary.mode else ""),
         f"verdict: {summary.verdict}"
         + ("" if summary.verdict_source == "recorded" else " (derived)"),
     ]
@@ -630,8 +1078,11 @@ def render(summary: ArtifactSummary) -> str:
         lines.append(f"  [{finding.kind}] {finding.detail}")
 
     lines.append("")
-    lines.append(
-        f"exit code: {summary.exit_code} ({summary.exit_code_source}, not "
-        "recorded in the artifact)"
-    )
+    if summary.exit_code_source == "recorded":
+        lines.append(f"exit code: {summary.exit_code} (recorded in the artifact)")
+    else:
+        lines.append(
+            f"exit code: {summary.exit_code} ({summary.exit_code_source}, not "
+            "recorded in the artifact)"
+        )
     return "\n".join(lines)
