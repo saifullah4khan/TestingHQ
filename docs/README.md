@@ -30,6 +30,11 @@ start, and the exit codes.
 - [0002: the Python floor is 3.10](decisions/0002-python-floor-3-10.md)
 - [0003: what the suite protects](decisions/0003-what-the-suite-protects.md)
 
+## Direction
+
+- [ROADMAP.md](ROADMAP.md): goals, the 1.x timeline, what 2.0 could hold,
+  and what was set aside on purpose.
+
 ## Project
 
 - [CHANGELOG.md](../CHANGELOG.md): what changed in each release.
