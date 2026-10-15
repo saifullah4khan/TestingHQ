@@ -241,6 +241,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for the full model and how to report a 
 - [docs/FORMATS.md](docs/FORMATS.md): the five wire formats, field by field
 - [docs/SECURITY.md](docs/SECURITY.md): guardrails, public targets, threat model
 - [docs/DOGFOOD.md](docs/DOGFOOD.md): running against a real staging deployment
+- [docs/ROADMAP.md](docs/ROADMAP.md): goals, timeline and what comes after 1.0
 - [examples/README.md](examples/README.md): the demo scripts and sample configs
 - [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md)
 
