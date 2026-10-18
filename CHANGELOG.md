@@ -21,9 +21,9 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   the error), and a missing reply lands in the usual refused, DNS, timeout,
   TLS and other buckets. Every send command takes it: blast, barrage, verify,
   ledger, redeliver, loop and steady.
-- Barrage over SMTP keeps one session per worker, reports session setup under
+- Barrage over SMTP keeps one connection per worker, reports its setup under
   `connections` as the HTTP keep-alive path does, and reopens a dropped
-  session once. Latency runs to the reply after DATA.
+  connection once. Latency runs to the reply after DATA.
 - `[targets.<name>.headers]`: request headers sent with every HTTP request to
   a target, for an endpoint behind Basic auth or a gateway token. Values are
   `env:` references only, with the same rule and refusal as

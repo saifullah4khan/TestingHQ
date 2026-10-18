@@ -55,8 +55,8 @@ Named firing targets. Only a target declared here may be fired at, so this table
 | `public` | boolean | `false` | no | Read only by barrage. A load test at a public host needs both this and --allow-public-target on the command line. Other tools need only the flag. |
 | `host` | string | none | for transport = smtp | The mail server's host name or address, bare (no scheme, no port). Held to the same public-host rule as a url. |
 | `port` | integer | `25` | no | The SMTP port. smtp only. |
-| `starttls` | boolean | `false` | no | Upgrade the session with STARTTLS after EHLO, verifying the server's certificate against `host`. A server that does not offer it is a TLS failure. smtp only. |
-| `username` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH user. With it, the session logs in after EHLO (and STARTTLS). A literal is refused. smtp only. |
+| `starttls` | boolean | `false` | no | Upgrade the connection with STARTTLS after EHLO, verifying the server's certificate against `host`. A server that does not offer it is a TLS failure. smtp only. |
+| `username` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH user. With it, the connection logs in after EHLO (and STARTTLS). A literal is refused. smtp only. |
 | `password` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH password. Needs username. A literal is refused. smtp only. |
 | `envelope_from` | string | none | no | MAIL FROM for every message. Absent means each payload's own envelope sender. Must be a synthetic address (a reserved domain or TLD), like every address in a payload. smtp only. |
 | `envelope_to` | string or list | none | no | RCPT TO for every message, one address or a list: the mailbox a helpdesk polls, say. Absent means each payload's own envelope recipients. Must be synthetic addresses. smtp only. |

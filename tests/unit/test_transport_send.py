@@ -284,7 +284,7 @@ def _factory(log, **kwargs):
     )
 
 
-def test_the_one_shot_client_runs_the_whole_session_and_quits():
+def test_the_one_shot_client_runs_the_whole_connection_and_quits():
     log = []
     endpoint = SmtpEndpoint(host="127.0.0.1", port=2525, starttls=True,
                             username="relay", password="pw")
@@ -318,7 +318,7 @@ def test_a_refused_data_raised_by_smtplib_is_returned_as_the_reply():
     assert reply == SmtpReply(554, "5.6.0 rejected")
 
 
-def test_the_persistent_client_opens_one_session_for_many_messages():
+def test_the_persistent_client_opens_one_connection_for_many_messages():
     log = []
     ticks = iter([0.0, 0.004])
     client = PersistentSmtpClient(_factory(log, replies={}), clock=lambda: next(ticks))
@@ -334,7 +334,7 @@ def test_the_persistent_client_opens_one_session_for_many_messages():
     assert log[-1] == ("quit",)
 
 
-def test_the_persistent_client_reconnects_once_when_a_used_session_drops():
+def test_the_persistent_client_reconnects_once_when_a_used_connection_drops():
     log = []
     client = PersistentSmtpClient(_factory(log, replies={}, disconnect_after=1))
     client.connect(ENDPOINT, 5.0)
@@ -345,7 +345,7 @@ def test_the_persistent_client_reconnects_once_when_a_used_session_drops():
     assert len(client.connect_seconds) == 2
 
 
-def test_a_fresh_session_that_drops_is_not_retried():
+def test_a_fresh_connection_that_drops_is_not_retried():
     log = []
     client = PersistentSmtpClient(_factory(log, replies={}, disconnect_after=0))
     client.connect(ENDPOINT, 5.0)

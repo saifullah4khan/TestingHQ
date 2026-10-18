@@ -121,7 +121,7 @@ class SmtpSink:
         self.sink_path = Path(sink_path) if sink_path is not None else None
         self.reject_recipients = frozenset(reject_recipients)
         self.messages: List[Received] = []
-        self.sessions = 0
+        self.connections = 0
         self._lock = threading.Lock()
         self._server: Optional[socketserver.ThreadingTCPServer] = None
 
@@ -151,7 +151,7 @@ class SmtpSink:
 
             def process_request(self, request, client_address):
                 with sink._lock:
-                    sink.sessions += 1
+                    sink.connections += 1
                 super().process_request(request, client_address)
 
         self._server = Server(("127.0.0.1", 0), _Handler)

@@ -183,7 +183,7 @@ TARGETS = Table(
             "boolean",
             default="false",
             meaning=(
-                "Upgrade the session with STARTTLS after EHLO, verifying the "
+                "Upgrade the connection with STARTTLS after EHLO, verifying the "
                 "server's certificate against `host`. A server that does not "
                 "offer it is a TLS failure. smtp only."
             ),
@@ -194,7 +194,7 @@ TARGETS = Table(
             env_referenced=True,
             meaning=(
                 "'env:<VARIABLE>' holding the SMTP AUTH user. With it, the "
-                "session logs in after EHLO (and STARTTLS). A literal is "
+                "connection logs in after EHLO (and STARTTLS). A literal is "
                 "refused. smtp only."
             ),
         ),

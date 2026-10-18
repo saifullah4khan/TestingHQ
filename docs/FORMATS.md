@@ -123,7 +123,7 @@ envelope_to = "support@helpdesk.test"
 - **The message** is exactly the `mime` format's bytes, above. `format` on an
   SMTP target is `mime` or absent; anything else is refused when the config
   loads. `blast generate --target <name>` writes those bytes as `.eml` files.
-- **The session.** Connect, EHLO as `testinghq.localhost`, STARTTLS when
+- **The connection.** Connect, EHLO as `testinghq.localhost`, STARTTLS when
   `starttls = true` (the certificate is verified against `host`), AUTH when
   `username` and `password` are set (both `env:` references), then `MAIL
   FROM`, one `RCPT TO` per recipient and `DATA`. A negative reply to MAIL or
@@ -138,10 +138,10 @@ envelope_to = "support@helpdesk.test"
   reply, whose text is recorded as `error`. No reply at all (refused, DNS,
   timeout, TLS) is a transport error in the same buckets as an HTTP one.
   Latency runs to the reply after DATA.
-- **Barrage** keeps one SMTP session per worker, opened before its first
+- **Barrage** keeps one SMTP connection per worker, opened before its first
   message and reported under `connections` as the HTTP keep-alive path is
-  (`setup_ms` covers connect, EHLO, STARTTLS and AUTH). A session the server
-  drops is reopened once. `--no-keepalive` opens a session per message.
+  (`setup_ms` covers connect, EHLO, STARTTLS and AUTH). A connection the server
+  drops is reopened once. `--no-keepalive` opens a connection per message.
 - **sigcheck** refuses an SMTP target: a provider signature is an HTTP
   concept with no SMTP equivalent.
 

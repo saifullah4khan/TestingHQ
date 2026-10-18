@@ -528,7 +528,7 @@ def _close_smtp(conn) -> None:
 
 def _transaction(conn, request: SmtpRequest) -> SmtpReply:
     """MAIL, RCPT per recipient, DATA, on an open connection. Stops at the
-    first negative reply, resets the session and returns that reply, so one
+    first negative reply, resets the transaction and returns that reply, so one
     message is one transaction whatever happens to it."""
     code, text = conn.mail(request.envelope_from)
     if code != 250:
@@ -570,13 +570,13 @@ class SmtplibClient:
 
 
 class PersistentSmtpClient:
-    """An SmtpClient that keeps one SMTP session open across messages, for
+    """An SmtpClient that keeps one SMTP connection open across messages, for
     barrage: one per worker thread, NOT thread-safe.
 
     `connect_seconds` records the setup time (connect, greeting, EHLO,
-    STARTTLS, AUTH) of every session this instance opened, so a caller can
+    STARTTLS, AUTH) of every connection this instance opened, so a caller can
     report it separately from message latency, which then runs from MAIL to the
-    reply after DATA. A session the server dropped (`SMTPServerDisconnected`)
+    reply after DATA. A connection the server dropped (`SMTPServerDisconnected`)
     is reopened once, and only when it had already carried a message, the same
     rule PersistentHttpClient follows.
     """
@@ -591,7 +591,7 @@ class PersistentSmtpClient:
         self.reconnects = 0
 
     def connect(self, endpoint: SmtpEndpoint, timeout: float = 10.0) -> float:
-        """Open the session now and return its setup time in seconds."""
+        """Open the connection now and return its setup time in seconds."""
         self.close()
         started = self._clock()
         conn = _open_smtp(endpoint, timeout, self._factory)
@@ -626,7 +626,7 @@ class PersistentSmtpClient:
                 raise
             self._used = True
             if reply.code == 421:
-                # 421 is the server closing the session; the next message
+                # 421 is the server closing the connection; the next message
                 # needs a new one.
                 self.close()
             return reply

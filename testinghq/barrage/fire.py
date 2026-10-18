@@ -212,11 +212,11 @@ class _Sender:
     TransportResult.
 
     With keep-alive, each worker thread gets its own persistent client (an
-    HTTP/1.1 connection, or an SMTP session for an SMTP target), connected
+    HTTP/1.1 connection, or an SMTP connection for an SMTP target), connected
     once before its first request so the setup is measured on its own and
     kept out of every service latency. If that connect fails, the request it
     was for is reported as a transport error rather than tried a second time,
-    so one request never waits out two timeouts. A session the server dropped
+    so one request never waits out two timeouts. A connection the server dropped
     is reopened once by the client itself, and counted in `reconnects`."""
 
     def __init__(self, pool, target, *, client, clock, timeout, wire_format, keepalive):

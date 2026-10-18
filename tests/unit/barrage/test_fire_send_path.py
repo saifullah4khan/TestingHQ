@@ -163,7 +163,7 @@ def test_a_failed_connect_costs_one_attempt_not_two(tmp_path, monkeypatch, capsy
 
 
 # ---------------------------------------------------------------------------
-# An SMTP target: one session per worker
+# An SMTP target: one connection per worker
 # ---------------------------------------------------------------------------
 
 
@@ -180,12 +180,12 @@ def _smtp_fire(tmp_path, *extra):
     ])
 
 
-def test_each_worker_opens_one_smtp_session_and_reuses_it(tmp_path, monkeypatch, capsys):
+def test_each_worker_opens_one_smtp_connection_and_reuses_it(tmp_path, monkeypatch, capsys):
     from testinghq.core.transport import SmtpEndpoint, SmtpReply
 
     log = _Recorder()
 
-    class FakeSession:
+    class FakeConnection:
         def __init__(self):
             self.connect_seconds = []
             self.reconnects = 0
@@ -200,7 +200,7 @@ def test_each_worker_opens_one_smtp_session_and_reuses_it(tmp_path, monkeypatch,
             return 0.002
 
         def send(self, request):
-            assert threading.get_ident() == self.thread, "a session was shared between workers"
+            assert threading.get_ident() == self.thread, "a connection was shared between workers"
             with log.lock:
                 log.requests.append((self, request))
             return SmtpReply(250, "2.0.0 queued")
@@ -208,7 +208,7 @@ def test_each_worker_opens_one_smtp_session_and_reuses_it(tmp_path, monkeypatch,
         def close(self):
             pass
 
-    monkeypatch.setattr(barrage_fire, "PersistentSmtpClient", FakeSession)
+    monkeypatch.setattr(barrage_fire, "PersistentSmtpClient", FakeConnection)
     rc = _smtp_fire(tmp_path, "--mode", "closed", "--concurrency", "2")
     assert rc == EXIT_OK, capsys.readouterr().err
 
@@ -223,7 +223,7 @@ def test_each_worker_opens_one_smtp_session_and_reuses_it(tmp_path, monkeypatch,
     assert data["connections"]["setup_ms"]["p50"] == 2.0
 
 
-def test_no_keepalive_over_smtp_opens_a_session_per_message(tmp_path, monkeypatch, capsys):
+def test_no_keepalive_over_smtp_opens_a_connection_per_message(tmp_path, monkeypatch, capsys):
     from testinghq.core.transport import SmtpReply
 
     made = []

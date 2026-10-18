@@ -132,7 +132,7 @@ def test_verify_over_smtp_round_trips_through_the_mailbox_readback(tmp_path, cap
     assert statuses["attachments"] <= {("passed", None), ("skipped", "nothing to check")}
 
 
-def test_barrage_over_smtp_keeps_one_session_per_worker(tmp_path, capsys):
+def test_barrage_over_smtp_keeps_one_connection_per_worker(tmp_path, capsys):
     with SmtpSink() as server:
         out = tmp_path / "barrage.json"
         code = cli_main([
@@ -142,15 +142,15 @@ def test_barrage_over_smtp_keeps_one_session_per_worker(tmp_path, capsys):
             "--out", str(out),
         ])
         assert code == EXIT_OK, capsys.readouterr().err
-        sessions = server.sessions
+        opened = server.connections
     assert server.peers() <= LOOPBACK
 
     artifact = json.loads(out.read_text(encoding="utf-8"))
     assert artifact["config"]["transport"] == "smtp"
     connections = artifact["connections"]
     assert connections["keepalive"] is True
-    assert connections["connections_opened"] == sessions == connections["workers_connected"]
+    assert connections["connections_opened"] == opened == connections["workers_connected"]
     assert connections["setup_ms"]["p50"] is not None
     sent = artifact["summary"]["requests"]["sent"]
-    assert sent == len(server.messages) > sessions
+    assert sent == len(server.messages) > opened
     assert artifact["summary"]["status_classes"]["2xx"] == sent
