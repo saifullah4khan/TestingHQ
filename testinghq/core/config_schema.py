@@ -1,8 +1,8 @@
 """One description of the config file, for the validator and the reference doc.
 
 `testinghq/core/config.py` and `testinghq/pipeline/adapters.py` between them
-accept about thirty keys across `[targets.*]`, `[readback]`, `[readback.fields]`
-and `[readback.headers]`. That surface was documented in prose, in a comment
+accept about forty keys across `[targets.*]`, `[targets.*.headers]`,
+`[readback]`, `[readback.fields]` and `[readback.headers]`. That surface was documented in prose, in a comment
 block inside an example TOML, which is exactly the kind of documentation that is
 right until someone adds a key and forgets.
 
@@ -104,18 +104,33 @@ TARGETS = Table(
         "config at all. A target whose host is public (not a reserved test "
         "domain, an internal name or a private address, and not resolving only "
         "to private addresses) is refused unless the run passes "
-        "--allow-public-target."
+        "--allow-public-target. The rule is the same for an HTTP url and an "
+        "SMTP host."
     ),
     keys=(
         Key(
+            "transport",
+            "string",
+            default='"http"',
+            meaning=(
+                "How messages reach the target. 'http': POST each message to "
+                "`url` in `format`. 'smtp': hand each message to the mail "
+                "server at `host` in one SMTP transaction (MAIL, RCPT, DATA), "
+                "the message bytes exactly what the mime format builds. An "
+                "unknown name is refused at load. sigcheck refuses an smtp "
+                "target, since a provider signature is an HTTP concept."
+            ),
+        ),
+        Key(
             "url",
             "string",
-            required="yes",
+            required="for transport = http",
             meaning=(
-                "Where to POST. Must start with http:// or https://. May be "
-                "overridden per run by the environment variable "
-                "TESTINGHQ_TARGET_<NAME>_URL, which replaces the URL and "
-                "nothing else."
+                "Where to POST. Must start with http:// or https://. A url "
+                "carrying credentials (user:pass@host) is refused: put them in "
+                "[targets.<name>.headers] instead. May be overridden per run by "
+                "the environment variable TESTINGHQ_TARGET_<NAME>_URL, which "
+                "replaces the URL and nothing else. Refused on an smtp target."
             ),
         ),
         Key(
@@ -134,7 +149,8 @@ TARGETS = Table(
                 "Parse, raw mode: the full message in the email field), "
                 "mailgun, postmark, mime (the raw message as message/rfc822). "
                 "An unknown name is refused at load. Field lists are in "
-                "docs/FORMATS.md."
+                "docs/FORMATS.md. An smtp target sends mime: absent means mime "
+                "there, and any other value is refused."
             ),
         ),
         Key(
@@ -147,6 +163,107 @@ TARGETS = Table(
                 "need only the flag."
             ),
         ),
+        Key(
+            "host",
+            "string",
+            required="for transport = smtp",
+            meaning=(
+                "The mail server's host name or address, bare (no scheme, no "
+                "port). Held to the same public-host rule as a url."
+            ),
+        ),
+        Key(
+            "port",
+            "integer",
+            default="25",
+            meaning="The SMTP port. smtp only.",
+        ),
+        Key(
+            "starttls",
+            "boolean",
+            default="false",
+            meaning=(
+                "Upgrade the session with STARTTLS after EHLO, verifying the "
+                "server's certificate against `host`. A server that does not "
+                "offer it is a TLS failure. smtp only."
+            ),
+        ),
+        Key(
+            "username",
+            "string",
+            env_referenced=True,
+            meaning=(
+                "'env:<VARIABLE>' holding the SMTP AUTH user. With it, the "
+                "session logs in after EHLO (and STARTTLS). A literal is "
+                "refused. smtp only."
+            ),
+        ),
+        Key(
+            "password",
+            "string",
+            env_referenced=True,
+            meaning=(
+                "'env:<VARIABLE>' holding the SMTP AUTH password. Needs "
+                "username. A literal is refused. smtp only."
+            ),
+        ),
+        Key(
+            "envelope_from",
+            "string",
+            meaning=(
+                "MAIL FROM for every message. Absent means each payload's own "
+                "envelope sender. Must be a synthetic address (a reserved "
+                "domain or TLD), like every address in a payload. smtp only."
+            ),
+        ),
+        Key(
+            "envelope_to",
+            "string or list",
+            meaning=(
+                "RCPT TO for every message, one address or a list: the mailbox "
+                "a helpdesk polls, say. Absent means each payload's own envelope "
+                "recipients. Must be synthetic addresses. smtp only."
+            ),
+        ),
+    ),
+    notes=(
+        "An smtp target's status is the reply code that ended the transaction: "
+        "250 after DATA when the message was accepted, or the first 4xx or 5xx "
+        "reply (to MAIL, RCPT or DATA), whose text is recorded as the error. No "
+        "reply at all is a transport error, sorted into the same buckets as an "
+        "HTTP one: refused, dns, timeout, tls or other. Every artifact records "
+        "the target's `transport` under `config`.",
+    ),
+)
+
+
+TARGETS_HEADERS = Table(
+    name="targets.headers",
+    patterned=True,
+    free_form=True,
+    summary=(
+        "Request headers sent with every HTTP request to the target. Each key "
+        "is a header name and each value MUST be an `env:NAME` reference, the "
+        "same rule as `[readback.headers]`. For a target behind HTTP Basic "
+        "auth, `Authorization = \"env:TARGET_AUTH\"` with TARGET_AUTH "
+        "holding `Basic <base64 of user:password>`; "
+        "`testinghq config basic-auth <user>` prints that value."
+    ),
+    keys=(
+        Key(
+            "headers", "table", free_form=True, env_referenced=True,
+            meaning=(
+                "Every value must be 'env:<VARIABLE>'. A literal is REFUSED "
+                "when the file loads. A variable that is not set is refused "
+                "before the run sends anything, and by `config validate`. "
+                "Content-Type and Content-Length cannot be set: the transport "
+                "computes them from the body. Not allowed on an smtp target."
+            ),
+        ),
+    ),
+    notes=(
+        "A run artifact records neither the header names nor the values, and "
+        "`config validate` shows each header as `env:NAME`.",
     ),
 )
 
@@ -620,7 +737,7 @@ SIGCHECK = Table(
 
 
 TABLES: Tuple[Table, ...] = (
-    TARGETS, READBACK, READBACK_FIELDS, READBACK_HEADERS,
+    TARGETS, TARGETS_HEADERS, READBACK, READBACK_FIELDS, READBACK_HEADERS,
     LOOP, LOOP_OUTBOUND, STEADY, SIGCHECK,
 )
 

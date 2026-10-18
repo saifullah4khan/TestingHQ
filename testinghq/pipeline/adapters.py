@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
+from ..core import config as config_module
 from ..core import guardrails
 from ..core import transport
 from ..core.transport import ClientResponse, PreparedRequest, UrllibHttpClient
@@ -258,7 +259,7 @@ class ReadbackConfig:
 
 #: A `[readback.headers]` value must start with this; the rest is the name of an
 #: environment variable holding the value.
-ENV_PREFIX = "env:"
+ENV_PREFIX = config_module.ENV_PREFIX
 
 
 def resolve_header_values(
@@ -267,45 +268,13 @@ def resolve_header_values(
     """Turn `[readback.headers]` into the values to send, refusing literals.
 
     Every value must be `env:NAME`. A missing variable is an error here rather
-    than at connect time, so a command refuses before it sends anything.
+    than at connect time, so a command refuses before it sends anything. The
+    rule is `core.config.resolve_env_references`, the same one
+    `[targets.<name>.headers]` is held to.
     """
-    if raw_headers is None:
-        return {}
-    if not isinstance(raw_headers, dict):
-        raise AdapterError(
-            f"[readback.headers] must be a table, got {type(raw_headers).__name__}"
-        )
-    environ = os.environ if env is None else env
-
-    resolved: Dict[str, str] = {}
-    for name, value in raw_headers.items():
-        if not isinstance(value, str):
-            raise AdapterError(
-                f"[readback.headers].{name} must be a string such as "
-                f"\"{ENV_PREFIX}HQ_READBACK_TOKEN\", got {type(value).__name__}"
-            )
-        if not value.startswith(ENV_PREFIX):
-            raise AdapterError(
-                f"[readback.headers].{name} is a literal value. Header values "
-                f"must come from the environment as \"{ENV_PREFIX}<VARIABLE>\"; "
-                f"a readback config is a file that gets shared, and a secret in "
-                f"it is a secret that leaks"
-            )
-        variable = value[len(ENV_PREFIX) :].strip()
-        if not variable:
-            raise AdapterError(
-                f"[readback.headers].{name} names no environment variable after "
-                f"\"{ENV_PREFIX}\""
-            )
-        if variable not in environ:
-            raise AdapterError(
-                f"[readback.headers].{name} refers to environment variable "
-                f"{variable!r}, which is not set. The refusal is deliberate: a "
-                f"run must not start without the credentials it was configured "
-                f"to use, and must not discover that mid-run"
-            )
-        resolved[name] = environ[variable]
-    return resolved
+    return config_module.resolve_env_references(
+        "[readback.headers]", raw_headers, env, error=AdapterError
+    )
 
 
 def _check_field_path(name: str, path: str, what: str) -> None:
