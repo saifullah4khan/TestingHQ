@@ -47,6 +47,8 @@ def main(argv=None):
     if args.tool == "config":
         if args.config_command == "validate":
             return utility_module._cmd_config_validate(args)
+        if args.config_command == "basic-auth":
+            return utility_module._cmd_config_basic_auth(args)
 
     if args.tool == "report":
         return utility_module._cmd_report(args)

@@ -1031,7 +1031,7 @@ def execute(
             printer(f"refused: {exc}")
             return EXIT_REFUSED
 
-        sent += send_all(build_items([precursor]), target.url, rate, client=client,
+        sent += send_all(build_items([precursor]), target, rate, client=client,
                          sleep=sleep, clock=clock, wire_format=wire)
         if outbound_adapter is not None:
             reply = _find_reply(
@@ -1048,7 +1048,7 @@ def execute(
         require_synthetic([bait.email])
 
         judged = [*corpus, bait]
-        sent += send_all(build_items(judged), target.url, rate, client=client,
+        sent += send_all(build_items(judged), target, rate, client=client,
                          sleep=sleep, clock=clock, wire_format=wire)
         outcome = read_back_all(adapter, [m.probe() for m in [precursor, *judged]], **poll)
         outbound_by_tag = None
