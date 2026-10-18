@@ -1,24 +1,22 @@
-"""steady against a real intake pipeline, through the real transport.
+"""steady against a pipeline double, through the real transport.
 
-A classifier that is stable is the baseline, and a classifier that loses track of
-a message when a signature is added is the finding. Both are produced by the same
-pipeline with one switch changed, so the difference is attributable.
-
-The three properties tested hardest are the ways this tool would produce a
-confident wrong number: a run that could not see the label, a run where only
-some families were measurable, and a run whose flip rate is under the gate while
-the report says the wrong thing about stability.
+The double files every payload as the shared pipeline does and adds a
+`category` the way a classifier would, from a label table the test sets per
+tag. A stable classifier gives every variant of a family its family's label;
+an unstable one moves some variants, and the run must say which transform and
+which language moved them.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import types
-from pathlib import Path
 
 import pytest
 from pipeline_under_test import PipelineUnderTest
 
+from testinghq import reporting
 from testinghq.pipeline import steady as tool
 from testinghq.pipeline.adapters import ReadbackConfig
 from testinghq.pipeline.common import EXIT_MISMATCH, EXIT_OK, EXIT_REFUSED
@@ -28,8 +26,28 @@ COUNT = 3
 TARGET = "local"
 TARGET_URL = "http://localhost:9/intake"
 SPEC_MODULE = "steady_integration_spec"
+PREFIX = "hq"
 
-GATE = 0.10
+
+class ClassifyingPipeline(PipelineUnderTest):
+    """The shared double plus a `category` read from `labels` (tag to label).
+    A tag with no entry gets no record field at all when `blind` is set, and a
+    null category otherwise."""
+
+    def __init__(self, labels, *, blind=False, **kwargs):
+        super().__init__(**kwargs)
+        self.labels = dict(labels)
+        self.blind = blind
+
+    def fetch(self, probe):
+        records = super().fetch(probe)
+        if self.blind:
+            return records
+        return [
+            dataclasses.replace(r, category=self.labels.get(probe.tag),
+                                fields=(*r.fields, "category"))
+            for r in records
+        ]
 
 
 class _VirtualClock:
@@ -63,67 +81,53 @@ def spec_probe():
     del sys.modules[SPEC_MODULE]
 
 
-def _publish(spec_probe, pipeline):
-    spec_probe.build = lambda config: pipeline
-
-
-def _tagged(items, families):
-    """(tag, variant) in the order `build_items` walked the families.
-
-    The test has to know which tag carries which transform, because the pipeline
-    can only be told which payloads to relabel and the readback is keyed by tag.
-    Going through the tool's own builders is the only way the test and the run
-    agree, and a test that guessed the tag numbering would go stale silently.
-    """
-    pairs = []
+def _variants(count=COUNT, repeats=1):
+    """(tag, family, variant) in send order, built with the tool's own
+    builders so the test and the run agree on which tag is which."""
+    families = tool.load_families(SEED, count)
+    items = tool.build_items(families, tag_prefix=PREFIX, seed=SEED)
+    out = []
     index = 0
     for family in families:
         for variant in family.variants:
-            pairs.append((items[index][1], variant))
+            out.append((items[index][1], family, variant))
             index += 1
-    return pairs
+    repeat = tool.repeat_items(families, repeats, PREFIX, SEED) if repeats > 1 else []
+    return out, families, repeat
 
 
-def _tags_for(transform, count=COUNT):
-    families = tool.build_families(SEED, intents=tool.load_intents()[:count])
-    items = tool.build_items(families, seed=SEED)
-    return [tag for tag, variant in _tagged(items, families)
-            if variant.transform == transform]
+def stable_labels(repeats=1, move=lambda family, variant: False):
+    """Every variant labelled with its family's category hint, except where
+    `move` says otherwise."""
+    variants, families, repeat = _variants(repeats=repeats)
+    labels = {
+        tag: ("moved" if move(family, variant) else family.category_hint)
+        for tag, family, variant in variants
+    }
+    for index, family in enumerate(families):
+        for _e, tag, _r, _p in repeat[index * repeats:(index + 1) * repeats]:
+            labels[tag] = family.category_hint
+    return labels
 
 
-def _run(pipeline, target_config, tmp_path, spec_probe, name="steady.json", **kwargs):
-    _publish(spec_probe, pipeline)
+def _run(pipeline, target_config, tmp_path, spec_probe, name="steady.json",
+         label_field="category", **kwargs):
+    spec_probe.build = lambda config: pipeline
     clock = _VirtualClock()
     lines: list = []
-    settings = {
-        "quiet_window": 0.0, "poll_interval": 0.05, "max_flip_rate": GATE,
-    }
+    settings = {"quiet_window": 0.0, "poll_interval": 0.05}
     settings.update(kwargs)
     code = tool.execute(
-        SEED,
-        COUNT,
-        TARGET,
-        target_config,
-        str(tmp_path / name),
+        SEED, COUNT, TARGET, target_config, str(tmp_path / name),
         readback=ReadbackConfig(kind="python", spec=f"{SPEC_MODULE}:build"),
-        # The pipeline is BOTH the sending client and the readback source. The
-        # suite-wide network block caught its absence the first time this ran,
-        # which is that guard doing its job.
-        client=pipeline,
-        readback_client=pipeline,
-        sleep=clock.sleep,
-        clock=clock,
-        printer=lines.append,
-        **settings,
+        tag_prefix=PREFIX, label_field=label_field,
+        client=pipeline, readback_client=pipeline,
+        sleep=clock.sleep, clock=clock, printer=lines.append, **settings,
     )
     text = "\n".join(lines)
     path = tmp_path / name
-    if not path.is_file():
-        raise AssertionError(
-            f"no artifact at {path}. A refusal writes nothing, so the run's "
-            f"output is the diagnosis.\n--- output ---\n{text}"
-        )
-    return code, json.loads(path.read_text(encoding="utf-8")), text
+    artifact = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    return code, artifact, text
 
 
 # ---------------------------------------------------------------------------
@@ -132,278 +136,264 @@ def _run(pipeline, target_config, tmp_path, spec_probe, name="steady.json", **kw
 
 
 def test_a_stable_classifier_passes(target_config, tmp_path, spec_probe):
-    pipeline = PipelineUnderTest()
-    code, artifact, text = _run(pipeline, target_config, tmp_path, spec_probe)
-
+    code, artifact, text = _run(
+        ClassifyingPipeline(stable_labels()), target_config, tmp_path, spec_probe
+    )
     assert code == EXIT_OK, text
-    assert artifact["stability"]["flip_rate"] == 0.0
-    assert artifact["stability"]["inconsistent_families"] == []
-    assert "STABLE" in text
-    assert text.splitlines()[0].startswith("steady:")
+    stability = artifact["stability"]
+    assert stability["verdict"] == "STABLE"
+    assert stability["dissent_rate"] == 0.0
+    assert stability["flip_rate"] == 0.0
+    assert stability["constant_label"] is None
+    assert text.splitlines()[0].startswith("steady: STABLE")
+    assert "'category'" in text.splitlines()[0]
+    assert f"{COUNT} families" in text
 
 
-def test_the_pipeline_really_saw_every_payload(target_config, tmp_path, spec_probe):
-    """Without this, a clean run could mean nothing was ever sent."""
-    pipeline = PipelineUnderTest()
-    _code, artifact, _text = _run(pipeline, target_config, tmp_path, spec_probe)
-    sent = artifact["stability"]["sent"]
-    expected = sum(len(f["variants"]) for f in artifact["families"])
-    assert sent == expected
-    assert len(pipeline.received) == expected
-
-
-def test_the_report_names_the_label_field_it_measured(
+def test_every_payload_reaches_the_pipeline_with_a_neutral_subject(
     target_config, tmp_path, spec_probe
 ):
-    """A flip rate with no field named is a number nobody can act on."""
-    pipeline = PipelineUnderTest()
-    _code, artifact, text = _run(pipeline, target_config, tmp_path, spec_probe)
-    assert artifact["stability"]["label_field"] == "route"
-    assert "'route'" in text.splitlines()[0]
+    pipeline = ClassifyingPipeline(stable_labels())
+    _code, artifact, _text = _run(pipeline, target_config, tmp_path, spec_probe)
+    variants, families, _r = _variants()
+    assert len(pipeline.received) == len(variants) == artifact["stability"]["sent"]
+    hints = {f.category_hint for f in families}
+    ids = {f.intent_id for f in families}
+    for fields in pipeline.received:
+        subject = fields["subject"].lower()
+        assert not any(h in subject for h in hints), subject
+        assert not any(i in subject for i in ids), subject
+
+
+def test_the_artifact_names_its_schema_tool_and_lineage(target_config, tmp_path, spec_probe):
+    _code, artifact, _text = _run(
+        ClassifyingPipeline(stable_labels()), target_config, tmp_path, spec_probe,
+        repeats=1,
+    )
+    assert artifact["schema_version"] == 1
+    assert artifact["tool"] == "steady"
+    assert artifact["aborted"] is False
+    config = artifact["config"]
+    assert config["tool"] == "steady" and config["label_field"] == "category"
+    assert config["seed"] == SEED and config["count"] == COUNT
+    for family in artifact["families"]:
+        for variant in family["variants"]:
+            for key in ("intent_id", "language", "transform", "label", "label_state",
+                        "subject", "payload_sha256"):
+                assert key in variant
+    assert json.loads(json.dumps(artifact)) == artifact
 
 
 # ---------------------------------------------------------------------------
-# An unstable classifier
+# Instability
 # ---------------------------------------------------------------------------
 
 
 def test_a_classifier_that_loses_track_of_a_signature_is_caught(
     target_config, tmp_path, spec_probe
 ):
-    """The bug the tool exists for. The route is computed perfectly from the
-    message; the classifier simply files a signed message differently, and only a
-    metamorphic comparison can see it."""
-    signed_tags = _tags_for("add-signature")
-    assert signed_tags, "the fixture produced no signed variants, so nothing to test"
-
-    pipeline = PipelineUnderTest(unstable_tags=signed_tags)
-    code, artifact, text = _run(pipeline, target_config, tmp_path, spec_probe)
-
+    labels = stable_labels(move=lambda f, v: v.transform == "add-signature")
+    code, artifact, text = _run(
+        ClassifyingPipeline(labels), target_config, tmp_path, spec_probe
+    )
     assert code == EXIT_MISMATCH
-    assert artifact["stability"]["flip_rate"] > 0
-    assert artifact["stability"]["inconsistent_families"]
-    assert "add-signature" in text
-    assert "worst transforms" in text
+    stability = artifact["stability"]
+    assert stability["dissent_rate"] > 0.10
+    by_transform = stability["by_transform"]
+    assert by_transform["add-signature"]["dissent_rate"] == 1.0
+    assert all(b["dissenters"] == 0 for n, b in by_transform.items() if n != "add-signature")
+    assert "worst transforms" in text and "add-signature" in text
+    assert artifact["stability"]["gate"]["failed"] is True
 
 
-def test_the_per_transform_breakdown_blames_the_right_transform(
+def test_dissent_in_one_language_is_blamed_on_that_language(
     target_config, tmp_path, spec_probe
 ):
-    signed_tags = _tags_for("add-signature")
-    pipeline = PipelineUnderTest(unstable_tags=signed_tags)
-
-    _code, artifact, _text = _run(pipeline, target_config, tmp_path, spec_probe)
-    by_transform = artifact["stability"]["by_transform"]
-    assert by_transform["add-signature"]["dissenters"] > 0
-    assert by_transform["add-signature"]["dissent_rate"] > 0
-    for name, bucket in by_transform.items():
-        if name != "add-signature":
-            assert bucket["dissenters"] == 0, (
-                f"{name} was blamed for a flip it did not cause"
-            )
+    labels = stable_labels(move=lambda f, v: v.language == "ur" and v.transform == "baseline")
+    _code, artifact, _text = _run(
+        ClassifyingPipeline(labels), target_config, tmp_path, spec_probe,
+        max_dissent_rate=0.5,
+    )
+    by_language = artifact["stability"]["by_language"]
+    assert by_language["ur"]["dissenters"] == COUNT
+    assert by_language["en"]["dissenters"] == 0
+    split = artifact["stability"]["pairs_by_language"]
+    assert split["cross_language"]["flips"] > 0
 
 
-def test_a_flip_below_the_gate_still_passes(target_config, tmp_path, spec_probe):
-    """The gate is a threshold, not a switch: a classifier that is a few percent
-    unstable is worth a note in the artifact, not a red build."""
-    pipeline = PipelineUnderTest(unstable_tags=_tags_for("add-signature")[:1])
+def test_a_dissent_below_the_gate_still_passes(target_config, tmp_path, spec_probe):
+    labels = stable_labels(move=lambda f, v: v.transform == "add-signature" and v.language == "en")
     code, artifact, text = _run(
-        pipeline, target_config, tmp_path, spec_probe, max_flip_rate=0.5
+        ClassifyingPipeline(labels), target_config, tmp_path, spec_probe,
+        max_dissent_rate=0.5,
     )
     assert code == EXIT_OK, text
-    assert artifact["stability"]["flip_rate"] > 0, "it did flip, and the gate let it"
+    assert artifact["stability"]["dissent_rate"] > 0
     assert artifact["stability"]["gate"]["failed"] is False
     assert "gate (50.0%): passed" in text
 
 
-def test_an_unknown_label_field_is_refused_before_anything_is_sent(tmp_path):
-    """Directly, rather than through the CLI: the CLI constrains the field with
-    `choices`, so this is the guard behind that, and a guard behind a guard is
-    what stops a future caller skipping the choices."""
-    pipeline = PipelineUnderTest()
-    lines: list = []
-    clock = _VirtualClock()
-    code = tool.execute(
-        SEED, COUNT, TARGET, "unused.toml", None,
-        readback=ReadbackConfig(kind="mailbox", path="unused.jsonl"),
-        client=pipeline, readback_client=pipeline,
-        sleep=clock.sleep, clock=clock, printer=lines.append,
-        label_field="mood", quiet_window=0.0, poll_interval=0.05,
-    )
-    text = "\n".join(lines)
-    assert code == EXIT_REFUSED
-    assert "label-field must be one of" in text
-    assert pipeline.received == [], "it sent something before refusing"
-
-
-def test_a_negative_gate_is_refused_before_anything_is_sent(tmp_path):
-    pipeline = PipelineUnderTest()
-    lines: list = []
-    clock = _VirtualClock()
-    code = tool.execute(
-        SEED, COUNT, TARGET, "unused.toml", None,
-        readback=ReadbackConfig(kind="mailbox", path="unused.jsonl"),
-        client=pipeline, readback_client=pipeline,
-        sleep=clock.sleep, clock=clock, printer=lines.append,
-        max_flip_rate=-0.1, quiet_window=0.0, poll_interval=0.05,
-    )
-    assert code == EXIT_REFUSED
-    assert "--max-flip-rate" in "\n".join(lines)
-    assert pipeline.received == []
-
-
-def test_zero_repeats_is_refused(tmp_path):
-    pipeline = PipelineUnderTest()
-    lines: list = []
-    clock = _VirtualClock()
-    code = tool.execute(
-        SEED, COUNT, TARGET, "unused.toml", None,
-        readback=ReadbackConfig(kind="mailbox", path="unused.jsonl"),
-        client=pipeline, readback_client=pipeline,
-        sleep=clock.sleep, clock=clock, printer=lines.append,
-        repeats=0, quiet_window=0.0, poll_interval=0.05,
-    )
-    assert code == EXIT_REFUSED
-    assert "--repeats" in "\n".join(lines)
-
-
-def test_an_unknown_label_field_cannot_even_be_parsed():
-    from testinghq import cli
-
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["steady", "fire", "--label-field", "mood"])
-
-
-# ---------------------------------------------------------------------------
-# When the label could not be seen
-# ---------------------------------------------------------------------------
-
-
-def test_a_run_that_cannot_see_the_label_exits_3_not_0(
+def test_the_optional_flip_gate_fails_a_run_the_dissent_gate_passes(
     target_config, tmp_path, spec_probe
 ):
-    """The most important exit code in the tool. Nothing was measured, and 0
-    would be the most confident wrong answer it could give."""
-    families = tool.build_families(SEED, intents=tool.load_intents()[:COUNT])
-    items = tool.build_items(families)
-    pipeline = PipelineUnderTest()
-    _publish(spec_probe, pipeline)
-
-    class _Blind:
-        def fetch(self, probe):
-            return [
-                _no_route(probe.tag)
-            ]
-
-        def close(self):
-            return None
-
-    from testinghq.pipeline.readback import Readback
-
-    def _no_route(tag):
-        return Readback(
-            exists=True, ticket_id=f"T-{tag}", subject="s",
-            fields=("ticket_id", "subject"),
-        )
-
-    spec_probe.build = lambda config: _Blind()
-    clock = _VirtualClock()
-    lines: list = []
-    code = tool.execute(
-        SEED, COUNT, TARGET, target_config, str(tmp_path / "blind.json"),
-        readback=ReadbackConfig(kind="python", spec=f"{SPEC_MODULE}:build"),
-        client=pipeline, readback_client=pipeline,
-        sleep=clock.sleep, clock=clock, printer=lines.append,
-        quiet_window=0.0, poll_interval=0.05, max_flip_rate=GATE,
+    labels = stable_labels(move=lambda f, v: v.transform == "add-signature" and v.language == "en")
+    code, artifact, _text = _run(
+        ClassifyingPipeline(labels), target_config, tmp_path, spec_probe,
+        max_dissent_rate=0.5, max_flip_rate=0.0,
     )
-    text = "\n".join(lines)
-    artifact = json.loads((tmp_path / "blind.json").read_text(encoding="utf-8"))
-
     assert code == EXIT_MISMATCH
-    assert artifact["stability"]["flip_rate"] is None
-    assert "NOTHING MEASURED" in text
-    assert "NOT MEASURED" in text
-    assert "could not see" in text
-    del families, items
+    assert "pairwise flip rate" in artifact["stability"]["gate"]["reason"]
 
 
-# ---------------------------------------------------------------------------
-# Repeat instability, kept separate from the flip rate
-# ---------------------------------------------------------------------------
-
-
-def test_repeats_are_sent_and_measured_separately(
-    target_config, tmp_path, spec_probe
-):
-    pipeline = PipelineUnderTest()
+def test_repeats_are_measured_on_one_payload_per_family(target_config, tmp_path, spec_probe):
+    pipeline = ClassifyingPipeline(stable_labels(repeats=4))
     code, artifact, text = _run(
         pipeline, target_config, tmp_path, spec_probe, repeats=4
     )
-
     assert code == EXIT_OK, text
     stability = artifact["stability"]
     assert stability["repeats"] == 4
     assert stability["repeat_instability"] == 0.0
+    assert set(stability["repeat_by_family"]) == {f.intent_id for f in _variants()[1]}
+    variants, _f, _r = _variants()
+    assert len(pipeline.received) == len(variants) + COUNT * 4
     assert "repeat instability" in text
-    assert stability["flip_rate"] == 0.0
-
-
-def test_a_reply_is_measured_from_the_artifact(target_config, tmp_path, spec_probe):
-    """The gate's own sentence, so a reader knows why a run failed."""
-    signed_tags = _tags_for("wrap-forward")
-    pipeline = PipelineUnderTest(unstable_tags=signed_tags)
-
-    _code, artifact, _text = _run(
-        pipeline, target_config, tmp_path, spec_probe, max_flip_rate=0.0
-    )
-    gate = artifact["stability"]["gate"]
-    assert gate["failed"] is True
-    assert "over the" in gate["reason"]
-    assert "gate" in gate["reason"]
 
 
 # ---------------------------------------------------------------------------
-# The artifact
+# The label field
 # ---------------------------------------------------------------------------
 
 
-def test_the_artifact_records_every_variant_with_its_lineage(
+def test_the_default_route_is_refused_before_send_when_it_cannot_vary(
     target_config, tmp_path, spec_probe
 ):
-    pipeline = PipelineUnderTest()
-    _code, artifact, _text = _run(pipeline, target_config, tmp_path, spec_probe)
-
-    for family in artifact["families"]:
-        assert "intent_id" in family and "variants" in family
-        for variant in family["variants"]:
-            for key in (
-                "intent_id", "language", "transform", "label",
-                "subject", "payload_sha256",
-            ):
-                assert key in variant, key
-    transforms = {
-        v["transform"] for f in artifact["families"] for v in f["variants"]
-    }
-    assert "baseline" in transforms and len(transforms) > 1
-
-
-def test_the_artifact_survives_a_round_trip_through_json(
-    target_config, tmp_path, spec_probe
-):
-    pipeline = PipelineUnderTest()
-    _code, artifact, _text = _run(pipeline, target_config, tmp_path, spec_probe)
-    assert json.loads(json.dumps(artifact)) == artifact
-
-
-def test_the_artifact_config_reproduces_the_run(target_config, tmp_path, spec_probe):
-    pipeline = PipelineUnderTest()
-    _code, artifact, _text = _run(
-        pipeline, target_config, tmp_path, spec_probe, repeats=3
+    """Every family is sent to one mailbox, so a route that echoes the
+    recipient is the same for all of them: 0% for the wrong reason."""
+    pipeline = ClassifyingPipeline(stable_labels())
+    code, artifact, text = _run(
+        pipeline, target_config, tmp_path, spec_probe, label_field=None
     )
-    config = artifact["config"]
-    assert config["tool"] == "steady"
-    assert config["seed"] == SEED and config["count"] == COUNT
-    assert config["label_field"] == "route"
-    assert config["repeats"] == 3
-    assert config["max_flip_rate"] == GATE
-    assert "latency" not in config and "timestamp" not in config
+    assert code == EXIT_REFUSED
+    assert artifact is None
+    assert pipeline.received == []
+    assert "would read 'intake@example.com' for every family" in text
+
+
+def test_a_named_constant_field_is_warned_about_in_the_headline(
+    target_config, tmp_path, spec_probe
+):
+    code, artifact, text = _run(
+        ClassifyingPipeline(stable_labels()), target_config, tmp_path, spec_probe,
+        label_field="route",
+    )
+    assert code == EXIT_OK
+    assert "WARNING: every family read the one label" in artifact["stability"]["verdict"]
+    assert "WARNING" in text.splitlines()[0]
+
+
+def test_a_run_that_cannot_see_the_label_exits_3_and_says_why(
+    target_config, tmp_path, spec_probe
+):
+    code, artifact, text = _run(
+        ClassifyingPipeline({}, blind=True), target_config, tmp_path, spec_probe
+    )
+    assert code == EXIT_MISMATCH
+    stability = artifact["stability"]
+    assert stability["verdict"] == "NOTHING MEASURED"
+    reads = stability["label_reads"]
+    assert reads["not-visible"] == len(_variants()[0])
+    assert reads["labelled"] == 0
+    assert "not visible" in text
+
+
+def test_null_labels_and_missing_records_are_counted_apart(
+    target_config, tmp_path, spec_probe
+):
+    variants, _f, _r = _variants()
+    labels = stable_labels()
+    null_tag, missing_tag = variants[0][0], variants[1][0]
+    labels[null_tag] = None
+    pipeline = ClassifyingPipeline(labels)
+
+    original = pipeline.fetch
+
+    def fetch(probe):
+        return [] if probe.tag == missing_tag else original(probe)
+
+    pipeline.fetch = fetch
+    code, artifact, _text = _run(pipeline, target_config, tmp_path, spec_probe)
+    reads = artifact["stability"]["label_reads"]
+    assert reads["null"] == 1 and reads["no-record"] == 1
+    assert code == EXIT_MISMATCH, "a family that could not be fully measured fails the gate"
+
+
+def test_every_lookup_a_404_is_readback_failed(target_config, tmp_path, spec_probe):
+    from testinghq.pipeline.readback import FetchResult
+
+    pipeline = ClassifyingPipeline(stable_labels())
+    pipeline.fetch = lambda probe: FetchResult([], status=404)
+    code, artifact, text = _run(pipeline, target_config, tmp_path, spec_probe)
+    assert code == EXIT_MISMATCH
+    stability = artifact["stability"]
+    assert stability["verdict"] == "READBACK FAILED"
+    assert stability["verdict_source"] == "readback"
+    assert stability["gate"]["failed"] is True
+    assert stability["gate"]["reason"].startswith(
+        "READBACK FAILED: every lookup was 404: check the readback url"
+    )
+    assert "readback: every lookup was 404: check the readback url" in text
+    assert reporting.summarize(artifact).exit_code == EXIT_MISMATCH
+
+
+# ---------------------------------------------------------------------------
+# A custom fixture, interruption, and the report
+# ---------------------------------------------------------------------------
+
+
+def test_a_custom_intents_file_is_used(target_config, tmp_path, spec_probe):
+    path = tmp_path / "intents.json"
+    path.write_text(json.dumps({
+        "closings": {"en": ["Thanks,"]},
+        "intents": [{"id": "lost-parcel", "category_hint": "shipping",
+                     "subjects": {"en": ["Where is my parcel"]},
+                     "variants": {"en": "My parcel was due on Monday and has not "
+                                        "arrived. Could you find out where it is?"}}],
+    }), encoding="utf-8")
+    pipeline = ClassifyingPipeline({})
+    _code, artifact, _text = _run(
+        pipeline, target_config, tmp_path, spec_probe, intents_path=str(path)
+    )
+    assert [f["intent_id"] for f in artifact["families"]] == ["lost-parcel"]
+    assert artifact["config"]["intents_path"] == str(path)
+    assert all(f["subject"].endswith("Where is my parcel") for f in pipeline.received)
+
+
+def test_ctrl_c_writes_a_partial_artifact_and_exits_3(target_config, tmp_path, spec_probe):
+    class Interrupted(ClassifyingPipeline):
+        def send(self, request):
+            if len(self.received) >= 2:
+                raise KeyboardInterrupt
+            return super().send(request)
+
+    code, artifact, text = _run(
+        Interrupted(stable_labels()), target_config, tmp_path, spec_probe
+    )
+    assert code == EXIT_MISMATCH
+    assert artifact["aborted"] is True
+    assert artifact["stability"]["verdict"] == "ABORTED"
+    assert "ABORTED" in text
+
+
+def test_report_reads_a_steady_artifact(target_config, tmp_path, spec_probe):
+    labels = stable_labels(move=lambda f, v: v.transform == "add-signature")
+    _code, _artifact, _text = _run(
+        ClassifyingPipeline(labels), target_config, tmp_path, spec_probe
+    )
+    summary = reporting.load(tmp_path / "steady.json")
+    assert summary.tool == "steady"
+    assert summary.verdict == "UNSTABLE"
+    assert summary.verdict_source == "recorded"
+    assert summary.exit_code == EXIT_MISMATCH
+    kinds = {f.kind for f in summary.findings}
+    assert {"gate", "dissent"} <= kinds

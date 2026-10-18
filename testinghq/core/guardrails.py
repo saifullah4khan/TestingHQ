@@ -1,21 +1,24 @@
 """Safety guardrails for TestingHQ.
 
-Blast is a fuzzer for endpoints you control, not an email sender. These
+TestingHQ fires at endpoints you control; it is not an email sender. These
 guardrails are first-class: dry-run is the default, firing is explicit, only
-configured targets may be hit, generated content must look synthetic, and
-firing is paced by a rate limit.
+configured targets may be hit, a public host needs explicit consent, generated
+content must look synthetic, and firing is paced by a rate limit.
 
-This module owns the contract; it does not implement the token bucket. See
-`RateLimitGate` below - the engine lane implements that interface in
-`testinghq.core.ratelimit`. This module never imports from that package, or
-from `testinghq.core.transport` or `testinghq.blast.*`.
+This module owns the contract; it does not implement the token bucket (see
+`RateLimitGate`, implemented in `testinghq.core.ratelimit`). It never imports
+from that module, from `testinghq.core.transport` or from `testinghq.blast.*`.
+Target resolution for the send paths lives in `testinghq.core.targets`, which
+calls `is_private_host` here.
 """
 from __future__ import annotations
 
+import functools
 import ipaddress
+import socket
 from dataclasses import dataclass
 from email.utils import getaddresses
-from typing import Iterable, List, Protocol, runtime_checkable
+from typing import Callable, Iterable, List, Optional, Protocol, Tuple, runtime_checkable
 from urllib.parse import urlsplit
 
 
@@ -51,7 +54,7 @@ RESERVED_DOMAINS = frozenset(
 RESERVED_TLDS = frozenset({"test", "invalid", "example", "localhost"})
 
 
-def _extract_host(target):
+def extract_host(target):
     """Best-effort hostname extraction from a target string.
 
     Handles full URLs ("https://ok.example"), bare host[:port] strings, and
@@ -66,6 +69,9 @@ def _extract_host(target):
     return target.strip().lower()
 
 
+_extract_host = extract_host
+
+
 def _is_reserved_or_private_host(host):
     """True if `host` is a reserved test domain/TLD, a bare internal name,
     or a private/loopback/link-local IP literal. False for anything that
@@ -74,6 +80,19 @@ def _is_reserved_or_private_host(host):
     if not host:
         return False
     host = host.rstrip(".")
+    # IP literals first: an IPv6 literal has no dot and would otherwise be
+    # read as a bare internal name below.
+    try:
+        ip = ipaddress.ip_address(host.strip("[]").split("%", 1)[0])
+    except ValueError:
+        ip = None
+    if ip is not None:
+        if ip.version == 6 and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        return bool(
+            ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_unspecified
+        )
     if host == "localhost":
         return True
     if "." not in host:
@@ -85,16 +104,69 @@ def _is_reserved_or_private_host(host):
     ):
         return True
     tld = host.rsplit(".", 1)[-1]
-    if tld in RESERVED_TLDS:
-        return True
+    return tld in RESERVED_TLDS
+
+
+#: A resolver takes a host name and returns the addresses it resolves to. An
+#: empty result means resolution failed.
+Resolver = Callable[[str], Iterable[str]]
+
+
+@functools.lru_cache(maxsize=256)
+def _system_addresses(host: str) -> Tuple[str, ...]:
+    """Every address `host` resolves to via the system resolver, cached for the
+    life of the process. A failure returns an empty tuple."""
     try:
-        ip = ipaddress.ip_address(host)
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return ()
+    return tuple(sorted({str(info[4][0]) for info in infos}))
+
+
+def clear_dns_cache() -> None:
+    """Forget every cached resolution. For tests that swap the resolver."""
+    _system_addresses.cache_clear()
+
+
+def _address_is_private(address: str) -> bool:
+    """True for a private, loopback or link-local address. An IPv4-mapped IPv6
+    address is judged by the IPv4 address it carries."""
+    try:
+        ip = ipaddress.ip_address(address.split("%", 1)[0])
     except ValueError:
         return False
-    return bool(
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-        or ip.is_unspecified
-    )
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+
+
+def is_private_host(host: str, *, resolver: Optional[Resolver] = None) -> bool:
+    """True when `host` is not a public host.
+
+    First the string check: a reserved test domain or TLD, localhost, a bare
+    single-label name, or a private, loopback or link-local IP literal. Then,
+    for any other name, a DNS lookup: a name whose every address is private,
+    loopback or link-local counts as private (split-horizon internal names). A
+    name that fails to resolve, or that resolves to at least one public
+    address, counts as public.
+
+    `resolver` defaults to the system resolver, cached per process.
+    """
+    host = (host or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    if _is_reserved_or_private_host(host):
+        return True
+    try:
+        ipaddress.ip_address(host.strip("[]").split("%", 1)[0])
+        return False  # a public IP literal; nothing to resolve
+    except ValueError:
+        pass
+    lookup = resolver if resolver is not None else _system_addresses
+    addresses = tuple(lookup(host) or ())
+    if not addresses:
+        return False
+    return all(_address_is_private(address) for address in addresses)
 
 
 def require_configured_target(target, allowed_targets, *, allow_public_hosts=False):
@@ -102,9 +174,9 @@ def require_configured_target(target, allowed_targets, *, allow_public_hosts=Fal
 
     Also refuses obvious non-reserved public hosts, even if present in
     `allowed_targets`, unless the caller explicitly passes
-    `allow_public_hosts=True`. This keeps a misconfigured or copy-pasted
-    real-world hostname from silently becoming a valid firing target: an
-    operator who really means to fire at a public host must say so.
+    `allow_public_hosts=True`. This is the string check only, with no DNS
+    lookup; the readback guard uses it. Firing targets go through
+    `testinghq.core.targets.resolve_target`, which adds the DNS check.
     """
     allowed = set(allowed_targets or ())
     if target not in allowed:
@@ -200,15 +272,25 @@ def require_synthetic_content(emails: Iterable[str]) -> None:
     EVERY address extracted from EVERY value must be synthetic. Raises
     GuardrailError if any one of them is not.
 
+    A field that is an empty (or whitespace-only) string is skipped: it holds
+    no address, so it cannot reach a mailbox, and an edge case such as an
+    empty To is a deliberate payload. Only that shape is skipped. A value
+    with any other content that parses to an empty address ("<>",
+    "Name <>") still refuses.
+
     Fails closed. Refuses when no addresses could be extracted at all
-    (empty input, an unparseable header, an empty group like
-    "undisclosed-recipients:;") and when any extracted address is empty.
-    Nothing verified means nothing is trusted: an unparseable header must
-    refuse, not pass vacuously.
+    (empty input, only empty fields, an unparseable header, an empty group
+    like "undisclosed-recipients:;") and when any extracted address is
+    empty. Nothing verified means nothing is trusted: an unparseable header
+    must refuse, not pass vacuously.
     """
     if isinstance(emails, (str, bytes)):
         emails = [emails]
 
+    emails = [
+        value for value in emails
+        if not (isinstance(value, str) and not value.strip())
+    ]
     addresses = _extract_addresses(emails)
 
     if not addresses:

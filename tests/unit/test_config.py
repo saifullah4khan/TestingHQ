@@ -133,3 +133,30 @@ def test_config_default_is_empty():
     assert config.targets == {}
     assert config.target_urls() == []
     assert config.allowed_target_names() == []
+
+
+def test_public_defaults_to_false(tmp_path):
+    path = _write(tmp_path, '[targets.local]\nurl = "http://localhost:8000/inbound"\n')
+    assert load_config(path, env={}).get("local").public is False
+
+
+def test_public_is_read_from_the_target_table(tmp_path):
+    path = _write(
+        tmp_path,
+        '[targets.load]\nurl = "https://load.example.test/in"\npublic = true\n',
+    )
+    assert load_config(path, env={}).get("load").public is True
+
+
+def test_a_non_boolean_public_is_refused_with_its_location(tmp_path):
+    path = _write(
+        tmp_path, '[targets.load]\nurl = "https://load.example.test/in"\npublic = "yes"\n'
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path, env={})
+    assert "targets.load.public" in str(excinfo.value)
+
+
+def test_a_constructed_target_validates_public():
+    with pytest.raises(ConfigError):
+        Target(name="x", url="http://x.example.test/", public=1)

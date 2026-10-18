@@ -1,17 +1,8 @@
-"""The three non-SendGrid wire formats, against their documented shapes.
+"""Every wire format against its documented shape.
 
-`sendgrid` and `mime` are checked against a specification: the shape this
-project already emitted, and RFC 5322 and RFC 2046. `mailgun` and `postmark` are
-written from those vendors' published field lists and have NOT been fired at a
-live account of either. So their tests assert that the bytes match the documented
-field names and that nothing is dropped or invented. They do not establish that
-a real receiver accepts the body, and nothing here should be read as saying they
-do. The end-to-end run that would is a separate task, against one real pipeline.
-
-The tests that matter most are the ones about *not fabricating*. A format that
-invents a field the vendor never sends, or fills a derived one badly, is worse
-than one that omits it, because a receiving pipeline may prefer the invented
-value and act on it.
+These assert that the bytes carry the documented field names and that nothing
+is dropped or invented. They do not establish that a live provider's receiver
+accepts the body; no format here has been fired at a live account.
 """
 from __future__ import annotations
 
@@ -84,14 +75,140 @@ def _fields(body: bytes):
 # ---------------------------------------------------------------------------
 
 
-def test_all_four_formats_are_registered():
-    assert get_format_names() == ["mailgun", "mime", "postmark", "sendgrid"]
+def test_all_five_formats_are_registered():
+    assert get_format_names() == [
+        "mailgun", "mime", "postmark", "sendgrid", "sendgrid-raw",
+    ]
 
 
 def get_format_names():
     from testinghq.core.formats import format_names
 
     return format_names()
+
+
+# ---------------------------------------------------------------------------
+# sendgrid, parsed mode
+# ---------------------------------------------------------------------------
+
+#: SendGrid's documented parsed-mode fields.
+SENDGRID_DOCUMENTED = {
+    "headers", "dkim", "content-ids", "to", "cc", "from", "subject", "text",
+    "html", "sender_ip", "spam_report", "spam_score", "envelope", "charsets",
+    "SPF", "attachments", "attachment-info",
+}
+
+
+def _with_attachments():
+    return _email(
+        headers={"Message-ID": "<m1@example.com>", "Cc": "Bob <bob@example.com>"},
+        attachments=(
+            Attachment("logo.png", "image/png", b"\x89PNG"),
+            Attachment("report.zip", "application/zip", b"PK"),
+        ),
+    )
+
+
+def test_sendgrid_sends_every_documented_field():
+    names = {n for n, _ in _parts(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_with_attachments()).body)}
+    missing = SENDGRID_DOCUMENTED - names
+    assert not missing, f"sendgrid documents {sorted(missing)}"
+    undocumented = {n for n in names if n not in SENDGRID_DOCUMENTED
+                    and not (n.startswith("attachment") and n[10:].isdigit())}
+    assert not undocumented
+
+
+def test_sendgrid_provider_computed_fields_are_fixed_synthetic_values():
+    fields = _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_email()).body)
+    assert fields["dkim"] == b"{@example.com : pass}"
+    assert fields["SPF"] == b"pass"
+    assert fields["sender_ip"] == b"192.0.2.1"
+    assert fields["spam_score"] == b"0.0"
+    assert fields["spam_report"] == b""
+
+
+def test_sendgrid_cc_is_the_cc_header():
+    fields = _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_with_attachments()).body)
+    assert fields["cc"] == b"Bob <bob@example.com>"
+    assert _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_email()).body)["cc"] == b""
+
+
+def test_sendgrid_charsets_include_text():
+    fields = _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_email()).body)
+    assert json.loads(fields["charsets"])["text"] == "UTF-8"
+
+
+def test_sendgrid_keeps_a_declared_text_charset():
+    payload = _email(charsets={"text": "ISO-8859-1"})
+    fields = _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(payload).body)
+    assert json.loads(fields["charsets"])["text"] == "ISO-8859-1"
+
+
+def test_sendgrid_attachment_info_carries_name_and_content_id():
+    fields = _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_with_attachments()).body)
+    info = json.loads(fields["attachment-info"])
+    image, archive = info["attachment1"], info["attachment2"]
+    assert image["filename"] == image["name"] == "logo.png"
+    assert image["type"] == "image/png"
+    assert image["content-id"].startswith("ii_")
+    assert "content-id" not in archive, "only an inline image carries a content-id"
+    assert json.loads(fields["content-ids"]) == {image["content-id"]: "attachment1"}
+
+
+def test_sendgrid_content_ids_is_an_empty_map_without_inline_parts():
+    fields = _fields(get_format("sendgrid", DEFAULT_BOUNDARY).encode(_email()).body)
+    assert json.loads(fields["content-ids"]) == {}
+
+
+# ---------------------------------------------------------------------------
+# sendgrid-raw
+# ---------------------------------------------------------------------------
+
+#: SendGrid's documented raw-mode fields.
+SENDGRID_RAW_DOCUMENTED = {
+    "dkim", "email", "to", "from", "sender_ip", "spam_report", "envelope",
+    "subject", "spam_score", "charsets", "SPF",
+}
+
+
+def test_sendgrid_raw_sends_exactly_the_documented_fields():
+    names = [n for n, _ in _parts(get_format("sendgrid-raw", DEFAULT_BOUNDARY).encode(_with_attachments()).body)]
+    assert set(names) == SENDGRID_RAW_DOCUMENTED
+    assert len(names) == len(set(names))
+
+
+def test_sendgrid_raw_email_field_is_the_full_message():
+    payload = _with_attachments()
+    raw = _fields(get_format("sendgrid-raw", DEFAULT_BOUNDARY).encode(payload).body)["email"]
+    parsed = message_from_bytes(raw, policy=default_policy)
+    assert parsed["From"] == "Alice <alice@example.com>"
+    assert parsed["Subject"] == "Your order"
+    names = [part.get_filename() for part in parsed.walk() if part.get_filename()]
+    assert names == ["logo.png", "report.zip"]
+
+
+def test_sendgrid_raw_message_does_not_contain_the_form_boundary():
+    """A receiver splitting the form on its boundary must not split the
+    message inside the `email` field."""
+    body = get_format("sendgrid-raw", DEFAULT_BOUNDARY).encode(_with_attachments()).body
+    delimiter = ("--" + DEFAULT_BOUNDARY).encode()
+    assert body.count(delimiter) == len(SENDGRID_RAW_DOCUMENTED) + 1
+    raw = _fields(body)["email"]
+    assert DEFAULT_BOUNDARY.encode() not in raw
+
+
+def test_sendgrid_raw_charsets_cover_the_address_and_subject_fields():
+    fields = _fields(get_format("sendgrid-raw", DEFAULT_BOUNDARY).encode(_email()).body)
+    assert json.loads(fields["charsets"]) == {
+        "from": "UTF-8", "subject": "UTF-8", "to": "UTF-8",
+    }
+
+
+def test_sendgrid_raw_is_byte_stable():
+    payload = _with_attachments()
+    first = get_format("sendgrid-raw", DEFAULT_BOUNDARY).encode(payload)
+    second = get_format("sendgrid-raw", DEFAULT_BOUNDARY).encode(payload)
+    assert first == second
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +492,23 @@ def test_mime_uses_a_fixed_boundary_so_the_bytes_are_reproducible():
     assert DEFAULT_BOUNDARY.encode() in first.body
 
 
+def test_mime_is_byte_stable_with_attachments():
+    """Attachments turn the message into multipart/mixed, whose boundary the
+    stdlib would otherwise pick at random."""
+    payload = _email(attachments=(Attachment("report.csv", "text/csv", b"a,b\n"),))
+    first = get_format("mime", DEFAULT_BOUNDARY).encode(payload).body
+    second = get_format("mime", DEFAULT_BOUNDARY).encode(payload).body
+    assert first == second
+    assert b"===============" not in first
+
+
+def test_mime_posts_as_message_rfc822_with_crlf_lines():
+    encoded = get_format("mime", DEFAULT_BOUNDARY).encode(_email())
+    assert encoded.content_type == "message/rfc822"
+    assert b"\r\n" in encoded.body
+    assert b"\n" not in encoded.body.replace(b"\r\n", b"")
+
+
 def test_mime_handles_a_message_with_no_html():
     """Not every payload has both parts, and a format that assumed otherwise
     would fail on a plain-text corpus."""
@@ -438,7 +572,7 @@ def test_no_format_invents_a_field_the_payload_does_not_have():
 
 
 def test_every_format_puts_the_tag_somewhere_a_pipeline_can_find_it():
-    """The property the readback side depends on, checked across all four."""
-    for name in ("sendgrid", "mailgun", "postmark", "mime"):
+    """The property the readback side depends on, checked across all of them."""
+    for name in ("sendgrid", "sendgrid-raw", "mailgun", "postmark", "mime"):
         body = get_format(name, DEFAULT_BOUNDARY).encode(_email()).body
         assert b"hq-1-0000" in body, f"{name} dropped the TestingHQ tag"

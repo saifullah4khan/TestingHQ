@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol
 
 from ..blast.payload import InboundEmail
-from ..blast.serialize import FormField, FormFile, FormPart, to_multipart_parts
+from ..blast.serialize import FormField, FormFile, FormPart, part_value_bytes
 from .formats import WireFormat, get_format
 
 # Fixed multipart boundary. Blast fires at endpoints the operator controls
@@ -31,10 +31,7 @@ from .formats import WireFormat, get_format
 # on exact request bytes.
 DEFAULT_BOUNDARY = "----testinghq-boundary-2f6a9c"
 
-#: The format used when a target does not name one. SendGrid, because that is
-#: what every config in the wild was written against before formats were
-#: selectable, and changing a request's bytes without being asked would break
-#: every recorded artifact and replay.
+#: The format used when a target does not name one.
 DEFAULT_FORMAT = "sendgrid"
 
 #: A hook that sees the finished body and returns headers to add. Signatures and
@@ -56,10 +53,13 @@ class PreparedRequest:
 
 @dataclass(frozen=True)
 class ClientResponse:
-    """What an HttpClient hands back after a request completes."""
+    """What an HttpClient hands back after a request completes. `headers` is
+    optional for a client to fill; the readback adapter reads `Retry-After`
+    from it."""
 
     status: int
     body: bytes
+    headers: Dict[str, str] = field(default_factory=dict)
 
 
 class HttpClient(Protocol):
@@ -105,12 +105,11 @@ def encode_multipart(parts: List[FormPart], boundary: str = DEFAULT_BOUNDARY) ->
             buf.write(part.content)
             buf.write(b"\r\n")
         elif isinstance(part, FormField):
+            disposition = f'; name="{part.name}"' if part.name else ""
             buf.write(
-                f'Content-Disposition: form-data; name="{part.name}"\r\n\r\n'.encode(
-                    "utf-8"
-                )
+                f"Content-Disposition: form-data{disposition}\r\n\r\n".encode("utf-8")
             )
-            buf.write(part.value.encode("utf-8"))
+            buf.write(part_value_bytes(part))
             buf.write(b"\r\n")
         else:  # pragma: no cover - defensive, FormPart is a closed union
             raise TypeError(f"unknown form part type: {type(part).__name__}")
@@ -140,11 +139,14 @@ class UrllibHttpClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=request.timeout) as resp:
-                return ClientResponse(status=resp.status, body=resp.read())
+                return ClientResponse(
+                    status=resp.status, body=resp.read(), headers=dict(resp.headers.items())
+                )
         except urllib.error.HTTPError as exc:
             # A non-2xx status is still a response, not a transport failure.
             body = exc.read() if hasattr(exc, "read") else b""
-            return ClientResponse(status=exc.code, body=body)
+            headers = dict(exc.headers.items()) if exc.headers is not None else {}
+            return ClientResponse(status=exc.code, body=body, headers=headers)
 
 
 def build_request(
@@ -159,9 +161,8 @@ def build_request(
     for it, without sending anything. Exposed separately so callers (e.g. a
     dry-run reporter) can inspect exactly what would go over the wire.
 
-    `wire_format` defaults to SendGrid Inbound Parse, which is what this function
-    emitted before the format layer existed, so an existing config with no
-    `format` key produces the identical bytes.
+    `wire_format` defaults to SendGrid Inbound Parse (parsed mode). Send paths
+    pass the resolved target's format (`core.targets.ResolvedTarget`).
 
     `extra_headers` is a callable taking the finished body bytes and returning a
     header dict. It runs after the body is built and never before, which is the
@@ -264,3 +265,124 @@ def post(
         body_snippet=_content_snippet(response.body),
         error=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Keep-alive client. A self-contained block at the end of the module, with its
+# own imports, so it can be maintained without touching the code above.
+# ---------------------------------------------------------------------------
+
+import http.client as _http_client  # noqa: E402
+from urllib.parse import urlsplit as _urlsplit  # noqa: E402
+
+#: What a server that closed an idle kept-alive connection looks like from the
+#: client side. Retried once, and only on a connection that already carried a
+#: request: on a fresh connection the same error is a real failure, and a
+#: retry there could deliver a request twice.
+_STALE_CONNECTION_ERRORS = (
+    _http_client.RemoteDisconnected,
+    _http_client.BadStatusLine,
+    ConnectionResetError,
+    BrokenPipeError,
+)
+
+
+def _connection_for(scheme: str, host: str, port: Optional[int], timeout: float):
+    if scheme == "https":
+        return _http_client.HTTPSConnection(host, port, timeout=timeout)
+    return _http_client.HTTPConnection(host, port, timeout=timeout)
+
+
+class PersistentHttpClient(HttpClient):
+    """An HttpClient that keeps one HTTP/1.1 connection open across requests.
+
+    NOT thread-safe: give each worker thread its own instance. Returns a
+    ClientResponse for any status; raises on transport failure, like every
+    HttpClient. `PreparedRequest.timeout` applies to every request, including
+    one sent over a connection opened with a different timeout.
+
+    `connect_seconds` records the setup time of every connection this instance
+    opened, so a caller can report handshakes separately from request latency.
+    `connection_factory` exists for tests; it takes (scheme, host, port,
+    timeout) and returns an `http.client.HTTPConnection`-shaped object.
+    """
+
+    def __init__(self, connection_factory=None, clock=time.perf_counter) -> None:
+        self._factory = connection_factory or _connection_for
+        self._clock = clock
+        self._conn = None
+        self._origin = None
+        self._used = False
+        self.connect_seconds: List[float] = []
+        self.reconnects = 0
+
+    @staticmethod
+    def _split(url: str):
+        parts = _urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError(f"not an http(s) URL: {url!r}")
+        target = parts.path or "/"
+        if parts.query:
+            target = f"{target}?{parts.query}"
+        return (parts.scheme, parts.hostname, parts.port), target
+
+    def connect(self, url: str, timeout: float = 10.0) -> float:
+        """Open the connection for `url` now and return its setup time in
+        seconds. Optional: `send` connects on demand."""
+        origin, _target = self._split(url)
+        return self._open(origin, timeout)
+
+    def _open(self, origin, timeout: float) -> float:
+        self.close()
+        scheme, host, port = origin
+        conn = self._factory(scheme, host, port, timeout)
+        started = self._clock()
+        conn.connect()
+        elapsed = self._clock() - started
+        self._conn, self._origin, self._used = conn, origin, False
+        self.connect_seconds.append(elapsed)
+        return elapsed
+
+    def close(self) -> None:
+        conn, self._conn, self._origin = self._conn, None, None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 - closing is best effort
+                pass
+
+    def send(self, request: PreparedRequest) -> ClientResponse:
+        origin, target = self._split(request.url)
+        for attempt in (0, 1):
+            if self._conn is None or self._origin != origin:
+                self._open(origin, request.timeout)
+            conn, reused = self._conn, self._used
+            conn.timeout = request.timeout
+            if getattr(conn, "sock", None) is not None:
+                conn.sock.settimeout(request.timeout)
+            try:
+                conn.request(
+                    request.method, target,
+                    body=request.body if request.body else None,
+                    headers=request.headers,
+                )
+                response = conn.getresponse()
+                body = response.read()
+            except _STALE_CONNECTION_ERRORS:
+                self.close()
+                if not reused or attempt:
+                    raise
+                self.reconnects += 1
+                continue
+            except BaseException:
+                self.close()
+                raise
+            self._used = True
+            if response.will_close:
+                self.close()
+            # Same shape UrllibHttpClient returns: the readback adapter reads
+            # `Retry-After` from here, and loses it if this client drops it.
+            raw_headers = getattr(response, "headers", None)
+            headers = dict(raw_headers.items()) if raw_headers is not None else {}
+            return ClientResponse(status=response.status, body=body, headers=headers)
+        raise AssertionError("unreachable")  # pragma: no cover

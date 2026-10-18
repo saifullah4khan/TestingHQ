@@ -244,8 +244,154 @@ def test_a_flag_works_even_when_there_is_no_config_file_at_all():
 
 def test_expect_route_defaults_to_none_on_every_tool():
     parser = cli.build_parser()
-    for argv in (["verify", "fire"],):
+    for argv in (
+        ["verify", "fire"], ["verify", "check", "run.json"],
+        ["ledger", "fire"], ["redeliver", "fire"],
+    ):
         assert parser.parse_args(argv).expect_route is None
+
+
+def test_expect_route_exists_only_on_the_tools_that_honour_it():
+    parser = cli.build_parser()
+    for argv in (["loop", "fire"], ["steady", "fire"]):
+        assert not hasattr(parser.parse_args(argv), "expect_route"), argv
+    for argv in (["loop", "fire", "--expect-route", "q"], ["steady", "fire", "--expect-route", "q"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+
+
+def test_the_match_mode_flags_are_on_all_three_checking_tools():
+    parser = cli.build_parser()
+    for argv in (
+        ["verify", "fire"],
+        ["ledger", "fire"], ["redeliver", "fire"],
+    ):
+        args = parser.parse_args(argv)
+        assert args.subject_match == "contains"
+        assert args.attachment_match == "exact"
+        assert args.body_exact is False
+        args = parser.parse_args(
+            argv + ["--subject-match", "suffix", "--attachment-match", "loose"]
+        )
+        assert (args.subject_match, args.attachment_match) == ("suffix", "loose")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ledger", "fire", "--subject-match", "fuzzy"])
+
+
+def test_verify_check_match_flags_default_to_the_artifact():
+    """None means "the mode the artifact recorded"; a flag overrides it, and
+    the --no- forms switch a recorded route or exact body off."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["verify", "check", "run.json"])
+    assert (args.expect_route, args.subject_match, args.attachment_match, args.body_exact) == (
+        None, None, None, None
+    )
+    args = parser.parse_args(
+        ["verify", "check", "run.json", "--subject-match", "suffix",
+         "--attachment-match", "loose", "--no-expect-route", "--no-body-exact"]
+    )
+    assert (args.expect_route, args.subject_match, args.attachment_match, args.body_exact) == (
+        "", "suffix", "loose", False
+    )
+
+
+@pytest.fixture
+def check_store():
+    """A readback published as a `module:attribute` spec: every payload of
+    the run stored correctly, filed under the route the test sets."""
+    import sys
+    import types
+
+    from testinghq.pipeline import messages
+    from testinghq.pipeline.readback import FunctionAdapter, Readback
+
+    state = {"route": "support", "corpus": {}}
+
+    def fetch(probe):
+        email = state["corpus"].get(probe.tag)
+        if email is None:
+            return []
+        return [Readback(
+            exists=True, ticket_id=f"T-{probe.tag}",
+            from_addr=email.ground_truth.from_addr, subject=email.ground_truth.subject,
+            body=email.text, attachment_names=tuple(a.filename for a in email.attachments),
+            route=state["route"], message_id=messages.message_id_of(email),
+            fields=("ticket_id", "from_addr", "subject", "body", "attachment_names", "route"),
+        )]
+
+    module = types.ModuleType("testinghq_cli_check_store")
+    module.build = lambda config: FunctionAdapter(fetch)
+    sys.modules[module.__name__] = module
+    yield state
+    del sys.modules[module.__name__]
+
+
+def test_verify_check_rechecks_a_run_with_the_route_it_was_fired_with(
+    target_config, tmp_path, capsys, check_store
+):
+    from testinghq.pipeline import verify
+
+    corpus = verify.build_tagged_corpus(3, 2, "hq-fixed")
+    check_store["corpus"] = {tag: email for email, tag, _rid in corpus}
+    artifact = tmp_path / "verify.json"
+    artifact.write_text(json.dumps({
+        "schema_version": 1, "tool": "verify", "seed": 3,
+        "config": {"tool": "verify", "count": 2, "tag_prefix": "hq-fixed",
+                   "expect_route": "support", "subject_match": "contains",
+                   "attachment_match": "exact", "body_exact": False},
+        "records": [{"id": rid, "tag": tag, "category": "clean"} for _e, tag, rid in corpus],
+    }), encoding="utf-8")
+    argv = ["verify", "check", str(artifact), "--config", target_config,
+            "--readback", "testinghq_cli_check_store:build",
+            "--quiet-window", "0", "--poll-interval", "0.01"]
+
+    check_store["route"] = "billing"
+    code = cli.main(argv)
+    out = capsys.readouterr().out
+    assert code == 3, out
+    assert "route recorded in the artifact" in out
+    assert "route support" in out
+
+    code = cli.main(argv + ["--no-expect-route"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "route given on the command line" in out
+
+
+def test_the_ledger_dry_run_carries_the_route_through(target_config, capsys):
+    code = cli.main(
+        ["ledger", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--count", "2", "--expect-route", "queue:support"]
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "route 'queue:support'" in out
+
+
+def test_the_redeliver_dry_run_says_routing_is_skipped_without_a_route(target_config, capsys):
+    code = cli.main(
+        ["redeliver", "fire", "--target", TARGET, "--config", target_config,
+         "--readback", "mailbox", "--scenario", "slow-retry", "--retry-after", "30"]
+    )
+    out = capsys.readouterr().out
+    assert code == EXIT_DRY_RUN
+    assert "routing skipped" in out
+    assert out.count("+30s") == 1, "slow-retry waits once for the whole batch"
+
+
+def test_verify_check_on_a_blast_artifact_is_a_one_line_refusal(target_config, tmp_path, capsys):
+    artifact = tmp_path / "blast.json"
+    artifact.write_text(json.dumps({
+        "seed": 1, "config": {"count": 1},
+        "summary": {"by_status_class": {"2xx": 1}, "flags": []},
+        "records": [{"id": "clean-1-0000", "category": "clean"}],
+    }), encoding="utf-8")
+    code = cli.main(
+        ["verify", "check", str(artifact), "--config", target_config, "--readback", "mailbox"]
+    )
+    captured = capsys.readouterr()
+    assert code == EXIT_REFUSED
+    assert captured.out.strip() == "verify check: blast artifacts carry no tags; run verify fire"
 
 
 def test_expect_route_is_carried_through():
@@ -266,8 +412,11 @@ def test_every_send_shaped_command_takes_the_poll_flags():
     parser = cli.build_parser()
     for argv in (["verify", "fire"], ["verify", "check", "run.json"]):
         args = parser.parse_args(argv)
-        for flag in ("quiet_window", "max_wait", "poll_interval"):
+        for flag in ("quiet_window", "poll_interval"):
             assert getattr(args, flag) > 0, f"{argv} lost --{flag.replace('_', '-')}"
+        # Not given: the tool sizes it to the plan.
+        assert args.max_wait is None, f"{argv} lost --max-wait"
+        assert parser.parse_args([*argv, "--max-wait", "7"]).max_wait == 7.0
 
 
 def test_the_poll_defaults_are_ordered_so_a_run_can_settle():
@@ -385,7 +534,7 @@ def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
         "pipeline/common.py must import the canonical guardrails module"
     )
     assert "guardrails.require_synthetic_content" in common
-    assert "guardrails.require_configured_target" in common
+    assert "from ..core.targets import resolve_target" in common
     assert "guardrails.evaluate_send" not in common, (
         "evaluate_send is the CLI's decision, and the pipeline package is only "
         "ever called after it has said yes; calling it here too would be a "
@@ -409,20 +558,6 @@ def test_the_pipeline_package_delegates_to_the_canonical_guardrails():
         assert "def evaluate_send(" not in source, (
             f"pipeline/{name} must not define its own send decision"
         )
-
-
-def test_an_unimplemented_subcommand_says_so_rather_than_crashing(capsys):
-    """`_not_yet` is the honest answer for a subcommand argparse accepted but
-    `main` has no handler for. Every current subcommand is implemented, so
-    reaching it means the parser and the dispatcher disagree, and that should
-    be a message naming a bug in this file rather than a traceback or a
-    misleading `--not-yet` milestone."""
-    assert callable(cli_common._not_yet)
-    code = cli_common._not_yet("nonsense")
-    captured = capsys.readouterr()
-    assert code != 0
-    assert "nonsense" in captured.err
-    assert "no handler is wired up" in captured.err
 
 
 def test_an_unknown_tool_is_rejected_by_the_parser():
@@ -451,7 +586,7 @@ def test_the_tools_share_their_readback_arguments():
 def test_ledger_fire_does_nothing_without_send(target_config, capsys):
     code = cli.main(
         ["ledger", "fire", "--target", TARGET, "--config", target_config,
-         "--readback", "mailbox", "--count", "5"]
+         "--readback", "mailbox", "--count", "5", "--tag-prefix", "hq"]
     )
     out = capsys.readouterr().out
     assert code == EXIT_DRY_RUN

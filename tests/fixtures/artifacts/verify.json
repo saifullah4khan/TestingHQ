@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "tool": "verify",
+  "aborted": false,
+  "seed": 5,
+  "config": {
+    "tool": "verify",
+    "seed": 5,
+    "count": 2,
+    "tag_prefix": "hq-5",
+    "target": "local",
+    "readback": {},
+    "expect_route": null,
+    "body_exact": false,
+    "readback_poll": {},
+    "dry_run": false
+  },
+  "summary": {
+    "sent": 2,
+    "found": 2,
+    "verified": 2,
+    "failed": 0,
+    "transport_unanswered": 0,
+    "transport_non_2xx": 0,
+    "checks_passed_by_name": {
+      "sender": 2
+    },
+    "checks_skipped_by_reason": {}
+  },
+  "records": []
+}

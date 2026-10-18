@@ -1,0 +1,69 @@
+# Readback recipe: Mailpit
+#
+# STATUS: NOT RUN against a live Mailpit. Written from Mailpit's published API
+# documentation (/api/v1/search, /api/v1/messages).
+#
+# Mailpit is an SMTP server with a REST API that catches every message sent to
+# it. Point the pipeline's outbound SMTP at it and this recipe reads back what
+# the pipeline sent: a forwarded copy, an auto-reply, a notification. That makes
+# it the [loop.outbound] sink for `testinghq loop` as well as a [readback] for a
+# pipeline whose output is email.
+#
+#   docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
+#   testinghq verify fire --target pipeline --send --config target.toml
+#
+# No credentials: Mailpit on localhost has no API auth by default. If yours is
+# behind basic auth, add [readback.headers] with an `env:` reference.
+#
+# Clear Mailpit between runs (DELETE /api/v1/messages, or the web UI), so a
+# listing for stray records starts from this run's mail only.
+
+[targets.pipeline]
+name = "pipeline"
+url = "http://127.0.0.1:8000/intake"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The lookup is GET /api/v1/search?query="<tag>". TestingHQ stamps the tag into
+# the body as [testinghq:<tag>], so a pipeline that quotes or forwards the body
+# keeps it searchable. The quotes make Mailpit match the tag as one phrase
+# instead of splitting it.
+#
+# The listing is /api/v1/messages, which Mailpit pages with start/limit rather
+# than page numbers, so the limit is raised to cover a run in one request.
+
+[readback]
+kind = "http"
+url = "http://127.0.0.1:8025/api/v1/search"
+tag_param = "query"
+query = "\"{tag}\""
+items_key = "messages"
+list_path = "/api/v1/messages?limit=5000"
+timeout = 10.0
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A Mailpit message summary. `From` is an object with `Name` and `Address`,
+# read through its address key. `To.0.Address` is where the pipeline sent the
+# message, which is the route for a pipeline that forwards by team.
+
+[readback.fields]
+ticket_id = "ID"
+from_addr = "From"
+subject = "Subject"
+message_id = "MessageID"
+route = "To.0.Address"
+
+# NOT MAPPED, each for a reason:
+#
+#   body              A summary carries `Snippet`, the first characters only.
+#                     Comparing the sent body against a snippet would fail on
+#                     every message longer than it.
+#   attachment_names  A summary carries `Attachments` as a count, and a count
+#                     is not a name.
+#   in_reply_to,      Not in a summary; they need GET /api/v1/message/{ID},
+#   references        a second request this adapter does not make.

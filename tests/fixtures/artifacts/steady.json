@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "tool": "steady",
+  "aborted": false,
+  "seed": 5,
+  "config": {
+    "tool": "steady",
+    "seed": 5,
+    "target": "local",
+    "dry_run": false
+  },
+  "stability": {
+    "verdict": "STABLE",
+    "sent": 4,
+    "labelled_variants": 4,
+    "dissenters": 0,
+    "families": [],
+    "unlabelled_families": [],
+    "label_reads": {
+      "labelled": 4
+    },
+    "constant_label": null,
+    "gate": {
+      "failed": false,
+      "reason": "within the gate"
+    }
+  },
+  "families": [
+    {
+      "intent_id": "a",
+      "variants": [
+        {},
+        {},
+        {},
+        {}
+      ]
+    }
+  ]
+}

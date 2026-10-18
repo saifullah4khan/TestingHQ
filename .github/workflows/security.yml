@@ -7,6 +7,17 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# The workflow only reads the repository. Declared so a change to the
+# repository's default token permissions cannot widen what these jobs can do.
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes the older run. Runs on main
+# are never cancelled, so every merge keeps a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
@@ -14,6 +25,7 @@ defaults:
 jobs:
   security-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       # Floor and ceiling rather than every version. The guardrail tests do not
       # vary by interpreter, so what matters here is that the extremes work,
@@ -36,6 +48,7 @@ jobs:
 
   dependency-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       # Two interpreters on purpose. The project has a conditional runtime
       # dependency, `tomli` below Python 3.11, and pip-audit only sees what is

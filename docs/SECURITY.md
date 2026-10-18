@@ -2,180 +2,95 @@
 
 ## Responsible use
 
-TestingHQ, and its first tool Blast, exist to help operators find where
-their own intake pipeline breaks under messy real-world input. Every
-guardrail in this codebase exists to keep that true in practice, not just
-in the README.
+TestingHQ POSTs provider-shaped webhook payloads at an HTTP endpoint you
+control, to find where your inbound-email pipeline breaks. It is not an email
+sender. It never opens an SMTP connection, never delivers to a real inbox, and
+does not forge sender authentication or evade spam filters. Contributions that
+add any of those are out of scope and will not be accepted.
 
-The one-sentence distinction: **Blast POSTs provider-shaped payloads at
-your own ingest endpoint; it is not an email sender, and it does not spoof
-real recipients or defeat spam filters.**
+Only test endpoints you own or are explicitly authorized to test. The
+guardrails below stop this tool from making that mistake automatically; they
+are not a substitute for authorization.
 
-In concrete terms:
+## What the tool cannot do
 
-- Blast never delivers mail to a real inbox. It sends HTTP POST requests
-  shaped like an inbound-email-parsing provider's webhook payload (for
-  example, SendGrid Inbound Parse), to an HTTP endpoint you configure. No
-  SMTP connection to a real mail server is ever made.
-- Generated "from" and "to" addresses are synthetic and use only reserved
-  domains and TLDs (RFC 2606 / RFC 6761: `example.com`, `example.net`,
-  `example.org`, `example.edu`, and the `.test`, `.invalid`, `.example`,
-  `.localhost` TLDs). There is no code path that constructs an address on
-  a real, resolvable domain.
-- Blast does not implement, and will not accept contributions that
-  implement, sender authentication forgery (SPF/DKIM/DMARC bypass),
-  spam-filter evasion, or delivery to arbitrary third-party inboxes. Those
-  are the properties of an email sender or a spam tool, and are explicitly
-  out of scope.
-- Dry-run is the default for every firing path. Actually sending a
-  request requires an explicit `--send` flag; there is no configuration
-  that makes sending the default.
-- Firing only ever targets a configured target: an unconfigured or
-  arbitrary target is refused before any network call is made. A target
-  that looks like a real, publicly routable host (not a reserved domain,
-  not localhost, not a private address) is refused even if present in
-  configuration. There is no command-line override for this, and that is
-  deliberate: `allow_public_hosts=True` is a keyword argument on
-  `guardrails.require_configured_target`, so it is reachable only by a
-  caller writing Python against this library. The one operator-facing
-  override that does exist, `--allow-public-readback`, covers the
-  readback endpoint only and never a firing target.
-- Firing is rate limited by default on every command-line path, so a
-  misconfiguration cannot turn a test run into a flood.
+- **Send without asking.** Dry run is the default on every command. Sending
+  needs `--send` on that run; no configuration makes sending the default.
+- **Fire at an unconfigured target.** Only a name declared in
+  `[targets.<name>]` can be fired at, checked before any request.
+- **Generate a real address.** Every generated address is on a reserved domain
+  or TLD (RFC 2606, RFC 6761: `example.com/.net/.org/.edu`, `.test`,
+  `.invalid`, `.example`, `.localhost`). Every address in every payload is
+  checked before the first request, with `email.utils.getaddresses`, so a
+  multi-recipient header cannot smuggle a second address past the check.
+- **Claim a real domain's authentication.** The SendGrid `dkim` and `SPF`
+  fields are fixed synthetic values naming `example.com`, and `sender_ip` is
+  `192.0.2.1` (TEST-NET-1). See docs/FORMATS.md.
+- **Flood.** Every send path is paced by a token bucket. Barrage has a hard
+  ceiling on rate, duration and concurrency, raised only by `--allow-high-rate`.
 
-If you find a way to use TestingHQ to deliver mail to a real recipient,
-defeat a spam filter, or forge sender authentication against a real
-domain, that is a bug in this project's threat model, not a feature.
-Please report it (see below) rather than using it.
+## What needs explicit consent
+
+A **public host** is one that is not a reserved test domain, not localhost or
+a bare internal name, not a private, loopback or link-local address, and does
+not resolve only to such addresses.
+
+| Action | Requires |
+| --- | --- |
+| Fire at a public target (blast, verify, ledger, loop, redeliver, steady) | `--allow-public-target` on the run |
+| Load-test a public target with barrage | `--allow-public-target` on the run **and** `public = true` in `[targets.<name>]` |
+| Read back from a public readback URL | `--allow-public-readback` on the run, or `allow_public_hosts = true` in `[readback]` |
+
+The flag is per run on purpose: the decision is made again every time. The
+artifact of a run fired at a public host records `allow_public_target: true`
+under `config`. `testinghq config validate` prints, per target, whether its
+host is public and what firing at it needs.
+
+## How "public" is decided, and its limits
+
+The target's host is checked when the run starts, before any request:
+
+1. A reserved name, localhost, a single-label name or a private IP literal is
+   private. A public IP literal is public.
+2. Any other name is resolved with the system resolver. If every address is
+   private, loopback or link-local, it is private (a split-horizon internal
+   name). If any address is public, or the lookup fails, it is public.
+
+Caveats:
+
+- The check runs once, at resolution, and the result is cached for the
+  process. The HTTP client resolves the name again when it connects, so DNS
+  that changes in between (rebinding, a TTL expiring, a different resolver)
+  can send traffic to an address the check never saw. The check stops
+  mistakes, not an adversary who controls your DNS.
+- A name that resolves privately on your network may resolve publicly
+  elsewhere. Run the check from the machine that sends.
+- The readback guard uses the string check only, with no DNS lookup.
+- `TESTINGHQ_TARGET_<NAME>_URL` replaces a target's URL and goes through the
+  same check.
 
 ## Threat model
 
-**In scope: TestingHQ used against your own systems.**
+In scope: TestingHQ used against your own systems. Assets defended: third
+parties (real mailboxes, real domains, other people's reputation) must never
+be reachable as a side effect; your own endpoint must not be hit unexpectedly
+or flooded; generated content must not be mistakable for a real identity.
 
-Assets we defend:
+Scenarios: accidental real delivery (dry-run default, allow-list, public-host
+consent); repurposing as a spam tool (synthetic addresses only, no SMTP, no
+authentication forgery); runaway volume (rate limits, Barrage ceilings);
+supply-chain compromise (stdlib only at run time, Dependabot, a scheduled
+dependency audit in CI).
 
-- Third parties (real mailboxes, real domains, spam-filter reputation of
-  uninvolved parties) must never be reachable as a side effect of using
-  this tool as intended.
-- An operator's own target endpoint must not be flooded or hit
-  unexpectedly: sending is opt-in per run (`--send`), scoped to configured
-  targets, and rate limited.
-- Generated content must be inert outside the test context: addresses and
-  payloads must not resolve to, or be mistakable for, real-world
-  identities.
-
-Attack scenarios this project defends against:
-
-1. **Accidental real-world delivery.** A user runs Blast expecting a dry
-   run, or points it at an unconfigured or mistyped target, and mail-like
-   payloads land somewhere real. Mitigated by: dry-run-by-default
-   (`evaluate_send`), the configured-target allow-list, and the
-   non-reserved-public-host refusal (`require_configured_target`).
-2. **Repurposing as a spam or phishing tool.** Someone tries to use
-   Blast's payload generator to send believable, real-looking messages to
-   real inboxes, or to construct addresses that impersonate real people
-   or domains. Mitigated by: the reserved-domain/TLD constraint on all
-   generated addresses (`is_synthetic_address`,
-   `require_synthetic_content`), and the explicit non-goal of
-   implementing sender-authentication bypass.
-
-   `require_synthetic_content` accepts the address forms the generator
-   actually emits: a bare address, an RFC 5322 display-name form
-   (`Ivan Jones <ivan@example.edu>`), and a comma-separated
-   multi-recipient header. It extracts **every** address from each value
-   with `email.utils.getaddresses` and refuses if **any** one of them is
-   non-synthetic.
-
-   It must never be rewritten to use `email.utils.parseaddr`. parseaddr
-   returns at most one address, so a header like
-   `Good <a@example.com>, Evil <b@real-domain.com>` would be approved on
-   the strength of its first recipient while the second went unchecked.
-   That is a live bypass of this guardrail on any Python older than
-   3.9.19 / 3.10.14 / 3.11.9 / 3.12.4. Raising the floor to
-   `requires-python = ">=3.10"` removed 3.9 from the permitted set but did not
-   close this: 3.10.0 through 3.10.13 still predate the fix, so they are still
-   permitted. Only a patch-level floor of `>=3.10.14` would, and that is not
-   declared, because it would exclude patch releases people already run. This
-   is defence in depth for a change nobody has made, not a live vulnerability:
-   the guardrail uses `getaddresses`, so the bypass is not reachable today.
-   On newer interpreters parseaddr is not safe either, just differently wrong:
-   it returns an empty result for multi-recipient headers, which fails this
-   guard closed on perfectly valid input. `getaddresses` is correct on every
-   supported version. The bypass itself is pinned by
-   `tests/security/test_synthetic_content.py`: the test demonstrates a
-   parseaddr-based extractor losing the second recipient, and fails if the
-   guard's extractor is ever swapped for one. The second failure mode is
-   not separately demonstrated, because it needs a multi-recipient header
-   on a pre-hardening interpreter and no such interpreter is available to
-   the suite.
-
-   `is_synthetic_address` itself remains strict and bare-address-only. It
-   is a primitive, and widening it to swallow header forms would weaken
-   every caller.
-3. **Runaway or abusive firing volume.** A bug, a bad loop, or a hostile
-   input causes Blast to fire far faster or far more than intended,
-   overwhelming the operator's own endpoint or, if guardrails were
-   bypassed, a real target. Mitigated by: the rate-limit gate contract
-   (`RateLimitGate`), which every **command-line** firing path goes
-   through. The web UI is the exception and is written about below.
-4. **Supply-chain compromise.** A malicious or vulnerable dependency is
-   pulled into the project and used to weaken a guardrail or exfiltrate
-   data. Mitigated by: Dependabot version updates for pip and
-   GitHub Actions dependencies, and a scheduled dependency audit in CI.
-
-**A known gap: the web UI is not rate limited.**
-
-`web/adapter.py`'s `fire()` calls `transport.post` in a plain loop. It
-holds the same guardrails as the command line (dry-run by default,
-configured targets only, the reserved-host refusal, the explicit
-`confirm is True`) and it is reachable only from a server that binds
-127.0.0.1 unless the operator passes `--host`. But it has no
-`TokenBucket`, so a fire from the browser is bounded by the corpus size
-and the target's response time rather than by a rate the operator set.
-
-A browser firing is therefore pacing itself, not being paced. The
-corpus the UI builds is the blast default, so the practical ceiling is
-that many requests as fast as the target will answer them. That is
-against a target the operator has already put in `web/targets.json`, so
-the blast is not aimed anywhere new, but it is not the bounded firing
-the command line promises either. Fixing it is a change to code, not to
-this document, and it is recorded here so the claim above is not read as
-covering the UI when it does not.
-
-**Out of scope:**
-
-- Protecting a target endpoint that the operator does not control or has
-  not consented to testing. Getting that consent is the operator's
-  responsibility; TestingHQ's guardrails only prevent *this tool* from
-  making that mistake automatically, they are not a substitute for
-  authorization to test a given endpoint.
-- General web-application security of whatever service the operator
-  chooses to point Blast at. That service's own security is out of
-  scope for this project.
-- Denial of service against TestingHQ itself. There is now an HTTP
-  surface, `web/server.py`, which binds `127.0.0.1` by default and is
-  not a hosted service with external users. It can be bound elsewhere
-  with `--host`, and an operator who does that is accepting the
-  responsibility of running a network service, which the stdlib
-  `http.server` it is built on is not built to do.
+Out of scope: consent to test an endpoint you do not control, which is your
+responsibility; the security of the service you point TestingHQ at.
 
 ## Reporting a vulnerability
 
-If you find a security issue in TestingHQ, including but not limited to:
-
-- a way to make a dry run perform a real network call,
-- a way to fire at a target outside the configured allow-list,
-- a way to make generated content use a real or non-reserved domain,
-- a way to smuggle a non-reserved address past
-  `require_synthetic_content`, for example in an address header form
-  whose addresses are not all extracted and checked,
-- a way to bypass or defeat the rate limiter,
-
-please report it privately rather than opening a public issue. Email
-**saifullah4khan@gmail.com** with a description of the issue, the affected
-version or commit, and reproduction steps if you have them. Please allow
-a reasonable time to respond and address the report before any public
-disclosure.
-
-Do not include real third-party personal data, credentials, or evidence
-gathered from a system you were not authorized to test.
+Report privately, not in a public issue: email **saifullah4khan@gmail.com**
+with the affected version or commit and reproduction steps. Examples worth
+reporting: a dry run that makes a network call; a send to an unconfigured
+target or to a public host without consent; a non-reserved address that passes
+`require_synthetic_content`; a way around the rate limiter. Please allow
+reasonable time for a fix before disclosure, and do not include third-party
+personal data or evidence from systems you were not authorized to test.

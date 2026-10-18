@@ -115,7 +115,8 @@ def encode_multipart(
                     "utf-8"
                 )
             )
-            chunks.append(part.value.encode("utf-8"))
+            value = part.value
+            chunks.append(value if isinstance(value, bytes) else value.encode("utf-8"))
         elif isinstance(part, FormFile):
             chunks.append(
                 (
@@ -202,7 +203,9 @@ def decode_multipart(
                 content=payload,
             )
         else:
-            fields[name] = payload.decode("utf-8")
+            # A receiver that trusts the UTF-8 label: sabotaged fields carry
+            # other encodings on purpose and decode to replacement characters.
+            fields[name] = payload.decode("utf-8", "replace")
     return fields
 
 

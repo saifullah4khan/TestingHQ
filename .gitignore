@@ -19,3 +19,5 @@ corpus/
 # tracked templates; these are the working copies.
 examples/readback/*.local.toml
 target.local.toml
+
+.ruff_cache/

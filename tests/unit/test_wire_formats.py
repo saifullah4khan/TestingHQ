@@ -1,35 +1,22 @@
-"""The wire format layer, and the promise that `sendgrid` changes nothing.
+"""The wire format layer, the frozen SendGrid bytes, and the header hook.
 
-Two separate things are pinned here and they are not the same claim.
-
-The first is that the *format layer* did not alter SendGrid output: the bytes
-`SendgridFormat` produces are compared against the bytes produced by the
-pre-layer code path, re-derived in the test from the same two functions
-`build_request` used to call. That catches a mistake introduced by the layer.
-
-The second is that the bytes themselves have not drifted: one frozen literal,
-asserted byte for byte, for a fixed payload. That catches a change further down
-in `blast.serialize`, which the first test would happily ratify because both
-sides moved together. A recorded artifact says what was sent, and a replay has
-to match, so drift here is a correctness problem and not a curiosity.
-
-Then the header hook, where the interesting property is *when* it runs.
+The frozen literal pins the exact bytes the default format sends for a fixed
+payload. A recorded artifact says what was sent and a replay has to match, so
+a change to it is a wire-format change and has to be deliberate.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 
 import pytest
 
 from testinghq.blast.payload import Envelope, GroundTruth, InboundEmail
 from testinghq.blast.serialize import to_multipart_parts
-from testinghq.core import formats, transport
-from testinghq.core.formats import EncodedBody, get_format, format_names
+from testinghq.core import transport
+from testinghq.core.formats import EncodedBody, format_names, get_format
 from testinghq.core.transport import (
     DEFAULT_BOUNDARY,
-    encode_multipart,
     build_request,
     post,
 )
@@ -99,35 +86,39 @@ def test_an_unknown_format_is_refused_and_says_what_is_valid():
 
 
 # ---------------------------------------------------------------------------
-# Promise 1: the layer did not change SendGrid's output
+# sendgrid: the serializer's fields survive, and the bytes are frozen
 # ---------------------------------------------------------------------------
 
 
-def test_sendgrid_bytes_match_the_pre_layer_code_path():
-    """Re-derives the old body the way `build_request` used to build it: the
-    same parts list, the same encoder, the same boundary."""
+def _text_fields(parts):
+    return [(p.name, p.value) for p in parts if hasattr(p, "value")]
+
+
+def test_sendgrid_keeps_every_field_the_serializer_builds():
+    """The format adds fields; it never changes or drops one the serializer
+    produced."""
     for payload in (
         _email(),
         _email(subject=""),
         _email(html=""),
         _email(text="", html=""),
     ):
-        expected = encode_multipart(to_multipart_parts(payload), DEFAULT_BOUNDARY)
-        actual = get_format("sendgrid", DEFAULT_BOUNDARY).encode(payload).body
-        assert actual == expected
+        built = dict(_text_fields(get_format("sendgrid", DEFAULT_BOUNDARY).parts(payload)))
+        for name, value in _text_fields(to_multipart_parts(payload)):
+            if name == "charsets":
+                continue  # gains `text`, checked below
+            assert built[name] == value, name
 
 
-def test_sendgrid_content_type_matches_the_pre_layer_string():
+def test_sendgrid_content_type_announces_the_boundary():
     expected = f"multipart/form-data; boundary={DEFAULT_BOUNDARY}"
     assert get_format("sendgrid", DEFAULT_BOUNDARY).encode(_email()).content_type == expected
 
 
-def test_build_request_with_no_format_produces_the_old_request():
-    """The compatibility promise in the form that matters: a caller who changed
-    nothing gets the request they got before."""
+def test_build_request_with_no_format_uses_sendgrid():
     payload = _email()
     request = build_request(payload, URL)
-    expected_body = encode_multipart(to_multipart_parts(payload), DEFAULT_BOUNDARY)
+    expected_body = get_format("sendgrid", DEFAULT_BOUNDARY).encode(payload).body
     assert request.body == expected_body
     assert request.headers == {
         "Content-Type": f"multipart/form-data; boundary={DEFAULT_BOUNDARY}",
@@ -137,21 +128,24 @@ def test_build_request_with_no_format_produces_the_old_request():
     assert request.method == "POST"
 
 
-# ---------------------------------------------------------------------------
-# Promise 2: the bytes themselves have not drifted
-# ---------------------------------------------------------------------------
-
-#: Frozen bytes for the fixed payload above, as sent before this layer existed.
-#: Changing this literal is a wire-format change and has to be argued for, not
-#: arrived at by editing a test until it went green.
+#: Frozen bytes for the fixed payload above.
 FROZEN_SENDGRID_BODY = (
     b"------testinghq-boundary-2f6a9c\r\n"
     b'Content-Disposition: form-data; name="headers"\r\n\r\n'
     b"Message-ID: <m1@example.com>\r\n"
     b"\r\n"
     b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="dkim"\r\n\r\n'
+    b"{@example.com : pass}\r\n"
+    b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="content-ids"\r\n\r\n'
+    b"{}\r\n"
+    b"------testinghq-boundary-2f6a9c\r\n"
     b'Content-Disposition: form-data; name="to"\r\n\r\n'
     b"support@example.com\r\n"
+    b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="cc"\r\n\r\n'
+    b"\r\n"
     b"------testinghq-boundary-2f6a9c\r\n"
     b'Content-Disposition: form-data; name="from"\r\n\r\n'
     b"alice@example.com\r\n"
@@ -165,11 +159,23 @@ FROZEN_SENDGRID_BODY = (
     b'Content-Disposition: form-data; name="html"\r\n\r\n'
     b"<p>Thanks for your order.</p>\r\n"
     b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="sender_ip"\r\n\r\n'
+    b"192.0.2.1\r\n"
+    b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="spam_report"\r\n\r\n'
+    b"\r\n"
+    b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="spam_score"\r\n\r\n'
+    b"0.0\r\n"
+    b"------testinghq-boundary-2f6a9c\r\n"
     b'Content-Disposition: form-data; name="envelope"\r\n\r\n'
     b'{"from":"alice@example.com","to":["support@example.com"]}\r\n'
     b"------testinghq-boundary-2f6a9c\r\n"
     b'Content-Disposition: form-data; name="charsets"\r\n\r\n'
-    b'{"subject":"UTF-8","to":"UTF-8"}\r\n'
+    b'{"subject":"UTF-8","text":"UTF-8","to":"UTF-8"}\r\n'
+    b"------testinghq-boundary-2f6a9c\r\n"
+    b'Content-Disposition: form-data; name="SPF"\r\n\r\n'
+    b"pass\r\n"
     b"------testinghq-boundary-2f6a9c\r\n"
     b'Content-Disposition: form-data; name="attachments"\r\n\r\n'
     b"0\r\n"
@@ -323,9 +329,7 @@ def test_post_forwards_the_header_hook_to_the_client():
     assert result.status == 200
 
 
-def test_post_with_no_arguments_behaves_exactly_as_before():
-    """The tools that exist today call `post(payload, url, client)` and nothing
-    else. If this changed, every one of them changed."""
+def test_post_with_no_format_sends_the_default_sendgrid_bytes():
     client = _Recording()
     result = post(_email(), URL, client)
     assert result.status == 200

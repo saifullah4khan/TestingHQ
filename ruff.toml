@@ -1,0 +1,6 @@
+# Pyflakes-class errors only: undefined names, unused imports, redefinitions.
+# Style is not enforced by a tool here.
+target-version = "py310"
+
+[lint]
+select = ["F"]

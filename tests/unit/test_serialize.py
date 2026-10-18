@@ -165,3 +165,27 @@ def test_to_multipart_parts_is_deterministic_across_equivalent_emails():
     email_a = _make_email()
     email_b = _make_email()
     assert to_multipart_parts(email_a) == to_multipart_parts(email_b)
+
+
+def test_raw_fields_replace_the_utf8_encoding_of_a_field():
+    raw = "café".encode("cp1252")
+    email = _make_email(raw_fields={"subject": raw, "envelope": b'{"to":['})
+    parts = {p.name: p for p in to_multipart_parts(email)}
+    assert parts["subject"].value == raw
+    assert parts["envelope"].value == b'{"to":['
+    assert parts["text"].value == "hello world"
+
+
+def test_raw_bytes_and_unnamed_parts_reach_the_wire_exactly():
+    from testinghq.core.transport import encode_multipart
+
+    raw = "naïve".encode("latin-1")
+    email = _make_email(
+        raw_fields={"text": raw},
+        extra_form_fields=(("", b"orphan"), ("subject", b"second")),
+    )
+    body = encode_multipart(to_multipart_parts(email), "B")
+    assert b'name="text"\r\n\r\n' + raw + b"\r\n" in body
+    assert b"Content-Disposition: form-data\r\n\r\norphan\r\n" in body
+    assert body.count(b'name="subject"') == 2
+    assert body.index(b"orphan") > body.index(b'name="attachments"')

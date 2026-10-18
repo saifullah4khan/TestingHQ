@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "tool": "ledger",
+  "aborted": false,
+  "seed": 9,
+  "config": {
+    "tool": "ledger",
+    "seed": 9,
+    "count": 2,
+    "tag_prefix": "hq-9",
+    "target": "local",
+    "readback": {},
+    "expect_route": null,
+    "readback_poll": {},
+    "dry_run": false
+  },
+  "summary": {
+    "sent": 2,
+    "produced": 2,
+    "exactly_once": 2,
+    "missing": [],
+    "duplicated": [],
+    "wrong": [],
+    "extra": null,
+    "strays_searched": false,
+    "balanced": true,
+    "verdict": "BALANCED"
+  },
+  "records": []
+}

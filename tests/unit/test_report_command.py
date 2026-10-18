@@ -39,7 +39,7 @@ from testinghq.reporting import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = REPO_ROOT / "web" / "tests" / "fixtures"
+FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ FIXTURES = REPO_ROOT / "web" / "tests" / "fixtures"
 # ---------------------------------------------------------------------------
 
 
-def blast_artifact(flags=(), dry_run=True):
+def blast_artifact(flags=(), dry_run=False):
     return {
         "seed": 1,
         "config": {"mix": ["clean"], "count": 2, "seed": 1,
@@ -157,6 +157,31 @@ def loop_artifact(findings=0):
     }
 
 
+def steady_artifact():
+    return {
+        "schema_version": 1, "tool": "steady", "aborted": False, "seed": 5,
+        "config": {"tool": "steady", "seed": 5, "target": "local", "dry_run": False},
+        "stability": {"verdict": "STABLE", "sent": 4, "labelled_variants": 4,
+                      "dissenters": 0, "families": [], "unlabelled_families": [],
+                      "label_reads": {"labelled": 4}, "constant_label": None,
+                      "gate": {"failed": False, "reason": "within the gate"}},
+        "families": [{"intent_id": "a", "variants": [{}, {}, {}, {}]}],
+    }
+
+
+def sigcheck_artifact():
+    return {
+        "schema_version": 1, "tool": "sigcheck", "aborted": False, "seed": None,
+        "config": {"tool": "sigcheck", "scheme": "mailgun", "target": "local",
+                   "dry_run": False},
+        "summary": {"verdict": "GAPS", "findings": 1, "sent": 2, "notes": []},
+        "variants": [
+            {"variant": "valid", "verdict": "OK", "detail": "accepted (200)"},
+            {"variant": "unsigned", "verdict": "FINDING", "detail": "accepted (200)"},
+        ],
+    }
+
+
 def compare_artifact(regressed=True):
     return {
         "comparable": True, "warnings": [], "aligned_by": "id",
@@ -183,6 +208,8 @@ ALL_FIXTURES = {
     "ledger": ledger_artifact(),
     "redeliver": redeliver_artifact(),
     "loop": loop_artifact(),
+    "steady": steady_artifact(),
+    "sigcheck": sigcheck_artifact(),
     "compare": compare_artifact(),
 }
 
@@ -341,8 +368,9 @@ def test_the_derived_exit_code_matches_each_tool_s_own_decision():
     assert summarize(loop_artifact(findings=0)).exit_code == EXIT_OK
     assert summarize(loop_artifact(findings=2)).exit_code == EXIT_FINDING
 
-    # compare: regressed
-    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_FINDING
+    # compare: an artifact from before the exit code was recorded gets the
+    # command's default, which exits 0 without --fail-on-regression
+    assert summarize(compare_artifact(regressed=True)).exit_code == EXIT_OK
     assert summarize(compare_artifact(regressed=False)).exit_code == EXIT_OK
 
 
@@ -569,7 +597,7 @@ def test_a_derived_exit_code_is_never_a_dry_run():
         assert code in (exit_codes.EXIT_OK, exit_codes.EXIT_FINDING), (
             f"{tool} produced exit code {code}, which is not a code this project "
             "uses for a reconstructed answer. A report that was read "
-            "successfully is neither a refusal nor a dry run."
+            "successfully is not a refusal, and none of these fixtures is a dry run."
         )
 
 
@@ -680,3 +708,36 @@ def test_the_command_needs_no_config_file(tmp_path):
     )
     assert result.returncode == EXIT_OK, result.stderr
     assert "tool:    blast" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# schema_version on blast and compare artifacts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("make", [blast_artifact, compare_artifact])
+def test_a_missing_schema_version_is_read_as_zero(make):
+    artifact = make()
+    artifact.pop("schema_version", None)
+    assert summarize(artifact).tool in ("blast", "compare")
+
+
+@pytest.mark.parametrize("make", [blast_artifact, compare_artifact])
+def test_a_newer_schema_version_is_refused(make):
+    artifact = dict(make(), schema_version=2)
+    with pytest.raises(ArtifactError, match="schema_version 2"):
+        summarize(artifact)
+
+
+def test_the_shipped_blast_fixtures_are_schema_version_1():
+    for name in ("sample_run_clean.json", "sample_run_with_failures.json"):
+        data = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+        assert data["schema_version"] == 1
+        assert data["tool"] == "blast"
+
+
+def test_an_aborted_blast_run_is_a_finding_even_with_no_flags():
+    summary = summarize(dict(blast_artifact(flags=[], dry_run=False), aborted=True))
+    assert summary.verdict == "ABORTED"
+    assert summary.exit_code == EXIT_FINDING
+    assert [f.kind for f in summary.findings] == ["aborted"]

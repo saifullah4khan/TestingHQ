@@ -231,6 +231,27 @@ def test_a_good_header_alongside_an_unparseable_one_still_refuses():
         guardrails.require_synthetic_content(["a@example.com", "<>"])
 
 
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_a_deliberately_empty_field_beside_synthetic_ones_is_accepted(empty):
+    """An empty To (the catalog's zero-length envelope) holds no address, so it
+    cannot reach a mailbox. It is skipped, not refused."""
+    guardrails.require_synthetic_content(["a@example.com", empty, "B <b@example.test>"])
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_an_empty_field_does_not_let_a_real_address_through(empty):
+    with pytest.raises(guardrails.GuardrailError):
+        guardrails.require_synthetic_content([empty, "a@gmail.com"])
+    with pytest.raises(guardrails.GuardrailError):
+        guardrails.require_synthetic_content(["a@example.com", empty, "Evil <x@gmail.com>"])
+
+
+def test_only_empty_fields_still_refuse():
+    """Skipping empty fields must not turn "nothing to verify" into a pass."""
+    with pytest.raises(guardrails.GuardrailError):
+        guardrails.require_synthetic_content(["", "   "])
+
+
 # ---------------------------------------------------------------------------
 # Regression: real engine output must be ACCEPTED
 # ---------------------------------------------------------------------------

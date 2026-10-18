@@ -13,9 +13,9 @@ pushed until it breaks. Verifying a mangled payload against its own ground truth
 would report a failure every time a mutator did its job, and a tool that fails
 on success is worse than no tool. So verify fires the clean corpus only, as
 Barrage fires clean payloads and for the same structural reason: Blast owns
-messy input, this owns correctness of the result. `verify check` can be pointed
-at a mixed blast run, where it verifies the clean records and reports how many it
-skipped and why.
+messy input, this owns correctness of the result. `verify check` re-reads a run
+written by `verify fire` or `ledger fire`. A blast artifact carries no tags, so
+`verify check` refuses it.
 
 The exit code is the answer. 0 means every check that ran passed, 3 that one did
 not, 1 a refusal, 2 a dry run. A run that returns 0 has told you the pipeline
@@ -33,32 +33,39 @@ from ..blast.attachments import generate_attachment
 from ..blast.generate import generate_corpus
 from ..blast.payload import InboundEmail
 from ..core import report
+from ..core.targets import resolve_target
 from ..core.transport import TransportResult
 from . import messages
-from .adapters import ReadbackConfig, build_adapter
+from .adapters import ReadbackConfig
 from .common import (
+    ALL_404_NOT_CHECKED,
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
+    READBACK_FAILED,
     SentMessage,
     close_adapter,
-    DEFAULT_MAX_WAIT,
     DEFAULT_POLL_INTERVAL,
     DEFAULT_QUIET_WINDOW,
     ReadbackOutcome,
+    prepare_readback,
     read_back_all,
+    readback_failed,
+    readback_poll_settings,
+    readback_state_phrase,
+    readback_verdict,
     require_synthetic,
-    resolve_target_url,
     send_all,
 )
 from .expectations import (
-    SKIP_NOTHING_TO_CHECK,
-    SKIP_NOT_VISIBLE,
-    SKIP_NO_RECORD,
+    DEFAULT_ATTACHMENT_MATCH,
+    DEFAULT_SUBJECT_MATCH,
     SKIP_REASONS,
     Expectations,
     Verification,
     evaluate_sequence,
+    match_options,
+    validate_match_modes,
 )
 from .readback import Readback
 
@@ -90,6 +97,108 @@ _VERIFIED_ATTACHMENT_KINDS = ("clean", "clean", "zero_byte")
 #: counts stay exact regardless. Mirrors the rule in `compare/runs.py`: the
 #: numbers are always exact, only the detail list truncates, and it says so.
 MAX_LISTED = 20
+
+#: The artifact schema this module writes and `verify check` reads.
+ARTIFACT_SCHEMA_VERSION = 1
+
+
+# ---------------------------------------------------------------------------
+# Run plumbing shared by verify, ledger and redeliver
+# ---------------------------------------------------------------------------
+
+
+def readback_unsettled(outcome: Optional[ReadbackOutcome]) -> bool:
+    """True when the readback phase ran out of --max-wait before settling."""
+    return bool(outcome is not None and outcome.unsettled)
+
+
+def readback_note(summary: Dict[str, Any]) -> Optional[str]:
+    """The readback's own headline (UNSETTLED, or every lookup a 404), or a
+    plain unsettled note for an artifact that recorded no headline."""
+    headline = (summary.get("readback") or {}).get("headline")
+    if headline:
+        return str(headline)
+    if summary.get("unsettled"):
+        return (
+            "the readback never settled, so a message not found yet may still "
+            "be in flight; raise --max-wait or --quiet-window and rerun"
+        )
+    return None
+
+
+def artifact_header(tool: str) -> Dict[str, Any]:
+    """The two keys every artifact leads with."""
+    return {"schema_version": ARTIFACT_SCHEMA_VERSION, "tool": tool}
+
+
+def write_artifact(out: Optional[str], artifact: Dict[str, Any]) -> None:
+    if out:
+        Path(out).write_text(
+            json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8"
+        )
+
+
+#: The verdict of a run stopped by Ctrl-C.
+ABORTED = "ABORTED"
+
+
+def abort_run(
+    tool: str,
+    seed: int,
+    config: Dict[str, Any],
+    phase: str,
+    sent: Optional[Sequence[SentMessage]],
+    out: Optional[str],
+    printer: Callable[[str], None],
+) -> int:
+    """Ctrl-C: write what the run has (when `--out` was given) and exit 3.
+
+    Nothing is graded. A message not read back yet is not lost, so the
+    artifact lists what was sent and says the run was aborted, and nothing
+    more. `sent` is None when the interrupt landed before the send phase
+    returned, in which case how many went out is unknown.
+    """
+    records = [
+        {
+            "index": message.index,
+            "id": message.record_id,
+            # Every pipeline payload is clean, and saying so lets `verify
+            # check` re-read an aborted verify or ledger run later.
+            "category": report.CLEAN,
+            "tag": message.tag,
+            "message_id": message.probe.message_id,
+            "payload_sha256": message.probe.payload_sha256,
+            "response": message.response_json(),
+        }
+        for message in (sent or ())
+    ]
+    artifact = artifact_header(tool)
+    artifact.update(
+        {
+            "aborted": True,
+            "seed": seed,
+            "config": dict(config),
+            "summary": {
+                "verdict": ABORTED,
+                "aborted_during": phase,
+                "sent": None if sent is None else len(records),
+            },
+            "records": records,
+        }
+    )
+    sent_note = (
+        "an unknown number of messages had been sent"
+        if sent is None
+        else f"{len(records)} message(s) had been sent"
+    )
+    printer(
+        f"{tool}: {ABORTED} during the {phase} phase; {sent_note}, and nothing "
+        "was graded"
+    )
+    write_artifact(out, artifact)
+    if out:
+        printer(f"{tool}: wrote the partial artifact to {out}")
+    return EXIT_MISMATCH
 
 
 def build_clean_corpus(
@@ -180,22 +289,33 @@ def run_config(
     readback: ReadbackConfig,
     route: Optional[str],
     body_exact: bool,
-    readback_poll: Dict[str, float],
+    readback_poll: Dict[str, Any],
+    *,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    wire_format: Optional[str] = None,
+    allow_public_target: bool = False,
 ) -> Dict[str, Any]:
     """Everything needed to reproduce the run, and nothing that varies between
     two runs of the same command. No latency, no wall clock, no timestamps."""
-    return {
+    config: Dict[str, Any] = {
         "tool": "verify",
         "seed": seed,
         "count": count,
         "tag_prefix": tag_prefix,
         "target": target_name,
         "readback": readback.to_json(),
-        "expect_route": route,
-        "body_exact": body_exact,
-        "readback_poll": dict(readback_poll),
-        "dry_run": False,
     }
+    config.update(match_options(route, body_exact, subject_match, attachment_match))
+    config.update(
+        {
+            "readback_poll": dict(readback_poll),
+            "format": wire_format,
+            "allow_public_target": allow_public_target,
+            "dry_run": False,
+        }
+    )
+    return config
 
 
 # ---------------------------------------------------------------------------
@@ -255,9 +375,48 @@ def summarize(
         "checks_passed_by_name": by_check,
         "checks_skipped_by_reason": grouped,
     }
+    summary["unsettled"] = readback_unsettled(readback_outcome)
+    if readback_failed(readback_outcome):
+        # Every lookup was a 404: nothing was checked, so nothing is counted
+        # as mismatched or skipped for want of a record.
+        summary.update(
+            {
+                "found": 0,
+                "verified": 0,
+                "failed": 0,
+                "checks_passed_by_name": {},
+                "checks_skipped_by_reason": {reason: {} for reason in SKIP_REASONS},
+                "readback_failed": True,
+                "not_checked": len(verifications),
+            }
+        )
     if readback_outcome is not None:
         summary["readback"] = readback_outcome.to_json()
     return summary
+
+
+def verdict_of(summary: Dict[str, Any]) -> str:
+    """The headline word. UNSETTLED when the readback never settled, so a
+    message still in flight is not reported as lost."""
+    failed = summary.get("failed", 0)
+    checked = summary.get("verified", 0) + failed
+    if summary.get("readback_failed"):
+        return READBACK_FAILED
+    if summary.get("unsettled"):
+        return "UNSETTLED"
+    if checked == 0:
+        return "NOTHING CHECKED"
+    return "VERIFIED" if failed == 0 else "MISMATCHED"
+
+
+def _expectations_for(email: InboundEmail, config: Dict[str, Any]) -> Expectations:
+    return Expectations.from_email(
+        email,
+        route=config.get("expect_route"),
+        body_exact=bool(config.get("body_exact", False)),
+        subject_match=config.get("subject_match") or DEFAULT_SUBJECT_MATCH,
+        attachment_match=config.get("attachment_match") or DEFAULT_ATTACHMENT_MATCH,
+    )
 
 
 def build_artifact(
@@ -283,9 +442,10 @@ def build_artifact(
     artifact shows a real failure rather than a status code.
     """
     by_tag = {v.tag: v for v in verifications}
+    not_checked = readback_failed(readback_outcome)
     records = []
     for message in sent:
-        verification = by_tag.get(message.tag)
+        verification = None if not_checked else by_tag.get(message.tag)
         records.append(
             {
                 "id": message.record_id,
@@ -293,11 +453,15 @@ def build_artifact(
                 "tag": message.tag,
                 "message_id": message.probe.message_id,
                 "payload_sha256": report.payload_sha256(message.email),
-                "intended": Expectations.from_email(message.email).to_json(),
+                "intended": _expectations_for(message.email, config).to_json(),
                 "response": message.response_json(),
                 "assertion": {
                     "passed": bool(verification and verification.passed),
-                    "mismatches": verification.mismatch_strings() if verification else [],
+                    "mismatches": (
+                        [ALL_404_NOT_CHECKED] if not_checked
+                        else verification.mismatch_strings() if verification
+                        else []
+                    ),
                 },
                 "readback": [
                     r.to_json() for r in readbacks.get(message.tag, [])
@@ -306,12 +470,15 @@ def build_artifact(
             }
         )
 
-    return {
-        "seed": seed,
-        "config": config,
-        "summary": summarize(verifications, sent, readback_outcome),
-        "records": records,
-    }
+    summary = summarize(verifications, sent, readback_outcome)
+    summary["verdict"], summary["verdict_source"] = readback_verdict(
+        verdict_of(summary), readback_outcome
+    )
+    artifact = artifact_header("verify")
+    artifact.update(
+        {"seed": seed, "config": config, "summary": summary, "records": records}
+    )
+    return artifact
 
 
 def format_verification(artifact: Dict[str, Any]) -> str:
@@ -328,9 +495,7 @@ def format_verification(artifact: Dict[str, Any]) -> str:
 
     failed = summary.get("failed", 0)
     checked = summary.get("verified", 0) + failed
-    verdict = "VERIFIED" if failed == 0 else "MISMATCHED"
-    if checked == 0:
-        verdict = "NOTHING CHECKED"
+    verdict = summary.get("verdict") or verdict_of(summary)
 
     lines = [
         f"verify: {verdict}  ({checked} payload(s) checked, seed="
@@ -341,18 +506,37 @@ def format_verification(artifact: Dict[str, Any]) -> str:
     lines.append(f"  found in system:   {summary.get('found', 0)}")
     lines.append(f"  verified:          {summary.get('verified', 0)}")
     lines.append(f"  mismatched:        {failed}")
+    if summary.get("readback_failed"):
+        lines.append(
+            f"  {ALL_404_NOT_CHECKED} ({summary.get('not_checked', 0)} payload(s))"
+        )
+
+    lines.append(
+        f"  match modes:       subject {config.get('subject_match', DEFAULT_SUBJECT_MATCH)}, "
+        f"body {'exact' if config.get('body_exact') else 'contains'}, "
+        f"attachments {config.get('attachment_match', DEFAULT_ATTACHMENT_MATCH)}, "
+        f"route {config.get('expect_route') or '(not checked)'}"
+    )
 
     readback = summary.get("readback")
     if readback:
-        settled = "settled" if readback.get("stable") else "GAVE UP before settling"
+        settled = readback_state_phrase(readback)
         lines.append(
             f"  readback:          {readback.get('elapsed_s')}s over "
             f"{readback.get('polls')} poll(s), {settled}"
         )
-        if readback.get("missing_tags"):
+        # On an all-404 run nothing was found because nothing could be
+        # looked up, so no tag is called missing (ALL_404_NOT_CHECKED above).
+        if readback.get("missing_tags") and not summary.get("readback_failed"):
+            missing = len(readback["missing_tags"])
             lines.append(
-                f"                    still missing {len(readback['missing_tags'])}"
+                f"                    missing {missing}: the store went quiet without them"
+                if readback.get("stable")
+                else f"                    not seen yet {missing}"
             )
+    note = readback_note(summary)
+    if note:
+        lines.append(f"  {note}")
 
     unanswered = summary.get("transport_unanswered", 0)
     non_2xx = summary.get("transport_non_2xx", 0)
@@ -382,6 +566,9 @@ def format_verification(artifact: Dict[str, Any]) -> str:
             lines.append(f"    {name}: {count}")
 
     failures = [r for r in records if not r.get("assertion", {}).get("passed", True)]
+    if summary.get("readback_failed"):
+        # Nothing was checked, so nothing is listed as a mismatch or a loss.
+        failures = []
     if failures:
         lines.append("")
         lines.append(f"  mismatches ({len(failures)}):")
@@ -400,6 +587,11 @@ def format_dry_run(
     corpus: Sequence[Tuple[InboundEmail, str, str]],
     readback: ReadbackConfig,
     tag_prefix: str = messages.DEFAULT_TAG_PREFIX,
+    *,
+    route: Optional[str] = None,
+    body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
 ) -> str:
     """What a dry run prints instead of firing. Describes what WOULD be sent
     and, more importantly, what WOULD be asked afterwards, because the adapter
@@ -416,6 +608,11 @@ def format_dry_run(
     if readback.spec:
         lines.append(f"  readback spec:     {readback.spec}")
     lines.append(f"  first tag:         {corpus[0][1] if corpus else '(none)'}")
+    lines.append(
+        f"  checks:            subject match {subject_match}, body "
+        f"{'exact' if body_exact else 'contains'}, attachments {attachment_match}, "
+        + (f"route {route!r}" if route else "routing skipped (no --expect-route)")
+    )
     lines.append("  every payload is clean by construction: verify grades results,")
     lines.append("  and a deliberately mangled payload has no correct parse to grade")
     lines.append("no network calls were made (pass --send to fire for real)")
@@ -432,6 +629,9 @@ def grade(
     readbacks: Dict[str, List[Readback]],
     route: Optional[str],
     body_exact: bool,
+    *,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
 ) -> List[Verification]:
     """Grade every sent payload against what the system reported.
 
@@ -442,7 +642,13 @@ def grade(
     """
     verifications = []
     for message in sent:
-        expectations = Expectations.from_email(message.email, route=route, body_exact=body_exact)
+        expectations = Expectations.from_email(
+            message.email,
+            route=route,
+            body_exact=body_exact,
+            subject_match=subject_match,
+            attachment_match=attachment_match,
+        )
         verifications.append(
             evaluate_sequence(
                 message.email,
@@ -467,8 +673,11 @@ def execute(
     rate: float = DEFAULT_RATE,
     route: Optional[str] = None,
     body_exact: bool = False,
+    subject_match: str = DEFAULT_SUBJECT_MATCH,
+    attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
+    allow_public_target: bool = False,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     client: Any = None,
     readback_client: Any = None,
@@ -479,66 +688,182 @@ def execute(
     """Fire the clean corpus, read back what the system made of it, and report.
 
     Never called unless `guardrails.evaluate_send` already said yes. `client`
-    and `readback_client` are the two injectable HTTP clients, and both are
-    None in real CLI use; tests inject fakes at both, which is what keeps this
-    path testable without a socket. The first version of the replay path in
-    this repository had no injectable client at all and the integration test
-    that found it spent eighty-one seconds on real connection attempts, so both
-    are parameters from the start rather than an oversight waiting to be
-    discovered.
+    and `readback_client` are the injectable HTTP clients; both are None in
+    real CLI use. The adapter is built and preflighted before the first send,
+    so a broken readback is a refusal and not a lost run.
     """
     corpus = build_tagged_corpus(seed, count, tag_prefix)
     items = build_items(corpus)
 
     try:
         require_synthetic([email for email, _tag, _rid in corpus])
-        url = resolve_target_url(target_name, config_path)
+        validate_match_modes(subject_match, attachment_match)
+        target = resolve_target(
+            target_name, config_path, allow_public_target=allow_public_target
+        )
     except Exception as exc:
         printer(f"refused: {exc}")
         return EXIT_REFUSED
 
-    adapter = None
     try:
-        # Building the adapter is inside the try, not before it. An adapter
-        # that cannot be built is exactly as much a refusal as a target that
-        # cannot be resolved, and leaving this line outside meant an
-        # unimportable `--readback module:attr` escaped as a traceback rather
-        # than as the clean refusal the CLI is supposed to print.
-        adapter = build_adapter(readback, client=readback_client)
-        sent = send_all(items, url, rate, client=client, sleep=sleep, clock=clock)
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
+        )
+    except Exception as exc:
+        printer(f"refused: the readback adapter could not be prepared: {exc}")
+        return EXIT_REFUSED
+
+    poll = readback_poll_settings(
+        len(items), readback, quiet_window=quiet_window, max_wait=max_wait,
+        poll_interval=poll_interval,
+    )
+    config = run_config(
+        seed, count, tag_prefix, target_name, readback, route, body_exact,
+        poll,
+        subject_match=subject_match,
+        attachment_match=attachment_match,
+        wire_format=target.format_name,
+        allow_public_target=bool(target.public),
+    )
+    sent: Optional[List[SentMessage]] = None
+    phase = "send"
+    try:
+        sent = send_all(
+            items, target.url, rate, client=client, sleep=sleep, clock=clock,
+            wire_format=target.wire_format,
+        )
+        phase = "readback"
         outcome = read_back_all(
             adapter,
             [probe for _e, _t, _r, probe in items],
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks
+    except KeyboardInterrupt:
+        return abort_run("verify", seed, config, phase, sent, out, printer)
     except Exception as exc:
         printer(f"verify: could not complete the run: {exc}")
         return EXIT_REFUSED
     finally:
         close_adapter(adapter)
 
-    verifications = grade(sent, readbacks, route, body_exact)
+    verifications = grade(
+        sent, readbacks, route, body_exact,
+        subject_match=subject_match, attachment_match=attachment_match,
+    )
     artifact = build_artifact(
         seed,
-        run_config(
-            seed, count, tag_prefix, target_name, readback, route, body_exact,
-            {"quiet_window": quiet_window, "max_wait": max_wait,
-             "poll_interval": poll_interval},
-        ),
+        config,
         sent,
         verifications,
         readbacks,
         outcome,
     )
     printer(format_verification(artifact))
-    if out:
-        Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
-    return EXIT_OK if all(v.passed for v in verifications) else EXIT_MISMATCH
+    write_artifact(out, artifact)
+    return exit_code_for(artifact)
+
+
+def exit_code_for(artifact: Dict[str, Any]) -> int:
+    verdict = (artifact.get("summary") or {}).get("verdict")
+    if verdict in ("VERIFIED", "NOTHING CHECKED"):
+        return EXIT_OK
+    return EXIT_MISMATCH
+
+
+#: The one-line refusal for `verify check` on a blast artifact.
+BLAST_ARTIFACT_REFUSAL = "blast artifacts carry no tags; run verify fire"
+
+
+def _artifact_tool(data: Dict[str, Any]) -> Optional[str]:
+    """Which tool wrote `data`, from the top-level `tool`, then `config.tool`,
+    then the blast shape (records plus a status-class breakdown)."""
+    tool = data.get("tool")
+    if isinstance(tool, str) and tool:
+        return tool
+    config = data.get("config")
+    if isinstance(config, dict) and isinstance(config.get("tool"), str):
+        return config["tool"]
+    summary = data.get("summary")
+    if isinstance(summary, dict) and "by_status_class" in summary:
+        return "blast"
+    return None
+
+
+#: Where `verify check` took each match mode from, as recorded and printed.
+MODE_FROM_ARTIFACT = "artifact"
+MODE_FROM_FLAG = "flag"
+MODE_FROM_DEFAULT = "default"
+
+_MATCH_MODE_KEYS = ("subject_match", "body_exact", "attachment_match", "expect_route")
+
+
+def _recorded_match_modes(
+    config: Dict[str, Any],
+    route: Optional[str],
+    body_exact: Optional[bool],
+    subject_match: Optional[str],
+    attachment_match: Optional[str],
+) -> Tuple[Optional[str], bool, str, str, Dict[str, str]]:
+    """The match modes `verify check` grades with: a given value wins, then
+    the artifact's recorded one, then the default. Returns the four values
+    and, per config key, which of the three each came from."""
+    given = {
+        "subject_match": subject_match,
+        "body_exact": body_exact,
+        "attachment_match": attachment_match,
+        "expect_route": route,
+    }
+    defaults = {
+        "subject_match": DEFAULT_SUBJECT_MATCH,
+        "body_exact": False,
+        "attachment_match": DEFAULT_ATTACHMENT_MATCH,
+        "expect_route": None,
+    }
+    chosen: Dict[str, Any] = {}
+    sources: Dict[str, str] = {}
+    for key in _MATCH_MODE_KEYS:
+        if given[key] is not None:
+            chosen[key], sources[key] = given[key], MODE_FROM_FLAG
+        elif key in config:
+            chosen[key], sources[key] = config[key], MODE_FROM_ARTIFACT
+        else:
+            chosen[key], sources[key] = defaults[key], MODE_FROM_DEFAULT
+    return (
+        chosen["expect_route"] or None,
+        bool(chosen["body_exact"]),
+        chosen["subject_match"],
+        chosen["attachment_match"],
+        sources,
+    )
+
+
+def format_match_sources(sources: Dict[str, str]) -> str:
+    """One line saying where each match mode came from."""
+    names = {
+        "subject_match": "subject",
+        "body_exact": "body",
+        "attachment_match": "attachments",
+        "expect_route": "route",
+    }
+    by_source: Dict[str, List[str]] = {}
+    for key in _MATCH_MODE_KEYS:
+        by_source.setdefault(sources[key], []).append(names[key])
+    labels = {
+        MODE_FROM_ARTIFACT: "recorded in the artifact",
+        MODE_FROM_FLAG: "given on the command line",
+        MODE_FROM_DEFAULT: "the default (the artifact recorded none)",
+    }
+    parts = [
+        f"{', '.join(by_source[source])} {labels[source]}"
+        for source in (MODE_FROM_ARTIFACT, MODE_FROM_FLAG, MODE_FROM_DEFAULT)
+        if source in by_source
+    ]
+    return "verify check: match modes: " + "; ".join(parts)
 
 
 def check_saved_run(
@@ -548,28 +873,28 @@ def check_saved_run(
     *,
     readback: ReadbackConfig,
     route: Optional[str] = None,
-    body_exact: bool = False,
+    body_exact: Optional[bool] = None,
+    subject_match: Optional[str] = None,
+    attachment_match: Optional[str] = None,
     tag_prefix: Optional[str] = None,
     readback_client: Any = None,
     quiet_window: float = DEFAULT_QUIET_WINDOW,
-    max_wait: float = DEFAULT_MAX_WAIT,
+    max_wait: Optional[float] = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     printer: Callable[[str], None] = print,
 ) -> int:
-    """Verify a blast run that already happened.
+    """Re-read a run written by `verify fire` or `ledger fire`, sending nothing.
 
-    The corpus is rebuilt from the artifact's own seed and count, so no request
-    is sent: this path reads only. That is the whole reason it can be a separate
-    subcommand from `verify fire` and why it has no `--send` and no dry-run
-    mode, in the same way `testinghq compare` has neither.
+    The corpus is rebuilt from the artifact's seed, count and tag prefix, and
+    only `clean` records are verified; the skipped count is printed. A blast
+    artifact is refused, because its records carry no tag to look up.
 
-    Only the records the artifact labels `clean` are verified. Everything else
-    is a payload that was deliberately mangled, and grading it against its own
-    ground truth would report a failure for the mutator working. The skipped
-    count is printed, because a run that verified 3 of 100 and stayed quiet
-    about the other 97 is the exact shape of a misleading green.
+    Each match option left as None takes the value the artifact recorded (the
+    default when it recorded none), so a run fired with `--expect-route` is
+    re-checked with routing. A given value overrides it; `route=""` turns
+    the routing check off. The output says which source each mode came from.
     """
     try:
         data = json.loads(Path(run_path).read_text(encoding="utf-8"))
@@ -578,6 +903,21 @@ def check_saved_run(
         return EXIT_REFUSED
     except json.JSONDecodeError as exc:
         printer(f"verify check: {run_path!r} is not valid JSON: {exc}")
+        return EXIT_REFUSED
+    if not isinstance(data, dict):
+        printer(f"verify check: {run_path!r} is not a run artifact")
+        return EXIT_REFUSED
+
+    if _artifact_tool(data) == "blast":
+        printer(f"verify check: {BLAST_ARTIFACT_REFUSAL}")
+        return EXIT_REFUSED
+
+    schema = data.get("schema_version", 0)
+    if not isinstance(schema, int) or schema > ARTIFACT_SCHEMA_VERSION:
+        printer(
+            f"verify check: {run_path!r} has schema_version {schema!r}; this "
+            f"build reads up to {ARTIFACT_SCHEMA_VERSION}"
+        )
         return EXIT_REFUSED
 
     seed = data.get("seed")
@@ -620,8 +960,7 @@ def check_saved_run(
         if tag is None:
             printer(
                 f"verify check: record {record.get('id')!r} carries no tag, so "
-                "there is no way to ask the system about that payload. This "
-                "artifact was written by a tool that does not stamp tags; run "
+                "there is no way to ask the system about that payload; run "
                 "`verify fire` instead of `verify check`."
             )
             return EXIT_REFUSED
@@ -634,31 +973,66 @@ def check_saved_run(
             )
             return EXIT_REFUSED
         email, _rid = by_tag[tag]
-        wanted.append((email, tag, record.get("id", "")))
+        wanted.append((email, tag, record.get("id", ""), record.get("payload_sha256", "")))
 
-    adapter = build_adapter(readback, client=readback_client)
+    route, body_exact, subject_match, attachment_match, sources = _recorded_match_modes(
+        config, route, body_exact, subject_match, attachment_match
+    )
+    match = match_options(route, body_exact, subject_match, attachment_match)
+    try:
+        validate_match_modes(subject_match, attachment_match)
+        adapter = prepare_readback(
+            readback, client=readback_client, config_path=config_path
+        )
+    except Exception as exc:
+        printer(f"refused: {exc}")
+        return EXIT_REFUSED
+
+    check_config: Dict[str, Any] = {
+        "tool": "verify",
+        "mode": "check",
+        "seed": seed,
+        "count": count,
+        "tag_prefix": prefix,
+        "target": config.get("target"),
+        "readback": readback.to_json(),
+    }
+    check_config.update(match)
+    poll = readback_poll_settings(
+        len(wanted), readback, quiet_window=quiet_window, max_wait=max_wait,
+        poll_interval=poll_interval,
+    )
+    check_config.update(
+        {
+            "match_modes_from": sources,
+            "source_run": run_path,
+            "records_skipped_non_clean": skipped_categories,
+            "readback_poll": poll,
+            "dry_run": False,
+        }
+    )
+
     try:
         outcome = read_back_all(
             adapter,
-            [messages.probe_for(e, t, rid, record.get("payload_sha256", ""))
-             for e, t, rid in wanted],
+            [messages.probe_for(e, t, rid, sha) for e, t, rid, sha in wanted],
             sleep=sleep,
             clock=clock,
             quiet_window=quiet_window,
-            max_wait=max_wait,
+            max_wait=poll["max_wait"],
             poll_interval=poll_interval,
         )
         readbacks = outcome.readbacks
+    except KeyboardInterrupt:
+        return abort_run("verify", seed, check_config, "readback", [], out, printer)
     except Exception as exc:
         printer(f"verify check: could not read the system back: {exc}")
         return EXIT_REFUSED
     finally:
         close_adapter(adapter)
 
-    # `sent=False` is the honest description of this path: it made no request.
-    # `summarize` keys its transport counters off `sent`, so the read-only path
-    # reports zero unanswered requests rather than N, which would read as a
-    # total transport failure on a run that never touched the network.
+    # `sent=False`: this path made no request, so the transport counters read
+    # zero rather than N unanswered.
     never_sent = TransportResult(
         status=None, latency_ms=0.0, body_snippet="", error=None, sent=False
     )
@@ -671,33 +1045,19 @@ def check_saved_run(
             probe=messages.probe_for(email, tag, record_id, ""),
             result=never_sent,
         )
-        for index, (email, tag, record_id) in enumerate(wanted)
+        for index, (email, tag, record_id, _sha) in enumerate(wanted)
     ]
-    verifications = grade(fake_sent, readbacks, route, body_exact)
-    artifact = build_artifact(
-        seed,
-        {
-            "tool": "verify",
-            "mode": "check",
-            "seed": seed,
-            "count": count,
-            "tag_prefix": prefix,
-            "target": config.get("target"),
-            "readback": readback.to_json(),
-            "expect_route": route,
-            "body_exact": body_exact,
-            "source_run": run_path,
-            "records_skipped_non_clean": skipped_categories,
-            "dry_run": False,
-        },
-        fake_sent,
-        verifications,
-        readbacks,
-        outcome,
+    verifications = grade(
+        fake_sent, readbacks, route, body_exact,
+        subject_match=subject_match, attachment_match=attachment_match,
     )
-    printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
-            "because a mangled payload has no correct parse to grade against")
+    artifact = build_artifact(
+        seed, check_config, fake_sent, verifications, readbacks, outcome
+    )
+    if skipped_categories:
+        printer(f"verify check: {skipped_categories} non-clean record(s) not verified, "
+                "because a mangled payload has no correct parse to grade against")
+    printer(format_match_sources(sources))
     printer(format_verification(artifact))
-    if out:
-        Path(out).write_text(json.dumps(artifact, indent=2, sort_keys=False), encoding="utf-8")
-    return EXIT_OK if all(v.passed for v in verifications) else EXIT_MISMATCH
+    write_artifact(out, artifact)
+    return exit_code_for(artifact)

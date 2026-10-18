@@ -1,0 +1,86 @@
+# Readback recipe: Chatwoot
+#
+# STATUS: NOT RUN against a live Chatwoot. Written from Chatwoot's published
+# Application API documentation (Conversations: filter). Treat the field paths
+# as "what the documentation says", not as "this was seen to work".
+#
+# Chatwoot takes inbound email through an email inbox and opens a conversation
+# per thread. This recipe looks a conversation up by label.
+#
+#   export CHATWOOT_API_TOKEN="..."   # Profile settings > Access token
+#   testinghq verify fire --target chatwoot --send --config target.toml
+#
+# Never put the token in this file: a [readback.headers] value that is not an
+# `env:` reference is refused.
+
+# Chatwoot ingests SendGrid's raw mode (the whole message in the `email`
+# field) at the Action Mailbox ingress below, which also wants the ingress
+# password Chatwoot is configured with. Set `format = "sendgrid-raw"` on this
+# target (TestingHQ 1.0 and later) so the message arrives in that shape.
+[targets.chatwoot]
+name = "chatwoot"
+url = "http://127.0.0.1:3000/rails/action_mailbox/sendgrid/inbound_emails"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The lookup is a POST to the conversation filter endpoint, asking for
+# conversations labelled with the tag:
+#
+#   POST /api/v1/accounts/<account_id>/conversations/filter
+#   {"payload": [{"attribute_key": "labels", "filter_operator": "equal_to",
+#                 "values": ["<tag>"], "query_operator": null}]}
+#
+# That needs the tag on the conversation as a label: an automation rule, or
+# whatever sits in front of Chatwoot, copies the X-TestingHQ-Tag header (or the
+# [testinghq:<tag>] body marker) into a label. Chatwoot labels allow lowercase
+# letters, digits, hyphens and underscores, which every TestingHQ tag is made
+# of.
+#
+# Results come under `payload`, 25 to a page, paged with `page`. A POST search
+# cannot list every conversation, so stray detection is off.
+#
+# A Chatwoot on localhost or a private address needs nothing more. A hosted one
+# is a public host: add allow_public_hosts = true, or pass
+# --allow-public-readback per run.
+
+[readback]
+kind = "http"
+url = "http://127.0.0.1:3000/api/v1/accounts/1/conversations/filter"
+method = "POST"
+body = '{"payload": [{"attribute_key": "labels", "filter_operator": "equal_to", "values": ["{tag}"], "query_operator": null}]}'
+items_key = "payload"
+page_param = "page"
+enumerate = false
+timeout = 15.0
+
+[readback.headers]
+api_access_token = "env:CHATWOOT_API_TOKEN"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A conversation in a filter result. The sender is the contact in
+# `meta.sender`; the subject of an email conversation is kept in
+# `additional_attributes.mail_subject`; `messages` carries the latest message,
+# which for a conversation TestingHQ just opened is the incoming email.
+
+[readback.fields]
+ticket_id = "id"
+from_addr = "meta.sender.email"
+subject = "additional_attributes.mail_subject"
+body = "messages.0.content"
+route = "inbox_id"
+
+# NOT MAPPED, each for a reason:
+#
+#   attachment_names  A message's attachments carry urls, not the original
+#                     file names, so a name check would compare different
+#                     things.
+#   message_id,       Chatwoot keeps the email headers on the message's content
+#   in_reply_to,      attributes, which differ by version; map them once you
+#   references        have seen your own instance's response.
+#   tag               `labels` is a list, and the filter already found the
+#                     conversation by the tag.
