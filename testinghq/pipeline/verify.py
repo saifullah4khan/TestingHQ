@@ -295,6 +295,7 @@ def run_config(
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     wire_format: Optional[str] = None,
     allow_public_target: bool = False,
+    transport: str = "http",
 ) -> Dict[str, Any]:
     """Everything needed to reproduce the run, and nothing that varies between
     two runs of the same command. No latency, no wall clock, no timestamps."""
@@ -312,6 +313,7 @@ def run_config(
             "readback_poll": dict(readback_poll),
             "format": wire_format,
             "allow_public_target": allow_public_target,
+            "transport": transport,
             "dry_run": False,
         }
     )
@@ -724,13 +726,13 @@ def execute(
         attachment_match=attachment_match,
         wire_format=target.format_name,
         allow_public_target=bool(target.public),
+        transport=target.transport,
     )
     sent: Optional[List[SentMessage]] = None
     phase = "send"
     try:
         sent = send_all(
-            items, target.url, rate, client=client, sleep=sleep, clock=clock,
-            wire_format=target.wire_format,
+            items, target, rate, client=client, sleep=sleep, clock=clock,
         )
         phase = "readback"
         outcome = read_back_all(

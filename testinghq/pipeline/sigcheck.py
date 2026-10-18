@@ -727,6 +727,7 @@ def run_config(
         "secret": secret_ref,
         "dry_run": dry_run,
         "allow_public_target": bool(allow_public_target),
+        "transport": "http",
     }
 
 
@@ -920,7 +921,8 @@ def configured_format_mismatch(
     does not need the target to exist, so a missing config file, an unknown
     target or no target at all is not reported here (a real run refuses those
     when it resolves the target): only a target the config does declare, in a
-    format the scheme cannot authenticate."""
+    format the scheme cannot authenticate or over SMTP, which has no request
+    to sign."""
     from ..core.config import ConfigError, load_config
 
     if not target_name or not config_path or not Path(config_path).exists():
@@ -929,7 +931,19 @@ def configured_format_mismatch(
         target = load_config(config_path).get(target_name)
     except ConfigError:
         return None
+    if target.transport != "http":
+        return smtp_refusal(target.name)
     return format_mismatch(scheme_name, target.name, target.wire_format)
+
+
+def smtp_refusal(target_name: str) -> str:
+    """Why sigcheck will not fire at an SMTP target."""
+    return (
+        f"target {target_name!r} is an smtp target, and sigcheck signs webhook "
+        "requests: a provider signature is an HTTP concept with no SMTP "
+        "equivalent. Point sigcheck at the HTTP endpoint that checks the "
+        "signature"
+    )
 
 
 def execute(
@@ -949,11 +963,13 @@ def execute(
     """Send every applicable variant once, in order, and judge each answer."""
     from ..core import guardrails
     from ..core.targets import resolve_target
-    from ..core.transport import post
+    from ..core.transport import send
 
     try:
         scheme = get_scheme(scheme_name)
         target = resolve_target(target_name, config_path, allow_public_target=allow_public_target)
+        if target.transport != "http":
+            raise SigcheckError(smtp_refusal(target.name))
         mismatch = format_mismatch(scheme.name, target.name, target.format_name)
         if mismatch is not None:
             raise SigcheckError(mismatch)
@@ -980,8 +996,8 @@ def execute(
                 outcomes.append(judge(item, None, None))
                 continue
             fixed = item.fixed_headers if item.fixed_headers is not None else item.signed.headers
-            result = post(
-                item.payload, target.url, client=client,
+            result = send(
+                item.payload, target, client,
                 wire_format=wire_format_for(item.signed),
                 extra_headers=(lambda _body, h=dict(fixed): dict(h)) if fixed else None,
             )

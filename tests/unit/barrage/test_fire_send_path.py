@@ -163,6 +163,85 @@ def test_a_failed_connect_costs_one_attempt_not_two(tmp_path, monkeypatch, capsy
 
 
 # ---------------------------------------------------------------------------
+# An SMTP target: one session per worker
+# ---------------------------------------------------------------------------
+
+
+def _smtp_fire(tmp_path, *extra):
+    path = tmp_path / "smtp.toml"
+    path.write_text(
+        '[targets.mail]\ntransport = "smtp"\nhost = "127.0.0.1"\nport = 2525\n',
+        encoding="utf-8",
+    )
+    return cli.main([
+        "barrage", "fire", "--target", "mail", "--send", "--config", str(path),
+        "--rate", "20", "--duration", "0.4", "--warmup", "0",
+        "--out", str(tmp_path / "run.json"), *extra,
+    ])
+
+
+def test_each_worker_opens_one_smtp_session_and_reuses_it(tmp_path, monkeypatch, capsys):
+    from testinghq.core.transport import SmtpEndpoint, SmtpReply
+
+    log = _Recorder()
+
+    class FakeSession:
+        def __init__(self):
+            self.connect_seconds = []
+            self.reconnects = 0
+            self.thread = threading.get_ident()
+            with log.lock:
+                log.instances.append(self)
+
+        def connect(self, endpoint, timeout=10.0):
+            with log.lock:
+                log.connects.append((self, endpoint, timeout))
+            self.connect_seconds.append(0.002)
+            return 0.002
+
+        def send(self, request):
+            assert threading.get_ident() == self.thread, "a session was shared between workers"
+            with log.lock:
+                log.requests.append((self, request))
+            return SmtpReply(250, "2.0.0 queued")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(barrage_fire, "PersistentSmtpClient", FakeSession)
+    rc = _smtp_fire(tmp_path, "--mode", "closed", "--concurrency", "2")
+    assert rc == EXIT_OK, capsys.readouterr().err
+
+    data = _artifact(tmp_path)
+    assert 1 <= len(log.instances) <= 2
+    assert all(endpoint == SmtpEndpoint(host="127.0.0.1", port=2525)
+               for _s, endpoint, _t in log.connects)
+    assert len(log.connects) == len(log.instances)
+    assert len(log.requests) == data["summary"]["requests"]["sent"] > len(log.instances)
+    assert data["config"]["transport"] == "smtp"
+    assert data["connections"]["workers_connected"] == len(log.instances)
+    assert data["connections"]["setup_ms"]["p50"] == 2.0
+
+
+def test_no_keepalive_over_smtp_opens_a_session_per_message(tmp_path, monkeypatch, capsys):
+    from testinghq.core.transport import SmtpReply
+
+    made = []
+
+    class FakeOneShot:
+        def __init__(self):
+            made.append(self)
+
+        def send(self, request):
+            return SmtpReply(250, "ok")
+
+    monkeypatch.setattr(barrage_fire, "SmtplibClient", FakeOneShot)
+    rc = _smtp_fire(tmp_path, "--no-keepalive", "--concurrency", "2")
+    assert rc == EXIT_OK, capsys.readouterr().err
+    assert len(made) == _artifact(tmp_path)["summary"]["requests"]["sent"] == 8
+
+
+# ---------------------------------------------------------------------------
 # --timeout
 # ---------------------------------------------------------------------------
 

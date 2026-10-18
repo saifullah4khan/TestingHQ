@@ -27,7 +27,15 @@ from ..core import guardrails
 # Re-exported, as the shared objects, for callers that import them from here.
 from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED  # noqa: F401
 from ..core.targets import BARRAGE, resolve_target
-from ..core.transport import PersistentHttpClient, TransportResult, UrllibHttpClient, post
+from ..core import transport
+from ..core.transport import (
+    TRANSPORT_SMTP,
+    PersistentHttpClient,
+    PersistentSmtpClient,
+    SmtplibClient,
+    TransportResult,
+    UrllibHttpClient,
+)
 from . import report as barrage_report
 from .executor import PoolExecutor
 from .payloads import build_payload_pool, payload_for_index
@@ -200,42 +208,47 @@ class _ConnectFailed(Exception):
 
 
 class _Sender:
-    """The runner's send hook: post payload `index` and return the
+    """The runner's send hook: send payload `index` and return the
     TransportResult.
 
-    With keep-alive, each worker thread gets its own PersistentHttpClient,
-    connected once before its first request so the handshake is measured on
-    its own and kept out of every service latency. If that connect fails, the
-    request it was for is reported as a transport error rather than tried a
-    second time, so one request never waits out two timeouts."""
+    With keep-alive, each worker thread gets its own persistent client (an
+    HTTP/1.1 connection, or an SMTP session for an SMTP target), connected
+    once before its first request so the setup is measured on its own and
+    kept out of every service latency. If that connect fails, the request it
+    was for is reported as a transport error rather than tried a second time,
+    so one request never waits out two timeouts. A session the server dropped
+    is reopened once by the client itself, and counted in `reconnects`."""
 
-    def __init__(self, pool, url, *, client, clock, timeout, wire_format, keepalive):
+    def __init__(self, pool, target, *, client, clock, timeout, wire_format, keepalive):
         self._pool = pool
-        self._url = url
+        self._destination = transport.as_destination(target, wire_format)
         self._fixed = client
         self._clock = clock
         self._timeout = timeout
-        self._wire_format = wire_format
         self._keepalive = keepalive
         self._local = threading.local()
         self._lock = threading.Lock()
-        self._clients: List[PersistentHttpClient] = []
+        self._clients: List[Any] = []
         self._connect_failures = 0
 
     def _client(self):
         if self._fixed is not None:
             return self._fixed
+        smtp = self._destination.transport == TRANSPORT_SMTP
         if not self._keepalive:
-            return UrllibHttpClient()
+            return SmtplibClient() if smtp else UrllibHttpClient()
         client = getattr(self._local, "client", None)
         if client is None:
-            client = PersistentHttpClient()
+            client = PersistentSmtpClient() if smtp else PersistentHttpClient()
             self._local.client = client
             with self._lock:
                 self._clients.append(client)
             started = self._clock()
             try:
-                client.connect(self._url, self._timeout)
+                client.connect(
+                    self._destination.smtp if smtp else self._destination.url,
+                    self._timeout,
+                )
             except Exception as exc:  # noqa: BLE001 - reported as this request's error
                 with self._lock:
                     self._connect_failures += 1
@@ -250,13 +263,12 @@ class _Sender:
                 status=None, latency_ms=failed.elapsed_ms, body_snippet="",
                 error=f"connect failed: {failed}",
             )
-        return post(
+        return transport.send(
             payload_for_index(self._pool, index),
-            self._url,
-            client=client,
+            self._destination,
+            client,
             timeout=self._timeout,
             clock=self._clock,
-            wire_format=self._wire_format,
         )
 
     def connection_summary(self) -> Dict[str, Any]:
@@ -293,7 +305,7 @@ class _Sender:
 
 def make_send_fn(
     pool: List[InboundEmail],
-    url: str,
+    target,
     client=None,
     clock: Callable[[], float] = time.monotonic,
     *,
@@ -301,10 +313,11 @@ def make_send_fn(
     wire_format=None,
     keepalive: bool = True,
 ) -> _Sender:
-    """Build the runner's send hook. `client` is None in real use; tests
+    """Build the runner's send hook. `target` is the ResolvedTarget, or a bare
+    HTTP URL sent in `wire_format`. `client` is None in real use; tests
     inject a fake, which is then shared by every worker."""
     return _Sender(
-        pool, url, client=client, clock=clock, timeout=timeout,
+        pool, target, client=client, clock=clock, timeout=timeout,
         wire_format=wire_format, keepalive=keepalive,
     )
 
@@ -436,8 +449,8 @@ def execute(
         allow_public_target=allow_public_target, load_tool=BARRAGE,
     )
     sender = make_send_fn(
-        pool, resolved.url, client=client, clock=clock, timeout=timeout,
-        wire_format=resolved.wire_format, keepalive=keepalive,
+        pool, resolved, client=client, clock=clock, timeout=timeout,
+        keepalive=keepalive,
     )
     owned = None
     if executor is None and client is None:

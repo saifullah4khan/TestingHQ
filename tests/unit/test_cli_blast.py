@@ -492,12 +492,10 @@ def test_blast_fire_send_catalog_sends_every_case(tmp_path, forbid_network, monk
     from testinghq.blast.corpus import CorpusPlan, parse_catalog
 
     fake = FakeClient(status=200)
-    real_post = blast_cli.post
+    real_send = blast_cli.send
     monkeypatch.setattr(
-        blast_cli, "post",
-        lambda email, url, client=None, wire_format=None: real_post(
-            email, url, client=fake, wire_format=wire_format
-        ),
+        blast_cli, "send",
+        lambda email, target, client=None, **kwargs: real_send(email, target, fake, **kwargs),
     )
     config = _write_target_config(tmp_path)
     out = tmp_path / "blast.json"

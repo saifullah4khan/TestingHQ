@@ -47,7 +47,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from ..blast.payload import InboundEmail
 from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target
-from ..core.transport import post
+from ..core.transport import as_destination, send
 from . import messages
 from .adapters import ReadbackConfig
 from .common import (
@@ -583,7 +583,7 @@ def build_scenarios(
 
 def send_scenario(
     scenario: Scenario,
-    url: str,
+    target: Any,
     rate: float,
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -598,7 +598,12 @@ def send_scenario(
     a test of the slow-retry scenario would either take five seconds or would be
     testing a scenario with no gap in it, which is the duplicate scenario
     wearing a different name.
+
+    `target` is the ResolvedTarget, sent over its own transport, or a bare
+    HTTP URL sent in `wire_format`.
     """
+    destination = as_destination(target, wire_format)
+    override = None if isinstance(target, str) else wire_format
     bucket = TokenBucket(
         rate_per_sec=rate, capacity=max(rate, 1.0), sleep=sleep, clock=clock
     )
@@ -607,10 +612,7 @@ def send_scenario(
         if delivery.delay_before > 0:
             sleep(delivery.delay_before)
         bucket.acquire()
-        if wire_format is not None:
-            result = post(delivery.email, url, client=client, wire_format=wire_format)
-        else:
-            result = post(delivery.email, url, client=client)
+        result = send(delivery.email, destination, client, wire_format=override)
         sent.append(
             SentMessage(
                 index=index,
@@ -904,6 +906,7 @@ def run_config(
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     wire_format: Optional[str] = None,
     allow_public_target: bool = False,
+    transport: str = "http",
 ) -> Dict[str, Any]:
     config: Dict[str, Any] = {
         "tool": "redeliver",
@@ -920,6 +923,7 @@ def run_config(
         {
             "format": wire_format,
             "allow_public_target": allow_public_target,
+            "transport": transport,
             "dry_run": False,
         }
     )
@@ -1167,6 +1171,7 @@ def execute(
         route=route, body_exact=body_exact, subject_match=subject_match,
         attachment_match=attachment_match, wire_format=target.format_name,
         allow_public_target=bool(target.public),
+        transport=target.transport,
     )
     poll = readback_poll_settings(
         len({tag for scenario in built for tag in scenario.tags}), readback,
@@ -1179,8 +1184,8 @@ def execute(
         for scenario in built:
             sent.extend(
                 send_scenario(
-                    scenario, target.url, rate, client=client, sleep=sleep,
-                    clock=clock, wire_format=target.wire_format,
+                    scenario, target, rate, client=client, sleep=sleep,
+                    clock=clock,
                 )
             )
         phase = "readback"

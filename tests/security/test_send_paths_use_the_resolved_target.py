@@ -184,3 +184,152 @@ def test_barrage_at_a_public_target_needs_the_flag_and_the_config_key(tmp_path):
     _run_barrage(tmp_path, client, clock, both, str(out), allow_public_target=True)
     assert client.requests
     assert json.loads(out.read_text(encoding="utf-8"))["config"]["allow_public_target"] is True
+
+
+# ---------------------------------------------------------------------------
+# SMTP targets and target headers, through the same seven send paths
+# ---------------------------------------------------------------------------
+
+
+class _SmtpClient:
+    """An SmtpClient seam that accepts every message without a socket."""
+
+    def __init__(self):
+        self.requests = []
+
+    def send(self, request):
+        from testinghq.core.transport import SmtpReply
+
+        self.requests.append(request)
+        return SmtpReply(250, "2.0.0 Ok: queued")
+
+
+def _smtp_config(tmp_path, host="127.0.0.1", extra=""):
+    path = tmp_path / "target.toml"
+    path.write_text(
+        f'[targets.t]\ntransport = "smtp"\nhost = "{host}"\nport = 2525\n{extra}',
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+@pytest.mark.parametrize("tool", sorted(RUNNERS))
+def test_every_message_to_an_smtp_target_goes_over_smtp(tmp_path, tool):
+    from email import message_from_bytes
+
+    client, clock = _SmtpClient(), _Clock()
+    out = tmp_path / "run.json"
+    RUNNERS[tool](tmp_path, client, clock, _smtp_config(tmp_path), str(out))
+
+    assert client.requests, f"{tool} sent nothing"
+    for request in client.requests:
+        assert request.endpoint.host == "127.0.0.1" and request.endpoint.port == 2525
+        assert request.envelope_to, f"{tool} sent a message with no recipient"
+        message = message_from_bytes(request.message)
+        assert message["Subject"] is not None and message["From"] is not None
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert artifact["config"]["transport"] == "smtp"
+    assert artifact["config"]["format"] == "mime"
+
+
+@pytest.mark.parametrize("tool", sorted(RUNNERS))
+def test_an_http_artifact_records_its_transport(tmp_path, tool):
+    client, clock = _Client(), _Clock()
+    out = tmp_path / "run.json"
+    RUNNERS[tool](tmp_path, client, clock, _config(tmp_path), str(out))
+    assert json.loads(out.read_text(encoding="utf-8"))["config"]["transport"] == "http"
+
+
+@pytest.mark.parametrize("tool", sorted(RUNNERS))
+def test_target_headers_reach_every_request_and_no_artifact(tmp_path, tool, monkeypatch):
+    monkeypatch.setenv("HQ_TEST_TARGET_AUTH", "Basic c2VjcmV0LXRva2Vu")
+    client, clock = _Client(), _Clock()
+    out = tmp_path / "run.json"
+    config = _config(
+        tmp_path, extra='\n[targets.t.headers]\nAuthorization = "env:HQ_TEST_TARGET_AUTH"\n'
+    )
+    RUNNERS[tool](tmp_path, client, clock, config, str(out))
+
+    assert client.requests, f"{tool} sent nothing"
+    for request in client.requests:
+        assert request.headers.get("Authorization") == "Basic c2VjcmV0LXRva2Vu"
+    assert "c2VjcmV0LXRva2Vu" not in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("tool", sorted(RUNNERS))
+def test_an_unset_target_header_variable_sends_nothing(tmp_path, tool, monkeypatch):
+    monkeypatch.delenv("HQ_TEST_TARGET_AUTH", raising=False)
+    client, clock = _Client(), _Clock()
+    config = _config(
+        tmp_path, extra='\n[targets.t.headers]\nAuthorization = "env:HQ_TEST_TARGET_AUTH"\n'
+    )
+    from testinghq.core.config import ConfigError
+
+    try:
+        code = RUNNERS[tool](tmp_path, client, clock, config, None)
+    except ConfigError:
+        code = EXIT_REFUSED  # barrage raises; its CLI turns that into exit 1
+    assert code == EXIT_REFUSED
+    assert client.requests == []
+
+
+@pytest.mark.parametrize("tool", sorted(RUNNERS))
+def test_a_public_smtp_host_is_refused_without_the_flag(tmp_path, tool):
+    client, clock = _SmtpClient(), _Clock()
+    try:
+        code = RUNNERS[tool](tmp_path, client, clock, _smtp_config(tmp_path, PUBLIC_HOST), None)
+    except guardrails.GuardrailError:
+        code = EXIT_REFUSED
+    assert code == EXIT_REFUSED
+    assert client.requests == []
+
+
+def test_barrage_at_a_public_smtp_host_needs_the_flag_and_the_config_key(tmp_path):
+    client, clock = _SmtpClient(), _Clock()
+    with pytest.raises(guardrails.GuardrailError, match="public = true"):
+        _run_barrage(tmp_path, client, clock, _smtp_config(tmp_path, PUBLIC_HOST), None,
+                     allow_public_target=True)
+    assert client.requests == []
+
+    out = tmp_path / "run.json"
+    both = _smtp_config(tmp_path, PUBLIC_HOST, extra="public = true\n")
+    _run_barrage(tmp_path, client, clock, both, str(out), allow_public_target=True)
+    assert client.requests
+    config = json.loads(out.read_text(encoding="utf-8"))["config"]
+    assert config["allow_public_target"] is True
+    assert config["transport"] == "smtp"
+
+
+def test_sigcheck_refuses_an_smtp_target(tmp_path):
+    from testinghq.pipeline import sigcheck
+
+    client = _SmtpClient()
+    lines = []
+    code = sigcheck.execute(
+        scheme_name="mailgun", secret="key", secret_ref="env:K", target_name="t",
+        config_path=_smtp_config(tmp_path), out=None, client=client,
+        printer=lines.append,
+    )
+    assert code == EXIT_REFUSED
+    assert client.requests == []
+    assert "smtp target" in lines[0] and "HTTP concept" in lines[0]
+    assert "HTTP concept" in sigcheck.configured_format_mismatch(
+        "mailgun", "t", _smtp_config(tmp_path)
+    )
+
+
+def test_sigcheck_sends_the_target_headers_too(tmp_path, monkeypatch):
+    from testinghq.pipeline import sigcheck
+
+    monkeypatch.setenv("HQ_TEST_TARGET_AUTH", "Bearer gateway-token")
+    client = _Client()
+    config = _config(
+        tmp_path, extra='\n[targets.t.headers]\nX-Gateway-Auth = "env:HQ_TEST_TARGET_AUTH"\n'
+    )
+    sigcheck.execute(
+        scheme_name="mailgun", secret="key", secret_ref="env:K", target_name="t",
+        config_path=config, out=None, client=client, printer=lambda _line: None,
+    )
+    assert client.requests
+    assert all(r.headers.get("X-Gateway-Auth") == "Bearer gateway-token"
+               for r in client.requests)

@@ -21,7 +21,7 @@ from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED
 from ..core.formats import get_format
 from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target, wire_format_for
-from ..core.transport import DEFAULT_BOUNDARY, DEFAULT_FORMAT, post
+from ..core.transport import DEFAULT_BOUNDARY, DEFAULT_FORMAT, as_destination, send
 from .common import (
     DEFAULT_RATE,
     DEFAULT_TARGET_CONFIG,
@@ -182,7 +182,7 @@ def _require_synthetic_corpus(pairs: List[Tuple[InboundEmail, str]]) -> None:
 def _fire_corpus(
     pairs: List[Tuple[InboundEmail, str]],
     seed: int,
-    url: str,
+    target,
     rate: float,
     client=None,
     wire_format=None,
@@ -191,8 +191,11 @@ def _fire_corpus(
     fail_on_body=None,
     records: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Fire every payload in `pairs` at `url`, paced by a token bucket at
+    """Fire every payload in `pairs` at `target`, paced by a token bucket at
     `rate` requests per second, and build one record per payload.
+
+    `target` is the ResolvedTarget (any transport), or a bare HTTP URL sent in
+    `wire_format`.
 
     Records are appended to `records` (a new list by default) as they
     complete, so a caller that catches KeyboardInterrupt keeps what was sent.
@@ -200,11 +203,12 @@ def _fire_corpus(
     compiled `--fail-on-body` pattern.
     """
     bucket = TokenBucket(rate_per_sec=rate, capacity=max(rate, 1.0))
+    destination = as_destination(target, wire_format)
     if records is None:
         records = []
     for index, (email, label) in enumerate(pairs):
         bucket.acquire()
-        result = post(email, url, client=client, wire_format=wire_format)
+        result = send(email, destination, client)
         response = report.response_from_transport(result, fail_on_body)
         case = cases[index] if cases is not None else None
         records.append(report.build_record(email, label, seed, index, response, case=case))
@@ -276,8 +280,7 @@ def _run_fire(
     aborted = False
     try:
         _fire_corpus(
-            pairs, seed, target.url, rate, client=client,
-            wire_format=target.wire_format, cases=plan.cases(),
+            pairs, seed, target, rate, client=client, cases=plan.cases(),
             fail_on_body=pattern, records=records,
         )
     except KeyboardInterrupt:
