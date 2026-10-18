@@ -9,6 +9,40 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
 
 ## [Unreleased]
 
+### Added
+
+- `transport = "smtp"` on a target: each message is handed to the mail server
+  at `host` and `port` (default 25) in one SMTP transaction, for pipelines that
+  pull mail instead of taking a webhook. The message is the `mime` format's
+  bytes; `format` on an SMTP target is `mime` or absent. `starttls`,
+  `username` and `password` (`env:` references), `envelope_from` and
+  `envelope_to` are optional. The status is the reply code that ended the
+  transaction (`250` after DATA, or the first 4xx or 5xx, with its text as
+  the error), and a missing reply lands in the usual refused, DNS, timeout,
+  TLS and other buckets. Every send command takes it: blast, barrage, verify,
+  ledger, redeliver, loop and steady.
+- Barrage over SMTP keeps one session per worker, reports session setup under
+  `connections` as the HTTP keep-alive path does, and reopens a dropped
+  session once. Latency runs to the reply after DATA.
+- `[targets.<name>.headers]`: request headers sent with every HTTP request to
+  a target, for an endpoint behind Basic auth or a gateway token. Values are
+  `env:` references only, with the same rule and refusal as
+  `[readback.headers]`, and are never written to an artifact.
+- `testinghq config basic-auth <user>`: reads a password from the terminal
+  (never from the command line) and prints the `.env` line holding
+  `Basic <base64 of user:password>`; `--env NAME` names the variable.
+- Every artifact records the target's `transport` under `config`. Records of
+  the pipeline tools carry the transport's `error` when there is one.
+
+### Changed
+
+- A target `url` carrying credentials (`user:pass@host`) is refused, with a
+  pointer to `[targets.<name>.headers]`.
+- `sigcheck` refuses an SMTP target, since a provider signature is an HTTP
+  concept.
+- An SMTP target's `host` is held to the public-host rule, and its
+  `envelope_from` and `envelope_to` must be synthetic addresses.
+
 ## [1.0.0] - 2026-10-15
 
 The first published release.
