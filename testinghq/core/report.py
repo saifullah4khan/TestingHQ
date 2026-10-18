@@ -451,11 +451,13 @@ def payload_sha256(email) -> str:
 def response_from_transport(result, fail_on_body: Optional[Pattern[str]] = None) -> Dict[str, Any]:
     """The record's `response` block for a transport.TransportResult.
 
-    `error` is the transport's message and `error_kind` one of
-    TRANSPORT_ERROR_KINDS, both None when a response arrived. With
-    `fail_on_body`, `body_failure` says whether a 2xx body snippet matched it.
+    `error` is the transport's message: why no response arrived, or, for an
+    SMTP target, the text of a 4xx or 5xx reply (an HTTP response never
+    carries one). `error_kind` is one of TRANSPORT_ERROR_KINDS when no
+    response arrived and None otherwise. With `fail_on_body`, `body_failure`
+    says whether a 2xx body snippet matched it.
     """
-    error = getattr(result, "error", None) if result.status is None else None
+    error = getattr(result, "error", None)
     response: Dict[str, Any] = {
         "status": result.status,
         "latency_ms": result.latency_ms,

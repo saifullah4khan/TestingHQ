@@ -80,3 +80,22 @@ def test_the_barrage_send_path_raises_too(network_guard):
         send_fn(0)
 
 
+
+
+def test_the_smtp_send_path_raises_too(network_guard):
+    """An SMTP target reaches the network through smtplib, not urllib, so it
+    gets its own assertion: the real `SmtplibClient` behind `transport.send`
+    must hit the block, and the block must not come back as a result."""
+    from testinghq.blast.generate import generate_corpus
+    from testinghq.core.formats import get_format
+    from testinghq.core.transport import DEFAULT_BOUNDARY, SmtpEndpoint, send
+
+    class _SmtpTarget:
+        transport = "smtp"
+        url = "smtp://127.0.0.1:9"
+        headers: dict = {}
+        wire_format = get_format("mime", DEFAULT_BOUNDARY)
+        smtp = SmtpEndpoint(host="127.0.0.1", port=9)
+
+    with pytest.raises(network_guard.error_class):
+        send(generate_corpus(7, 1)[0], _SmtpTarget(), timeout=0.5)
