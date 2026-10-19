@@ -19,7 +19,9 @@
 #   3. Creates an API token for the admin with ticket.agent, unless the one in
 #      sweep/.env.zammad still works.
 #   4. Writes ZAMMAD_TOKEN, ZAMMAD_AUTH and ZAMMAD_ADMIN_PASSWORD to
-#      sweep/.env.zammad, leaving every other line of it alone.
+#      sweep/.env.zammad, leaving every other line of it alone. ZAMMAD_AUTH
+#      holds a space, so it is written in double quotes, which `set -a; .`
+#      reads as one value and run.sh's loader strips.
 #
 # Needs bash, curl, docker compose and Python 3 (PYTHON overrides which one).
 set -euo pipefail
@@ -261,10 +263,10 @@ code="$(status_of -H "Authorization: Token token=$TOKEN" \
 
 write_keys "$ENV_FILE" \
   "ZAMMAD_TOKEN=$TOKEN" \
-  "ZAMMAD_AUTH=Token token=$TOKEN" \
+  "ZAMMAD_AUTH=\"Token token=$TOKEN\"" \
   "ZAMMAD_ADMIN_PASSWORD=$ADMIN_PASSWORD"
 log "wrote ZAMMAD_TOKEN, ZAMMAD_AUTH and ZAMMAD_ADMIN_PASSWORD to $ENV_FILE"
 
 echo "URL: $ZAMMAD_URL"
 echo "Login: $ADMIN_LOGIN / $ADMIN_PASSWORD"
-echo "Add to .env: ZAMMAD_AUTH=Token token=$TOKEN"
+echo "Add to .env: ZAMMAD_AUTH=\"Token token=$TOKEN\""
