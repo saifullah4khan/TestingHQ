@@ -520,6 +520,27 @@ def test_mime_is_byte_stable_with_attachments():
     assert b"===============" not in first
 
 
+def test_mime_nested_boundaries_never_begin_with_their_parents():
+    """RFC 2046 5.1.1: a boundary delimiter must not appear inside the parts it
+    encloses. A nested boundary named `<boundary>-1` puts the outer delimiter
+    at the start of every inner delimiter line, and a parser that matches the
+    delimiter as a prefix, as FreeScout's does, split the message there and
+    stored the MIME headers as the body."""
+    payload = _email(attachments=(Attachment("report.csv", "text/csv", b"a,b\n"),))
+    message = message_from_bytes(
+        get_format("mime", DEFAULT_BOUNDARY).encode(payload).body, policy=default_policy
+    )
+    boundaries = [part.get_boundary() for part in message.walk()
+                  if part.get_content_maintype() == "multipart"]
+    assert boundaries[0] == DEFAULT_BOUNDARY
+    assert len(boundaries) == 2
+    for outer in boundaries:
+        for inner in boundaries:
+            if inner != outer:
+                assert not f"--{inner}".startswith(f"--{outer}"), (outer, inner)
+                assert f"--{outer}" not in f"--{inner}", (outer, inner)
+
+
 def test_mime_posts_as_message_rfc822_with_crlf_lines():
     encoded = get_format("mime", DEFAULT_BOUNDARY).encode(_email())
     assert encoded.content_type == "message/rfc822"

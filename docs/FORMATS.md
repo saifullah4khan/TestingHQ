@@ -101,7 +101,8 @@ field, so none is invented.
 The whole RFC 5322 message as the request body, `Content-Type:
 message/rfc822`, CRLF line endings. Text and HTML are `multipart/alternative`;
 attachments make it `multipart/mixed`. Every boundary is derived from the
-fixed one (`<boundary>`, `<boundary>-1`, ...). Non-ASCII headers are RFC 2047
+fixed one (`<boundary>`, `1_<boundary>`, ...), so a nested boundary never
+begins with the one enclosing it. Non-ASCII headers are RFC 2047
 encoded. A `message/*` attachment (an embedded message, a delivery or
 disposition report) is written as a structured part in 7bit or 8bit, never
 base64. For a receiver that takes a raw message, such as osTicket's

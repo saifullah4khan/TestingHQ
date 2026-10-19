@@ -401,7 +401,10 @@ class MimeFormat(WireFormat):
     For a receiver that takes a raw message: an SMTP-to-HTTP bridge, a Lambda,
     osTicket's `api/tickets.email`. Built with the stdlib `email` package and
     serialized with CRLF line endings. Every multipart boundary is derived from
-    the configured one (`<boundary>`, `<boundary>-1`, ...), never random.
+    the configured one (`<boundary>`, `1_<boundary>`, ...), never random. A
+    nested boundary never begins with its parent's: RFC 2046 keeps a
+    delimiter out of the parts it encloses, and a parser matching delimiters
+    as prefixes splits `--<boundary>-1` at `--<boundary>`.
     """
 
     name = "mime"
@@ -441,7 +444,7 @@ class MimeFormat(WireFormat):
             part for part in message.walk() if part.get_content_maintype() == "multipart"
         ]
         for depth, part in enumerate(multiparts):
-            part.set_boundary(self._boundary if depth == 0 else f"{self._boundary}-{depth}")
+            part.set_boundary(self._boundary if depth == 0 else f"{depth}_{self._boundary}")
         return message
 
     def message_bytes(self, payload: InboundEmail) -> bytes:
