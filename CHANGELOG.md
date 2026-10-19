@@ -88,6 +88,11 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   dated before its original, and a helpdesk that processes a mail fetch in
   Date order, as FreeScout does, filed it first on a conversation of its own
   and was reported for a broken thread it did not cause.
+- `config basic-auth` prints the value in double quotes,
+  `NAME="Basic <base64>"`. Unquoted, loading `.env` the way `.env.example`
+  says (`set -a && . ./.env`) read the line as a command named after the
+  base64 token with the variable set for that command only, so the variable
+  was never set and a run naming it was refused.
 
 ## [1.0.0] - 2026-10-15
 

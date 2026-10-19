@@ -190,7 +190,11 @@ def _cmd_config_basic_auth(args, stdin=None, prompt=getpass.getpass) -> int:
         reason = str(exc) or "no password given"
         print(f"config basic-auth: {reason}", file=sys.stderr)
         return EXIT_REFUSED
-    print(f"{args.env}={value}")
+    # Quoted, because .env.example loads .env with `set -a && . ./.env`, and
+    # unquoted the shell reads `NAME=Basic <token>` as an assignment of
+    # `Basic` followed by a command named after the token. Base64 holds no
+    # character that a double quote would let the shell expand.
+    print(f'{args.env}="{value}"')
     print(
         f"config basic-auth: add the line above to .env, and in the target's "
         f"config:\n  [targets.<name>.headers]\n  Authorization = \"env:{args.env}\"",

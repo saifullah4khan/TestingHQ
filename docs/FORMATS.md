@@ -167,7 +167,8 @@ Authorization = "env:CHATWOOT_INGRESS_AUTH"
 
 `testinghq config basic-auth actionmailbox --env CHATWOOT_INGRESS_AUTH`
 reads the password from the terminal and prints the `.env` line,
-`CHATWOOT_INGRESS_AUTH=Basic <base64 of actionmailbox:password>`. The headers
+`CHATWOOT_INGRESS_AUTH="Basic <base64 of actionmailbox:password>"`, quoted so
+that `set -a && . ./.env` reads it as one value. The headers
 go on every request at that target, after the format's own `Content-Type` and
 `Content-Length`, which a target header cannot replace.
 
