@@ -534,11 +534,12 @@ def test_mime_nested_boundaries_never_begin_with_their_parents():
                   if part.get_content_maintype() == "multipart"]
     assert boundaries[0] == DEFAULT_BOUNDARY
     assert len(boundaries) == 2
+    # Not even the bare value inside another: FreeScout's parser splits on the
+    # boundary string wherever it appears, and `1_<boundary>` still held it.
     for outer in boundaries:
         for inner in boundaries:
             if inner != outer:
-                assert not f"--{inner}".startswith(f"--{outer}"), (outer, inner)
-                assert f"--{outer}" not in f"--{inner}", (outer, inner)
+                assert outer not in inner, (outer, inner)
 
 
 def test_mime_posts_as_message_rfc822_with_crlf_lines():

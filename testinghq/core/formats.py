@@ -401,10 +401,7 @@ class MimeFormat(WireFormat):
     For a receiver that takes a raw message: an SMTP-to-HTTP bridge, a Lambda,
     osTicket's `api/tickets.email`. Built with the stdlib `email` package and
     serialized with CRLF line endings. Every multipart boundary is derived from
-    the configured one (`<boundary>`, `1_<boundary>`, ...), never random. A
-    nested boundary never begins with its parent's: RFC 2046 keeps a
-    delimiter out of the parts it encloses, and a parser matching delimiters
-    as prefixes splits `--<boundary>-1` at `--<boundary>`.
+    the configured one (`_nested_boundary`), never random.
     """
 
     name = "mime"
@@ -444,7 +441,7 @@ class MimeFormat(WireFormat):
             part for part in message.walk() if part.get_content_maintype() == "multipart"
         ]
         for depth, part in enumerate(multiparts):
-            part.set_boundary(self._boundary if depth == 0 else f"{depth}_{self._boundary}")
+            part.set_boundary(self._boundary if depth == 0 else _nested_boundary(self._boundary, depth))
         return message
 
     def message_bytes(self, payload: InboundEmail) -> bytes:
@@ -452,6 +449,24 @@ class MimeFormat(WireFormat):
 
     def encode(self, payload: InboundEmail) -> EncodedBody:
         return EncodedBody(body=self.message_bytes(payload), content_type="message/rfc822")
+
+
+def _nested_boundary(boundary: str, depth: int) -> str:
+    """The boundary of the multipart `depth` levels inside the outermost one:
+    `boundary` with its last six characters replaced by six of a hash of it
+    and the depth. The same length and a different ending, so no boundary is
+    a prefix of another, or inside one. RFC 2046 keeps a delimiter out of the
+    parts it encloses, and parsers are stricter still: `<boundary>-1` put the
+    outer delimiter at the start of every inner one, and FreeScout's parser,
+    which splits on the bare boundary string wherever it appears, also split
+    `1_<boundary>`."""
+    stem = boundary[:-6] if len(boundary) > 6 else ""
+    seed = f"{boundary}:{depth}"
+    while True:
+        candidate = stem + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:6]
+        if candidate not in boundary and boundary not in candidate:
+            return candidate
+        seed += ":"
 
 
 def _header_value(value: str) -> str:

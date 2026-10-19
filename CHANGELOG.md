@@ -108,12 +108,14 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   one bare word with no address, and the payload went out with an empty From
   the original never had; the address is now found in the raw header and
   re-addressed like any other.
-- The `mime` format names a nested multipart boundary `<depth>_<boundary>`
-  instead of `<boundary>-<depth>`. With the old names every inner delimiter
-  line began with the outer delimiter, which RFC 2046 rules out, and a parser
-  that matches delimiters as prefixes, as FreeScout 1.8's does, split each
-  message with attachments at the inner boundary: it stored the MIME headers
-  and undecoded text as the body and a stray 8-byte part as an attachment.
+- The `mime` format derives a nested multipart boundary from the outer one by
+  replacing its last six characters with six of a hash, instead of appending
+  `-<depth>`. With the old names every inner delimiter line began with the
+  outer delimiter, which RFC 2046 rules out, and FreeScout 1.8, whose parser
+  splits on the boundary string wherever it appears, split each message with
+  attachments at the inner boundary: it stored the MIME headers and undecoded
+  text as the body and a stray scrap as an attachment. No boundary is now a
+  prefix of another or inside one.
   The bytes of every `mime` message with attachments change; they are still
   the same from run to run.
 - `report` on a verify artifact lists every failed check as a `mismatched`
