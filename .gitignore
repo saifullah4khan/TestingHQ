@@ -28,6 +28,7 @@ target.local.toml
 
 .ruff_cache/
 
-# What sweep/setup/<helpdesk>.sh writes: API tokens and admin passwords for
-# the local helpdesks.
+# What the sweep's setup scripts write: each helpdesk's credentials
+# (sweep/.env.<helpdesk>) and the mail a helpdesk sent (sweep/.state/).
 sweep/.env.*
+sweep/.state/
