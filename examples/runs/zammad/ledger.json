@@ -1,0 +1,1458 @@
+{
+  "schema_version": 1,
+  "tool": "ledger",
+  "seed": 0,
+  "config": {
+    "tool": "ledger",
+    "seed": 0,
+    "count": 50,
+    "tag_prefix": "hq-2610190602-749e",
+    "target": "zammad",
+    "readback": {
+      "kind": "http",
+      "url": "http://127.0.0.1:3380/api/v1/tickets/search?expand=true",
+      "path": null,
+      "tag_param": "query",
+      "items_key": "items",
+      "timeout": 15.0,
+      "field_map": {
+        "ticket_id": "id",
+        "from_addr": "customer",
+        "subject": "title",
+        "route": "group",
+        "message_id": "message_id",
+        "in_reply_to": "in_reply_to",
+        "references": "references",
+        "tag": "tag",
+        "category": "category"
+      },
+      "unmapped_fields": [
+        "attachment_names",
+        "body",
+        "priority"
+      ],
+      "spec": null,
+      "list_path": null,
+      "enumerate": false,
+      "headers": [
+        "Authorization"
+      ],
+      "query": null,
+      "method": "GET",
+      "body": null,
+      "page_param": "page",
+      "page_size_param": "per_page",
+      "next_path": null,
+      "max_pages": 10,
+      "retry_max": 5,
+      "retry_base_seconds": 0.5,
+      "rate": 4.0
+    },
+    "expect_route": "Users",
+    "body_exact": false,
+    "subject_match": "contains",
+    "attachment_match": "exact",
+    "readback_poll": {
+      "quiet_window": 60.0,
+      "max_wait": 240.0,
+      "max_wait_source": "given",
+      "poll_interval": 0.5
+    },
+    "format": "mime",
+    "allow_public_target": false,
+    "transport": "smtp",
+    "dry_run": false
+  },
+  "summary": {
+    "sent": 50,
+    "produced": 50,
+    "exactly_once": 50,
+    "missing": [],
+    "duplicated": [],
+    "wrong": [],
+    "extra": null,
+    "extra_count": null,
+    "other_runs": null,
+    "other_runs_count": null,
+    "untagged_count": null,
+    "strays_searched": false,
+    "strays_partial": false,
+    "strays_not_searched_reason": "[readback].enumerate is false",
+    "unsettled": false,
+    "readback_failed": false,
+    "not_checked": [],
+    "balanced": false,
+    "verdict": "UNVERIFIED STRAYS",
+    "verdict_source": "tool",
+    "readback": {
+      "elapsed_s": 89.043,
+      "polls": 7,
+      "stable": true,
+      "unsettled": false,
+      "verdict": null,
+      "budget_exhausted": false,
+      "complete_polls": 7,
+      "cause": null,
+      "missing_tags": [],
+      "partial_tags": [],
+      "all_404": false,
+      "headline": null,
+      "detail": null
+    }
+  },
+  "records": [
+    {
+      "id": "clean-0-0000",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0000",
+      "message_id": "hq-2610190602-749e-0-0000@hq.example.test",
+      "payload_sha256": "44e1482775ad9e1e8842ed77edd23a45f2c1a10575a4ca1fd8022ad704a6f89b",
+      "intended": {
+        "sender": "grace.brown@internal.localhost",
+        "subject": "Onboarding - action needed",
+        "body_core": "This message is about onboarding. Looking forward to your reply.",
+        "attachments": [
+          "invoice4.jpg"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 70.68619999336079,
+        "body_snippet": "2.0.0 Ok: queued as 1792389750.M773550P1Q21.a3905361ff67"
+      },
+      "tickets": [
+        "22"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0001",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0001",
+      "message_id": "hq-2610190602-749e-0-0001@hq.example.test",
+      "payload_sha256": "7cc650882de503af641ac245528af4955561c6b27fc9d6d65e4f7a88b3b37be2",
+      "intended": {
+        "sender": "bmuller19@example.com",
+        "subject": "Update on the Z\u00fcrich office move",
+        "body_core": "This message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.66269998601638,
+        "body_snippet": "2.0.0 Ok: queued as 1792389750.M849814P1Q22.a3905361ff67"
+      },
+      "tickets": [
+        "23"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0002",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0002",
+      "message_id": "hq-2610190602-749e-0-0002@hq.example.test",
+      "payload_sha256": "98d39809a34220ed3f49ae998549be83cf7ed7a962d8e53071189338972de250",
+      "intended": {
+        "sender": "ivan.chen@example.net",
+        "subject": "The renewal",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 63.14300000667572,
+        "body_snippet": "2.0.0 Ok: queued as 1792389750.M913391P1Q23.a3905361ff67"
+      },
+      "tickets": [
+        "24"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0003",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0003",
+      "message_id": "hq-2610190602-749e-0-0003@hq.example.test",
+      "payload_sha256": "105e00a569d6f30f9cc433596721c8c7a55242491db7b57077c9f79492b90a90",
+      "intended": {
+        "sender": "heidis24@example.net",
+        "subject": "Re: the contract",
+        "body_core": "This message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.",
+        "attachments": [
+          "scan7138.csv"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.60120000177994,
+        "body_snippet": "2.0.0 Ok: queued as 1792389750.M989688P1Q24.a3905361ff67"
+      },
+      "tickets": [
+        "25"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0004",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0004",
+      "message_id": "hq-2610190602-749e-0-0004@hq.example.test",
+      "payload_sha256": "7b29750d5e53a9b7de2d3577914df76a0f42070be95d876c79f338c7cd3b9f85",
+      "intended": {
+        "sender": "bjones@example.edu",
+        "subject": "Quick question about onboarding",
+        "body_core": "I am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 75.1276999944821,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M065857P1Q25.a3905361ff67"
+      },
+      "tickets": [
+        "26"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0005",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0005",
+      "message_id": "hq-2610190602-749e-0-0005@hq.example.test",
+      "payload_sha256": "ac02543af013307bc2c840e3b4d004f222fed50e7d115ddba8139faea2724a64",
+      "intended": {
+        "sender": "flee@internal.localhost",
+        "subject": "Re: the quarterly report",
+        "body_core": "Quick note regarding the quarterly report. Let me know if the timeline still works for you.",
+        "attachments": [
+          "report9736.csv",
+          "export3305.txt"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 77.99799999338575,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M146419P1Q26.a3905361ff67"
+      },
+      "tickets": [
+        "27"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0006",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0006",
+      "message_id": "hq-2610190602-749e-0-0006@hq.example.test",
+      "payload_sha256": "2e1a3143627b96a45f84057c07a07440c8c8e16d8bfce16a077d560e960b5807",
+      "intended": {
+        "sender": "grace.jones@example.org",
+        "subject": "Your order",
+        "body_core": "I am writing about your order. This relates to what we discussed last week.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.70219998504035,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M222004P1Q27.a3905361ff67"
+      },
+      "tickets": [
+        "28"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0007",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0007",
+      "message_id": "hq-2610190602-749e-0-0007@hq.example.test",
+      "payload_sha256": "3d5fff5a047bf8b4a9fa66b9c23fab2c73f7d2ab4a3364d551efe3da3532e7be",
+      "intended": {
+        "sender": "carol_brown@widgets.example",
+        "subject": "Following up on the support ticket",
+        "body_core": "This message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.",
+        "attachments": [
+          "scan790.pdf",
+          "report2519.png"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.88619998446666,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M373655P1Q28.a3905361ff67"
+      },
+      "tickets": [
+        "29"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0008",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0008",
+      "message_id": "hq-2610190602-749e-0-0008@hq.example.test",
+      "payload_sha256": "3d7ff4e7a132751ac40344168667eef6e17f815ba37b3a8bb5cc4a9edb05cd7f",
+      "intended": {
+        "sender": "emuller@example.net",
+        "subject": "Quick question about the invoice",
+        "body_core": "I have a question about the invoice. Let me know if the timeline still works for you.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.12490000505932,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M557290P1Q29.a3905361ff67"
+      },
+      "tickets": [
+        "30"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0009",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0009",
+      "message_id": "hq-2610190602-749e-0-0009@hq.example.test",
+      "payload_sha256": "dcdd078f18a896e30116ee02085d05036db23d5e7dfd58384556faf252fde8f5",
+      "intended": {
+        "sender": "grace_chen@example.org",
+        "subject": "The renewal - action needed",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.26740001654252,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M773293P1Q30.a3905361ff67"
+      },
+      "tickets": [
+        "31"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0010",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0010",
+      "message_id": "hq-2610190602-749e-0-0010@hq.example.test",
+      "payload_sha256": "a768fc37ce720223e780547e3e70f386ffcffb523297ac2c8eb38475176473b2",
+      "intended": {
+        "sender": "frank.garcia@example.com",
+        "subject": "The shipment - action needed",
+        "body_core": "Following up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.",
+        "attachments": [
+          "receipt7716.png"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.01740000140853,
+        "body_snippet": "2.0.0 Ok: queued as 1792389751.M957543P1Q31.a3905361ff67"
+      },
+      "tickets": [
+        "32"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0011",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0011",
+      "message_id": "hq-2610190602-749e-0-0011@hq.example.test",
+      "payload_sha256": "987b3186f8c6b7c6abc3add7dc326b525284b3106dcf20a8d107b8ad0a231ce7",
+      "intended": {
+        "sender": "bob_brown15@corp.example.invalid",
+        "subject": "Update on the shipment",
+        "body_core": "Quick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.421499993419275,
+        "body_snippet": "2.0.0 Ok: queued as 1792389752.M157304P1Q32.a3905361ff67"
+      },
+      "tickets": [
+        "33"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0012",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0012",
+      "message_id": "hq-2610190602-749e-0-0012@hq.example.test",
+      "payload_sha256": "1dc4a3247a7b23a39d52ea1e72cc4a1171fa6ba67b9312137f0038f6d3943d5b",
+      "intended": {
+        "sender": "fmuller@example.com",
+        "subject": "Re: the contract",
+        "body_core": "I am writing about the contract. Can you confirm receipt of this message?",
+        "attachments": [
+          "attachment1858.txt"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 68.5998999979347,
+        "body_snippet": "2.0.0 Ok: queued as 1792389752.M373603P1Q33.a3905361ff67"
+      },
+      "tickets": [
+        "34"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0013",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0013",
+      "message_id": "hq-2610190602-749e-0-0013@hq.example.test",
+      "payload_sha256": "77cc84917eef8fcdd00829747fdcbb568c451f7644b767bf8ad7cec58b301669",
+      "intended": {
+        "sender": "judy@corp.example.invalid",
+        "subject": "Re: the quarterly report",
+        "body_core": "I have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.91970000672154,
+        "body_snippet": "2.0.0 Ok: queued as 1792389752.M573335P1Q34.a3905361ff67"
+      },
+      "tickets": [
+        "35"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0014",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0014",
+      "message_id": "hq-2610190602-749e-0-0014@hq.example.test",
+      "payload_sha256": "7e10c05e2010d7b40e871eec2412749c1874035d8987029067ad23cfc937f674",
+      "intended": {
+        "sender": "aliceb@example.org",
+        "subject": "Re: your order",
+        "body_core": "I am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.",
+        "attachments": [
+          "form8971.csv",
+          "report9290.docx"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.52520000049844,
+        "body_snippet": "2.0.0 Ok: queued as 1792389752.M773470P1Q35.a3905361ff67"
+      },
+      "tickets": [
+        "36"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0015",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0015",
+      "message_id": "hq-2610190602-749e-0-0015@hq.example.test",
+      "payload_sha256": "40ce849ee01dc122441362ed8e874222d6e3712e7b83c178b370a535c785f77d",
+      "intended": {
+        "sender": "grace_jones12@example.net",
+        "subject": "Update on the quarterly report",
+        "body_core": "I am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?",
+        "attachments": [
+          "attachment3783.jpg"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.280599997378886,
+        "body_snippet": "2.0.0 Ok: queued as 1792389752.M957704P1Q36.a3905361ff67"
+      },
+      "tickets": [
+        "37"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0016",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0016",
+      "message_id": "hq-2610190602-749e-0-0016@hq.example.test",
+      "payload_sha256": "ecc9e422d17abc038244fc28545422a3b573ec29f96eed4ad097ae7e24ebb89c",
+      "intended": {
+        "sender": "jnguyen@example.org",
+        "subject": "Update on the quarterly report",
+        "body_core": "This message is about the quarterly report. This relates to what we discussed last week.",
+        "attachments": [
+          "attachment1231.json"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.29880001954734,
+        "body_snippet": "2.0.0 Ok: queued as 1792389753.M157398P1Q37.a3905361ff67"
+      },
+      "tickets": [
+        "38"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0017",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0017",
+      "message_id": "hq-2610190602-749e-0-0017@hq.example.test",
+      "payload_sha256": "137c55ce458d9f462f8266c25d96786107f40c1eaf6743211f291b1a205d4565",
+      "intended": {
+        "sender": "oscar_nguyen@widgets.example",
+        "subject": "Update on your order",
+        "body_core": "Quick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.58509998768568,
+        "body_snippet": "2.0.0 Ok: queued as 1792389753.M357391P1Q38.a3905361ff67"
+      },
+      "tickets": [
+        "39"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0018",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0018",
+      "message_id": "hq-2610190602-749e-0-0018@hq.example.test",
+      "payload_sha256": "c509ab241b71ff0c437488edf0aa34190c4b25ff17b4429a11fe1a2580ae5622",
+      "intended": {
+        "sender": "bobm@mail.example.test",
+        "subject": "Quick question about the caf\u00e9 booking",
+        "body_core": "This message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.360699996119365,
+        "body_snippet": "2.0.0 Ok: queued as 1792389753.M557600P1Q39.a3905361ff67"
+      },
+      "tickets": [
+        "40"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0019",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0019",
+      "message_id": "hq-2610190602-749e-0-0019@hq.example.test",
+      "payload_sha256": "15fbad6a7d1f9cd5de4a633f7eced28aac3149af0c1a6c4a296d5b0f05819452",
+      "intended": {
+        "sender": "frank.jones@example.edu",
+        "subject": "Following up on the schedule",
+        "body_core": "I have a question about the schedule. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.02920002234168,
+        "body_snippet": "2.0.0 Ok: queued as 1792389753.M757438P1Q40.a3905361ff67"
+      },
+      "tickets": [
+        "41"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0020",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0020",
+      "message_id": "hq-2610190602-749e-0-0020@hq.example.test",
+      "payload_sha256": "1175514dc55668d54693e6306072a2fb1739d6d44aabecd5c94d9e28df0ab688",
+      "intended": {
+        "sender": "judys11@mail.example.test",
+        "subject": "Update on our meeting",
+        "body_core": "I am writing about our meeting. I wanted to follow up on this.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 70.16010000370443,
+        "body_snippet": "2.0.0 Ok: queued as 1792389753.M973687P1Q41.a3905361ff67"
+      },
+      "tickets": [
+        "42"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0021",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0021",
+      "message_id": "hq-2610190602-749e-0-0021@hq.example.test",
+      "payload_sha256": "e24c117ed755775fea14bb6e41e53e560ce6fb0b74b818ada9dd33e5e02ea4f7",
+      "intended": {
+        "sender": "grace@corp.example.invalid",
+        "subject": "The caf\u00e9 booking",
+        "body_core": "Following up on the caf\u00e9 booking from earlier. I wanted to follow up on this. Looking forward to your reply. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.77590001444332,
+        "body_snippet": "2.0.0 Ok: queued as 1792389754.M157412P1Q42.a3905361ff67"
+      },
+      "tickets": [
+        "43"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0022",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0022",
+      "message_id": "hq-2610190602-749e-0-0022@hq.example.test",
+      "payload_sha256": "b4a3a62b373ed11499f7c90a12efc2b25eaeddf53b5ac2941537939c9f4f04e8",
+      "intended": {
+        "sender": "carol@internal.localhost",
+        "subject": "Our meeting - action needed",
+        "body_core": "This message is about our meeting. Happy to hop on a call if that is easier. This relates to what we discussed last week.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.289799998514354,
+        "body_snippet": "2.0.0 Ok: queued as 1792389754.M357639P1Q43.a3905361ff67"
+      },
+      "tickets": [
+        "44"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0023",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0023",
+      "message_id": "hq-2610190602-749e-0-0023@hq.example.test",
+      "payload_sha256": "340fdc3e427e2a8e9e843e12c79be2eea82ca91c155972f1a92b3b0c9e08afa8",
+      "intended": {
+        "sender": "bobr@example.com",
+        "subject": "Following up on the contract",
+        "body_core": "This message is about the contract. Can you confirm receipt of this message? This relates to what we discussed last week. Looking forward to your reply.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.58629998611286,
+        "body_snippet": "2.0.0 Ok: queued as 1792389754.M557960P1Q44.a3905361ff67"
+      },
+      "tickets": [
+        "45"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0024",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0024",
+      "message_id": "hq-2610190602-749e-0-0024@hq.example.test",
+      "payload_sha256": "460627cc726be213e40cb5ab0336c2f7fd859b555c7972b2bbc79d2576a9898b",
+      "intended": {
+        "sender": "bob@corp.example.invalid",
+        "subject": "Update on the support ticket",
+        "body_core": "I have a question about the support ticket. I wanted to follow up on this.",
+        "attachments": [
+          "form6209.csv",
+          "receipt1453.txt"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.42030001664534,
+        "body_snippet": "2.0.0 Ok: queued as 1792389754.M773469P1Q45.a3905361ff67"
+      },
+      "tickets": [
+        "46"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0025",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0025",
+      "message_id": "hq-2610190602-749e-0-0025@hq.example.test",
+      "payload_sha256": "8ddc95a1f21a4ad9f3d11d47b16ff9f3d758a15099d70790e360f1f0f248eac7",
+      "intended": {
+        "sender": "ivan3@example.org",
+        "subject": "Quick question about the shipment",
+        "body_core": "This message is about the shipment. Attached is what we discussed. This relates to what we discussed last week. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.643599996576086,
+        "body_snippet": "2.0.0 Ok: queued as 1792389754.M957459P1Q46.a3905361ff67"
+      },
+      "tickets": [
+        "47"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0026",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0026",
+      "message_id": "hq-2610190602-749e-0-0026@hq.example.test",
+      "payload_sha256": "d03777748d39cdd433b153d26e725a2a18035e3b36344f15163f4bd7335efdfb",
+      "intended": {
+        "sender": "erin_rossi@widgets.example",
+        "subject": "Quick question about the support ticket",
+        "body_core": "This message is about the support ticket. Can you confirm receipt of this message? Attached is what we discussed.",
+        "attachments": [
+          "signature1093.csv"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.1478999843821,
+        "body_snippet": "2.0.0 Ok: queued as 1792389755.M177633P1Q47.a3905361ff67"
+      },
+      "tickets": [
+        "48"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0027",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0027",
+      "message_id": "hq-2610190602-749e-0-0027@hq.example.test",
+      "payload_sha256": "46e3425d6b26afe1a17c79c2d0f415069267f58345658bb82ddb9cf86843edfc",
+      "intended": {
+        "sender": "ivanj@corp.example.invalid",
+        "subject": "The contract - action needed",
+        "body_core": "I have a question about the contract. Happy to hop on a call if that is easier. Looking forward to your reply.",
+        "attachments": [
+          "scan4683.docx",
+          "report4452.png"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.4200000190176,
+        "body_snippet": "2.0.0 Ok: queued as 1792389755.M377491P1Q48.a3905361ff67"
+      },
+      "tickets": [
+        "49"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0028",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0028",
+      "message_id": "hq-2610190602-749e-0-0028@hq.example.test",
+      "payload_sha256": "90522f475ef73ff631576dace279a3dd387b451f8b4eb2659e45b122957eb2b6",
+      "intended": {
+        "sender": "judy_chen@mail.example.test",
+        "subject": "Re: onboarding",
+        "body_core": "This message is about onboarding. Attached is what we discussed. The details are at https://www.example.com/orders/53544.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.58520000684075,
+        "body_snippet": "2.0.0 Ok: queued as 1792389755.M557848P1Q49.a3905361ff67"
+      },
+      "tickets": [
+        "50"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0029",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0029",
+      "message_id": "hq-2610190602-749e-0-0029@hq.example.test",
+      "payload_sha256": "23d60252de00fdc30d197d827b4cb52d00a3c299399eaa1d93dc501525615a35",
+      "intended": {
+        "sender": "ivanb@corp.example.invalid",
+        "subject": "Quick question about the shipment",
+        "body_core": "I have a question about the shipment. Can you confirm receipt of this message? Looking forward to your reply.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.81600001826882,
+        "body_snippet": "2.0.0 Ok: queued as 1792389755.M777543P1Q50.a3905361ff67"
+      },
+      "tickets": [
+        "51"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0030",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0030",
+      "message_id": "hq-2610190602-749e-0-0030@hq.example.test",
+      "payload_sha256": "79dd0d23ced9b6c249f3b08d92d8852495bf286d8ab444ff025298b64e1d49e2",
+      "intended": {
+        "sender": "judy.patel5@example.net",
+        "subject": "The renewal - action needed",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message? Attached is what we discussed. Let me know if the timeline still works for you.",
+        "attachments": [
+          "photo4251.jpg",
+          "scan848.csv"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 52.80389997642487,
+        "body_snippet": "2.0.0 Ok: queued as 1792389755.M957757P1Q51.a3905361ff67"
+      },
+      "tickets": [
+        "52"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0031",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0031",
+      "message_id": "hq-2610190602-749e-0-0031@hq.example.test",
+      "payload_sha256": "0996d035277a970d60985e048528cabf1eeb7e2aa423b3eec77794ce15cccb1a",
+      "intended": {
+        "sender": "ochen@mail.example.test",
+        "subject": "Re: the renewal",
+        "body_core": "I am writing about the renewal. Let me know if the timeline still works for you. Looking forward to your reply.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.96339998696931,
+        "body_snippet": "2.0.0 Ok: queued as 1792389756.M157655P1Q52.a3905361ff67"
+      },
+      "tickets": [
+        "53"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0032",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0032",
+      "message_id": "hq-2610190602-749e-0-0032@hq.example.test",
+      "payload_sha256": "f7d69d72023bb5e7a1e56e8e278d4313b67051cdb5c54ab7d9d5c85b91641484",
+      "intended": {
+        "sender": "gsmith@example.net",
+        "subject": "Quick question about the Z\u00fcrich office move",
+        "body_core": "This message is about the Z\u00fcrich office move. Attached is what we discussed.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.48189998767339,
+        "body_snippet": "2.0.0 Ok: queued as 1792389756.M357536P1Q53.a3905361ff67"
+      },
+      "tickets": [
+        "54"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0033",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0033",
+      "message_id": "hq-2610190602-749e-0-0033@hq.example.test",
+      "payload_sha256": "4aeec4f5943e9359b8a79a6a62dc5a7ea6bd9d61efcb6ce5bb41256be39265b6",
+      "intended": {
+        "sender": "emuller27@example.net",
+        "subject": "Following up on the schedule",
+        "body_core": "I have a question about the schedule. Attached is what we discussed. This relates to what we discussed last week.",
+        "attachments": [
+          "invoice1892.csv",
+          "invoice7127.docx"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.77700001234189,
+        "body_snippet": "2.0.0 Ok: queued as 1792389756.M577933P1Q54.a3905361ff67"
+      },
+      "tickets": [
+        "55"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0034",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0034",
+      "message_id": "hq-2610190602-749e-0-0034@hq.example.test",
+      "payload_sha256": "1d36a121c388b9d9a5d779007367c36e538d59f57fa21af9e3150624849cf2e5",
+      "intended": {
+        "sender": "malloryk@widgets.example",
+        "subject": "Re: our meeting",
+        "body_core": "Quick note regarding our meeting. Let me know if the timeline still works for you. This relates to what we discussed last week. Can you confirm receipt of this message?",
+        "attachments": [
+          "document7009.txt",
+          "report3666.csv"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.2690000149887,
+        "body_snippet": "2.0.0 Ok: queued as 1792389756.M777825P1Q55.a3905361ff67"
+      },
+      "tickets": [
+        "56"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0035",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0035",
+      "message_id": "hq-2610190602-749e-0-0035@hq.example.test",
+      "payload_sha256": "dfba87c7b10e22397c1ae502ddc98be1dc72263003369601a381c7e454a15998",
+      "intended": {
+        "sender": "odiaz25@widgets.example",
+        "subject": "Your order",
+        "body_core": "Quick note regarding your order. This relates to what we discussed last week. I wanted to follow up on this.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.01509999181144,
+        "body_snippet": "2.0.0 Ok: queued as 1792389756.M977586P1Q56.a3905361ff67"
+      },
+      "tickets": [
+        "57"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0036",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0036",
+      "message_id": "hq-2610190602-749e-0-0036@hq.example.test",
+      "payload_sha256": "25090efbcd384b56cc78985c68174564621e4377545ae775ddd43339e903f6b3",
+      "intended": {
+        "sender": "dave.brown@corp.example.invalid",
+        "subject": "Quick question about our meeting",
+        "body_core": "This message is about our meeting. Attached is what we discussed. I wanted to follow up on this. This relates to what we discussed last week.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.78539999946952,
+        "body_snippet": "2.0.0 Ok: queued as 1792389757.M157894P1Q57.a3905361ff67"
+      },
+      "tickets": [
+        "58"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0037",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0037",
+      "message_id": "hq-2610190602-749e-0-0037@hq.example.test",
+      "payload_sha256": "f1557e1733dd0169a065f317079d70cc833dea59d533a1fcc7af0ecc47fd8b90",
+      "intended": {
+        "sender": "heidi.brown14@internal.localhost",
+        "subject": "Re: onboarding",
+        "body_core": "I am writing about onboarding. Let me know if the timeline still works for you. Looking forward to your reply. Please let me know if you have any questions.",
+        "attachments": [
+          "signature3942.pdf",
+          "document3545.jpg"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.9303999976255,
+        "body_snippet": "2.0.0 Ok: queued as 1792389757.M357697P1Q58.a3905361ff67"
+      },
+      "tickets": [
+        "59"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0038",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0038",
+      "message_id": "hq-2610190602-749e-0-0038@hq.example.test",
+      "payload_sha256": "cde48d525c22b9f9a1f27b4869010ebbd0ba55b04dab9c58168a89d9aa915646",
+      "intended": {
+        "sender": "dave25@example.com",
+        "subject": "Quick question about the quarterly report",
+        "body_core": "I am writing about the quarterly report. Please let me know if you have any questions. Let me know if the timeline still works for you.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.793500002939254,
+        "body_snippet": "2.0.0 Ok: queued as 1792389757.M557657P1Q59.a3905361ff67"
+      },
+      "tickets": [
+        "60"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0039",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0039",
+      "message_id": "hq-2610190602-749e-0-0039@hq.example.test",
+      "payload_sha256": "295a2db857461e5559bb592eab5e5aed1d3d460be5b1ed56d7d97332a09c6e36",
+      "intended": {
+        "sender": "alicec@corp.example.invalid",
+        "subject": "The quarterly report - action needed",
+        "body_core": "Following up on the quarterly report from earlier. This relates to what we discussed last week. Please let me know if you have any questions. Attached is what we discussed. The details are at https://www.example.com/orders/31667.",
+        "attachments": [
+          "attachment5522.csv",
+          "photo4922.txt"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.67799999658018,
+        "body_snippet": "2.0.0 Ok: queued as 1792389757.M757913P1Q60.a3905361ff67"
+      },
+      "tickets": [
+        "61"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0040",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0040",
+      "message_id": "hq-2610190602-749e-0-0040@hq.example.test",
+      "payload_sha256": "8f9bed88c12683f53a75f7bcf7e789d125272b47f81af2898ec68fb461c821c5",
+      "intended": {
+        "sender": "erinc@internal.localhost",
+        "subject": "The support ticket - action needed",
+        "body_core": "I have a question about the support ticket. Happy to hop on a call if that is easier.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.181599989533424,
+        "body_snippet": "2.0.0 Ok: queued as 1792389757.M957737P1Q61.a3905361ff67"
+      },
+      "tickets": [
+        "62"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0041",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0041",
+      "message_id": "hq-2610190602-749e-0-0041@hq.example.test",
+      "payload_sha256": "03a10880e025baa5f33317a2dc6d73c5787942fb6295fdb6bd25f920b4f5761a",
+      "intended": {
+        "sender": "oscarg22@internal.localhost",
+        "subject": "The support ticket",
+        "body_core": "Quick note regarding the support ticket. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.01150000398047,
+        "body_snippet": "2.0.0 Ok: queued as 1792389758.M157637P1Q62.a3905361ff67"
+      },
+      "tickets": [
+        "63"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0042",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0042",
+      "message_id": "hq-2610190602-749e-0-0042@hq.example.test",
+      "payload_sha256": "8b5e16beac526417a6b4017a2d5e7006a5fcc7fd9bae579eab8b546aa008d019",
+      "intended": {
+        "sender": "carol.smith@example.com",
+        "subject": "The support ticket - action needed",
+        "body_core": "I have a question about the support ticket. Attached is what we discussed.",
+        "attachments": [
+          "export2894.html"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.59860000316985,
+        "body_snippet": "2.0.0 Ok: queued as 1792389758.M357686P1Q63.a3905361ff67"
+      },
+      "tickets": [
+        "64"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0043",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0043",
+      "message_id": "hq-2610190602-749e-0-0043@hq.example.test",
+      "payload_sha256": "1d92734d2a56fb5179a01b502ae9cb55515c8eae441e55cd988b52f5bd7c7b14",
+      "intended": {
+        "sender": "ivan.smith@example.net",
+        "subject": "Following up on the support ticket",
+        "body_core": "Following up on the support ticket from earlier. Let me know if the timeline still works for you.",
+        "attachments": [
+          "invoice6180.json"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.96990000735968,
+        "body_snippet": "2.0.0 Ok: queued as 1792389758.M557661P1Q64.a3905361ff67"
+      },
+      "tickets": [
+        "65"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0044",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0044",
+      "message_id": "hq-2610190602-749e-0-0044@hq.example.test",
+      "payload_sha256": "53198f634229c150e55977a62611e2f3f5f68388b7c74684aafc6d7d1c13c405",
+      "intended": {
+        "sender": "graces14@example.org",
+        "subject": "The schedule",
+        "body_core": "I am writing about the schedule. Attached is what we discussed. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.53390002367087,
+        "body_snippet": "2.0.0 Ok: queued as 1792389758.M757759P1Q65.a3905361ff67"
+      },
+      "tickets": [
+        "66"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0045",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0045",
+      "message_id": "hq-2610190602-749e-0-0045@hq.example.test",
+      "payload_sha256": "df1aa5b6025bcc83f9e8aaddedd9e036884b66bff505f128d6b0eed2709f7d26",
+      "intended": {
+        "sender": "grace.jones@example.edu",
+        "subject": "Update on onboarding",
+        "body_core": "This message is about onboarding. Attached is what we discussed.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 52.84689998370595,
+        "body_snippet": "2.0.0 Ok: queued as 1792389758.M957520P1Q66.a3905361ff67"
+      },
+      "tickets": [
+        "67"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0046",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0046",
+      "message_id": "hq-2610190602-749e-0-0046@hq.example.test",
+      "payload_sha256": "d0055c8d9b7947bf76a6720cfc72085f39d569aee129e74b062c6fc546d9afc7",
+      "intended": {
+        "sender": "aliceb@example.org",
+        "subject": "Onboarding - action needed",
+        "body_core": "Following up on onboarding from earlier. Can you confirm receipt of this message? This relates to what we discussed last week. I wanted to follow up on this.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.31089999526739,
+        "body_snippet": "2.0.0 Ok: queued as 1792389759.M157596P1Q67.a3905361ff67"
+      },
+      "tickets": [
+        "68"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0047",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0047",
+      "message_id": "hq-2610190602-749e-0-0047@hq.example.test",
+      "payload_sha256": "b66d0862b9cbbf8a3f9dcbb58dd5b555b5893eaa8d3f19475a77a607e8fe2813",
+      "intended": {
+        "sender": "gsmith@mail.example.test",
+        "subject": "Following up on the schedule",
+        "body_core": "I have a question about the schedule. Please let me know if you have any questions. Attached is what we discussed.",
+        "attachments": [],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 54.06090000178665,
+        "body_snippet": "2.0.0 Ok: queued as 1792389759.M357858P1Q68.a3905361ff67"
+      },
+      "tickets": [
+        "69"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0048",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0048",
+      "message_id": "hq-2610190602-749e-0-0048@hq.example.test",
+      "payload_sha256": "e44d392343ce5658cca26c7c8f449b4509ac6def6311a0eb42a9fe9a0e840a31",
+      "intended": {
+        "sender": "oscarj@example.org",
+        "subject": "Re: the support ticket",
+        "body_core": "I am writing about the support ticket. I wanted to follow up on this. Looking forward to your reply.",
+        "attachments": [
+          "receipt4502.txt",
+          "form8513.html"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.7317999987863,
+        "body_snippet": "2.0.0 Ok: queued as 1792389759.M557786P1Q69.a3905361ff67"
+      },
+      "tickets": [
+        "70"
+      ],
+      "ticket_count": 1
+    },
+    {
+      "id": "clean-0-0049",
+      "category": "clean",
+      "tag": "hq-2610190602-749e-0-0049",
+      "message_id": "hq-2610190602-749e-0-0049@hq.example.test",
+      "payload_sha256": "fb117f085858f7a3f35de7d7d57d96d0bc49c72ea86a7ac3aac6a4faa94d3159",
+      "intended": {
+        "sender": "oscar.chen20@example.com",
+        "subject": "Re: the caf\u00e9 booking",
+        "body_core": "This message is about the caf\u00e9 booking. Looking forward to your reply. Attached is what we discussed.",
+        "attachments": [
+          "photo9506.json"
+        ],
+        "route": "Users",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.265999973518774,
+        "body_snippet": "2.0.0 Ok: queued as 1792389759.M757737P1Q70.a3905361ff67"
+      },
+      "tickets": [
+        "71"
+      ],
+      "ticket_count": 1
+    }
+  ]
+}

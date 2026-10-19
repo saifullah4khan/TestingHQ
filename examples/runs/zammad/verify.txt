@@ -1,0 +1,16 @@
+report: wrote sweep/runs/zammad/20261019T055956Z/verify.html
+tool:    verify (fire)
+verdict: VERIFIED
+seed:    0
+target:  zammad
+
+counts:
+  sent        20
+  found       20
+  passed      20
+  records     20
+
+findings: 1
+  [skipped:adapter cannot see field] 40 check(s) not verified: attachments, body
+
+exit code: 0 (derived, not recorded in the artifact)

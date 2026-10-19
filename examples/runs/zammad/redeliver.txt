@@ -1,0 +1,32 @@
+report: wrote sweep/runs/zammad/20261019T055956Z/redeliver.html
+tool:    redeliver
+verdict: DELIVERY-BUGS
+seed:    0
+target:  zammad
+
+counts:
+  sent        18
+  failed      4
+  scenarios   4
+
+findings: 18
+  [scenario:duplicate] hq-2610190604-5901-dup-0-0000: 2 tickets for one message (['73', '72']); a redelivery created a duplicate
+  [scenario:duplicate] ticket_created: the system holds 2 records for one message (tickets ['73', '72']); a duplicated message is a real intake bug, not a rounding difference
+  [scenario:duplicate] hq-2610190604-5901-dup-0-0001: 2 tickets for one message (['75', '74']); a redelivery created a duplicate
+  [scenario:duplicate] ticket_created: the system holds 2 records for one message (tickets ['75', '74']); a duplicated message is a real intake bug, not a rounding difference
+  [scenario:duplicate] hq-2610190604-5901-dup-0-0002: 2 tickets for one message (['77', '76']); a redelivery created a duplicate
+  [scenario:duplicate] ticket_created: the system holds 2 records for one message (tickets ['77', '76']); a duplicated message is a real intake bug, not a rounding difference
+  [scenario:slow-retry] hq-2610190604-5901-rty-0-0000: 2 tickets for one message (['81', '78']); a redelivery created a duplicate
+  [scenario:slow-retry] ticket_created: the system holds 2 records for one message (tickets ['81', '78']); a duplicated message is a real intake bug, not a rounding difference
+  [scenario:slow-retry] hq-2610190604-5901-rty-0-0001: 2 tickets for one message (['82', '79']); a redelivery created a duplicate
+  [scenario:slow-retry] ticket_created: the system holds 2 records for one message (tickets ['82', '79']); a duplicated message is a real intake bug, not a rounding difference
+  [scenario:slow-retry] hq-2610190604-5901-rty-0-0002: 2 tickets for one message (['83', '80']); a redelivery created a duplicate
+  [scenario:slow-retry] ticket_created: the system holds 2 records for one message (tickets ['83', '80']); a duplicated message is a real intake bug, not a rounding difference
+  [scenario:reply-first] hq-2610190604-5901-r1st-0-0001: the reply is on ticket 84 but its original is on 86
+  [scenario:reply-first] hq-2610190604-5901-r1st-0-0002: the reply is on ticket 85 but its original is on 86
+  [scenario:references] sender: expected bmuller19@example.com but the system recorded grace.brown@internal.localhost
+  [scenario:references] subject: expected 're: onboarding - action needed' but the system recorded 'onboarding - action needed' (match: contains)
+  [scenario:references] sender: expected ivan.chen@example.net but the system recorded grace.brown@internal.localhost
+  [scenario:references] subject: expected 're: onboarding - action needed' but the system recorded 'onboarding - action needed' (match: contains)
+
+exit code: 3 (derived, not recorded in the artifact)

@@ -1,23 +1,28 @@
 # Readback recipe: Zammad
 #
-# STATUS: Written from Zammad's published REST API documentation (Tickets:
-# search, Access tokens) and its source for the database search
+# STATUS: RUN against Zammad 7.2.2 on 2026-10-19
+#
+# Written from Zammad's published REST API documentation (Tickets: search,
+# Access tokens) and its source for the database search
 # (app/models/ticket/search.rb) and the expanded response
-# (attributes_with_association_names). Read the field paths as "what the
-# documentation and the source say the response looks like". If one is wrong
-# the failure is visible and safe: that check reports NOT CHECKED and says
-# which field the adapter could not see.
+# (attributes_with_association_names), then run by sweep/run.sh zammad against
+# Zammad 7.2.2; examples/runs/zammad/ holds that run.
+#
+# The search answers per ticket, so a reply Zammad threads onto a ticket reads
+# back with the ticket's customer and title, not its own sender and subject.
+# Which ticket each message landed on is exact.
 #
 # Zammad pulls its mail: an email channel fetches a mailbox over POP3 or IMAP
 # and opens a ticket per new message. So the target is SMTP, into the mail
 # server the channel fetches from, and the readback is Zammad's ticket search.
-# A Mailpit does for the mail server: it takes SMTP on 1025 and, with a POP3
-# credential configured, serves what it took over POP3 on 1110.
+# The mail server has to list the mailbox in the order mail arrived, because
+# Zammad imports a fetch in list order. Mailpit's POP3 server lists newest
+# first, so a thread sent together is imported reply before original and
+# filed on separate tickets: use a real mail server, or a delivery sidecar and
+# Dovecot as sweep/compose/zammad.yml does.
 #
-#   docker run -d -p 1025:1025 -p 1110:1110 -p 8025:8025 \
-#     -e MP_POP3_AUTH="zammad:secret" axllent/mailpit
-#   # Zammad: Channels > Email > New account, POP3, host of that Mailpit,
-#   # port 1110, user zammad, password secret, SSL off.
+#   # Zammad: Channels > Email > New account, POP3, the mail server's host,
+#   # its port, the mailbox user and password.
 #   export ZAMMAD_AUTH="Token token=$ZAMMAD_TOKEN"   # Profile > Token Access
 #   testinghq verify fire --target zammad --send --config target.toml \
 #     --quiet-window 60 --max-wait 240 --expect-route Users
@@ -43,8 +48,8 @@ name = "zammad"
 transport = "smtp"
 host = "127.0.0.1"
 port = 1025
-# The address the channel's email address is set to. A Mailpit takes mail for
-# any recipient, and a synthetic one is all a test should send to.
+# The address the channel's email address is set to, on the mail server the
+# channel fetches; a synthetic one is all a test should send to.
 envelope_to = "support@zammad.test"
 
 # ---------------------------------------------------------------------------

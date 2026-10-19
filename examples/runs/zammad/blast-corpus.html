@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; style-src &#x27;sha256-9Xqz4EKjIOPl8sMZqPMYoXxdTbapwtfYWAiXimXxvAw=&#x27;; script-src &#x27;sha256-6JbOcHQbjGjEgTkkywmr027eZpw9hbTSMdK8ruuiaJ8=&#x27;; img-src data:; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;">
+<meta name="generator" content="testinghq 1.0.0">
+<title>TestingHQ blast: CLEAN</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --border: #dedcd6;
+  --text: #1d1f23;
+  --muted: #5d636e;
+  --ok: #1e7a4c;
+  --ok-bg: #e3f3ea;
+  --bad: #b3261e;
+  --bad-bg: #fbe7e5;
+  --warn: #8a5a00;
+  --warn-bg: #fdf0d5;
+  --info: #2f4f8f;
+  --info-bg: #e6ecf8;
+  --row-bad: #fdf3f2;
+  --grid: #e7e5df;
+  --s0: #2f6fdb;
+  --s1: #d9480f;
+  --s2: #2b8a3e;
+  --s3: #9c36b5;
+  --knee: #b3261e;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --border: #2e333c;
+    --text: #e6e8ec;
+    --muted: #9aa1ad;
+    --ok: #5fd39a;
+    --ok-bg: #173327;
+    --bad: #ff8a80;
+    --bad-bg: #3a1d1b;
+    --warn: #f5c062;
+    --warn-bg: #3a2e14;
+    --info: #9db8f2;
+    --info-bg: #1d2740;
+    --row-bad: #2a1c1c;
+    --grid: #2a2e36;
+    --s0: #7aa7ff;
+    --s1: #ff9b6a;
+    --s2: #6fd08a;
+    --s3: #d59bf0;
+    --knee: #ff8a80;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
+header.top h1 { font-size: 20px; margin: 0; }
+header.top .meta { color: var(--muted); font-size: 13px; }
+header.top .meta span + span::before { content: " / "; }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+section h2 { font-size: 15px; margin: 0 0 12px; }
+.verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.verdict-word { font-size: 26px; font-weight: 700; letter-spacing: 0.01em; padding: 4px 12px; border-radius: 6px; }
+.tone-ok .verdict-word { color: var(--ok); background: var(--ok-bg); }
+.tone-finding .verdict-word { color: var(--bad); background: var(--bad-bg); }
+.tone-dry .verdict-word, .tone-unknown .verdict-word { color: var(--info); background: var(--info-bg); }
+.tone-refused .verdict-word { color: var(--warn); background: var(--warn-bg); }
+.verdict .source { color: var(--muted); font-size: 13px; }
+.exit { font-family: var(--mono); font-size: 13px; }
+.banner { margin-top: 12px; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+.banner-dry { background: var(--info-bg); color: var(--info); }
+.banner-aborted { background: var(--warn-bg); color: var(--warn); }
+.counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.count { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; }
+.count dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.count dd { margin: 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); margin: 0; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-weight: 600; white-space: nowrap; }
+th button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+th[aria-sort="ascending"] button::after { content: " \2191"; }
+th[aria-sort="descending"] button::after { content: " \2193"; }
+td { font-family: var(--mono); white-space: nowrap; }
+td.long { white-space: normal; min-width: 28ch; overflow-wrap: anywhere; }
+td.kind { white-space: nowrap; }
+tr.row-bad td { background: var(--row-bad); }
+.note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.filter { margin: 0 0 8px; padding: 4px 8px; font: inherit; font-size: 13px; width: min(320px, 100%); background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+pre { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.chart { width: 100%; height: auto; max-width: 720px; display: block; }
+.chart text { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.chart .axis { stroke: var(--border); }
+.chart .gridline { stroke: var(--grid); }
+.chart .line { fill: none; stroke-width: 2; }
+.chart .knee { stroke: var(--knee); stroke-dasharray: 4 3; }
+.chart .knee-label { fill: var(--knee); }
+.series-0 { stroke: var(--s0); }
+.series-1 { stroke: var(--s1); }
+.series-2 { stroke: var(--s2); }
+.series-3 { stroke: var(--s3); }
+.legend { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0; margin: 4px 0 12px; font-size: 13px; }
+.legend li::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 6px; vertical-align: middle; background: currentColor; }
+.legend .series-0 { color: var(--s0); }
+.legend .series-1 { color: var(--s1); }
+.legend .series-2 { color: var(--s2); }
+.legend .series-3 { color: var(--s3); }
+.charts h3 { font-size: 13px; margin: 8px 0 4px; color: var(--muted); font-weight: 600; }
+footer { color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+<header class="top"><h1>TestingHQ report</h1><div class="meta"><span>tool blast</span><span>target zammad</span><span>seed 0</span><span>schema 1</span></div></header><section class="verdict-panel tone-ok" aria-label="Verdict"><div class="verdict"><span class="verdict-word" data-verdict>CLEAN</span><span class="source">verdict derived</span><span class="exit" data-exit-code="0">exit code 0: ran, answer was yes (derived)</span></div></section><section aria-label="Counts"><h2>Counts</h2><dl class="counts"><div class="count" data-count="sent"><dt>sent</dt><dd>99</dd></div><div class="count" data-count="passed"><dt>passed</dt><dd>99</dd></div><div class="count" data-count="records"><dt>records</dt><dd>100</dd></div></dl></section><section aria-label="Findings"><h2>Findings (2)</h2><div class="table-wrap"><table id="findings" data-sortable><thead><tr><th><button type="button">kind</button></th><th><button type="button">detail</button></th></tr></thead><tbody><tr><td class="kind">unparseable</td><td class="long">mail068.box: no header fields: the file does not start with a message header</td></tr><tr><td class="kind">ignored</td><td class="long">119 file(s) under sweep/.cache/zammad/test/data/mail are not .eml or .box and were not read</td></tr></tbody></table></div></section><section aria-label="Records"><h2>Records (100)</h2><input class="filter" type="search" data-filter="table-records" placeholder="Filter records" aria-label="Filter records" hidden><div class="table-wrap"><table id="table-records" data-sortable><thead><tr><th><button type="button">id</button></th><th><button type="button">category</button></th><th><button type="button">outcome</button></th><th><button type="button">source</button></th><th><button type="button">intended.from</button></th><th><button type="button">intended.subject</button></th><th><button type="button">intended.body_core</button></th><th><button type="button">intended.attachments</button></th><th><button type="button">response.status</button></th><th><button type="button">response.latency_ms</button></th><th><button type="button">response.body_snippet</button></th><th><button type="button">response.error</button></th><th><button type="button">response.error_kind</button></th><th><button type="button">assertion.passed</button></th></tr></thead><tbody><tr><td>corpus-0-0000</td><td>corpus</td><td></td><td>mail001.box</td><td>John.Smith@example.com</td><td class="long">CI Daten für PublicView [testinghq:hq-2610190612-5508-0-0000]</td><td class="long">Hallo Martin,
+ 
+wie besprochen hier noch die Daten für die Intranetseite:
+ 
+Schriftart/-größe: Verdana 11 Pt wenn von Browser nicht unterstützt oder nicht vorhanden wird Arial 11 Pt genommen
+Schriftfarbe: Schwarz
+Farbe für die Balken in ...</td><td>0</td><td>250</td><td>55.247</td><td class="long">2.0.0 Ok: queued as 1792390336.M602494P1Q234.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0001</td><td>corpus</td><td></td><td>mail002.box</td><td>martin@example.com</td><td class="long">aaäöüßad asd [testinghq:hq-2610190612-5508-0-0001]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>55.365</td><td class="long">2.0.0 Ok: queued as 1792390336.M658580P1Q235.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0002</td><td>corpus</td><td></td><td>mail003.box</td><td>k.guenther@example.com</td><td class="long">Ticket Templates [testinghq:hq-2610190612-5508-0-0002]</td><td class="long">Hallo Fritz,
+
+ich möchte mich gern für den Beta-Test für die Ticket Templates unter XXXX 2.4 anmelden.
+
+
+Mit freundlichen Grüßen
+John Günther
+
+example.com&lt;http://example.com&gt; - profitieren Sie vom umfangreichen Daten-Netzwerk
+
+_ __ ___ _...</td><td>0</td><td>250</td><td>65.927</td><td class="long">2.0.0 Ok: queued as 1792390336.M727035P1Q236.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0003</td><td>corpus</td><td></td><td>mail004.box</td><td>k.guenther@example.com</td><td class="long">AW: Ticket Templates [Ticket#11168] [testinghq:hq-2610190612-5508-0-0003]</td><td class="long">Hallo Katja,
+
+super! Ich freu mich!
+
+Wir würden gerne die Präsentation/Einführung in die Ticket Templates per Screensharing oder zumindest per Telefon machen.
+
+Mögliche Termine:
+o Do, 10.05.2012 15:00-16:00
+o Fr,  11.05.2012 13:00-14:00
+...</td><td>0</td><td>250</td><td>77.24</td><td class="long">2.0.0 Ok: queued as 1792390336.M802239P1Q237.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0004</td><td>corpus</td><td></td><td>mail005.box</td><td>marc.smith@example.com</td><td class="long">Re: XXXX Betatest Ticket Templates [Ticket#11162] [testinghq:hq-2610190612-5508-0-0004]</td><td class="long">Am 07.05.2012 08:10, schrieb Martin Edenhofer via Znuny Team:
+&gt; Hallo Marc,
+&gt;
+&gt; super! Ich freu mich!
+&gt;
+&gt; Wir würden gerne die Präsentation/Einführung in die Ticket Templates per Screensharing oder zumindest per Telefon machen.
+&gt;
+&gt; Mögli...</td><td>0</td><td>250</td><td>70.442</td><td class="long">2.0.0 Ok: queued as 1792390336.M878483P1Q238.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0005</td><td>corpus</td><td></td><td>mail006.box</td><td>me-c8abaab078@corpus.example.test</td><td class="long">utf8: 使って / ISO-8859-1: Priorität&quot;  / cp-1251: Сергей Углицких [testinghq:hq-2610190612-5508-0-0005]</td><td></td><td>0</td><td>250</td><td>79.331</td><td class="long">2.0.0 Ok: queued as 1792390336.M958230P1Q239.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0006</td><td>corpus</td><td></td><td>mail007.box</td><td>Eike.Ehringer@example.com</td><td class="long">AW:Installation [Ticket#11392] [testinghq:hq-2610190612-5508-0-0006]</td><td></td><td>0</td><td>250</td><td>73.115</td><td class="long">2.0.0 Ok: queued as 1792390337.M034222P1Q240.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0007</td><td>corpus</td><td></td><td>mail008.box</td><td>Franz.Schaefer@example.com</td><td class="long">could not rename: ZZZAAuto [testinghq:hq-2610190612-5508-0-0007]</td><td class="long">Gravierend?
+
+Mit freundlichen Grüßen
+
+Franz Schäfer
+Manager Information Systems
+
+Telefon 
++49 000 000 8565
+franz.schaefer@example.com
+
+Example Stoff GmbH
+Fakultaet
+Düsseldorfer Landstraße 395
+D-00000 Hof
+www.example.com
+
+
+Geschäftsführun...</td><td>1</td><td>250</td><td>55.094</td><td class="long">2.0.0 Ok: queued as 1792390337.M202986P1Q241.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0008</td><td>corpus</td><td></td><td>mail009.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0008]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>59.123</td><td class="long">2.0.0 Ok: queued as 1792390337.M403056P1Q242.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0009</td><td>corpus</td><td></td><td>mail010.box</td><td>smith@example.com</td><td class="long">Gruß aus Oberalteich [testinghq:hq-2610190612-5508-0-0009]</td><td class="long">Herzliche Grüße aus Oberalteich sendet Herrn Smith
+
+ 
+
+Sepp Smith  - Dipl.Ing. agr. (FH)
+
+Geschäftsführer der example Straubing-Bogen
+
+Klosterhof 1 | 94327 Bogen-Oberalteich
+
+Tel: 09422-505601 | Fax: 09422-505620
+
+Internet: http://exampl...</td><td>1</td><td>250</td><td>54.329</td><td class="long">2.0.0 Ok: queued as 1792390337.M602266P1Q243.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0010</td><td>corpus</td><td></td><td>mail011.box</td><td class="long">carina-merkant-346b1217a0@corpus.example.test</td><td class="long">Eine schöne Adventszeit für ZNUNY GMBH - ENTERPRISE SERVICES FÜR OTRS [testinghq:hq-2610190612-5508-0-0010]</td><td class="long">&lt; http://newsletters.cylex.de/ref/www.cylex.de/sid-105/uid-4134001/lid-2/http%3a%2f%2fweb2.cylex.de%2fadvent2012%3fb2b &gt; Lieber CYLEX Eintragsinhaber, das Jahr neigt sich dem Ende und die besinnliche Zeit beginnt laut Kalender mit dem 1....</td><td>0</td><td>250</td><td>55.695</td><td class="long">2.0.0 Ok: queued as 1792390337.M802722P1Q244.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0011</td><td>corpus</td><td></td><td>mail012.box</td><td>Alex.Smith@example.com</td><td class="long">AW: Agenda [Ticket#11995] [testinghq:hq-2610190612-5508-0-0011]</td><td class="long">Hallo Herr Edenhofer,
+
+
+
+möglicherweise haben wir für unsere morgige Veranstaltung ein Problem mit unserer Develop-Umgebung.
+Der Kollege Smith wollte uns noch die Möglichkeit geben, direkt auf die Datenbank zugreifen zu können, hierzu ha...</td><td>1</td><td>250</td><td>55.344</td><td class="long">2.0.0 Ok: queued as 1792390338.M003087P1Q245.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0012</td><td>corpus</td><td></td><td>mail013.box</td><td>thomas.smith@example.com</td><td class="long">Antwort: Probleme ADB / Anlegen von Tickets [Ticket#111079] [testinghq:hq-2610190612-5508-0-0012]</td><td>JA</td><td>0</td><td>250</td><td>55.415</td><td class="long">2.0.0 Ok: queued as 1792390338.M202678P1Q246.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0013</td><td>corpus</td><td></td><td>mail014.box</td><td>Bernd.Mueller@example.com</td><td class="long">AW: OTRS [Ticket#118192] [testinghq:hq-2610190612-5508-0-0013]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>2</td><td>250</td><td>73.397</td><td class="long">2.0.0 Ok: queued as 1792390338.M422455P1Q247.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0014</td><td>corpus</td><td></td><td>mail015.box</td><td class="long">ynbe-ctrhk-48222e08ef@corpus.example.test</td><td class="long">绩效管理,究竟谁错了 [testinghq:hq-2610190612-5508-0-0014]</td><td></td><td>1</td><td>250</td><td>54.813</td><td class="long">2.0.0 Ok: queued as 1792390338.M602733P1Q248.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0015</td><td>corpus</td><td></td><td>mail016.box</td><td></td><td class="long">【 直通美国排名第49大学 成功后付费 】 [testinghq:hq-2610190612-5508-0-0015]</td><td></td><td>0</td><td>250</td><td>54.267</td><td class="long">2.0.0 Ok: queued as 1792390338.M802409P1Q249.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0016</td><td>corpus</td><td></td><td>mail017.box</td><td>ghgbwum-37c5b32146@corpus.example.test</td><td class="long">【专业为您注册香港及海外公司（好处多多）】　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　...</td><td class="long">宝马4系敞篷版曝光 洛杉矶车展正式发布美国华人万人游行人物                    互联网事阿拉法特非自然死亡阿拉法特非自然死亡穆勒:领先多特4分不保险 拜仁要以不败战绩夺冠一房四吃资料:中华人民共和国国家安全部
+_________________________________________________
+俄希望叙“全国联盟”无条件参加日内瓦会议科技                                                Xbo...</td><td>0</td><td>250</td><td>52.851</td><td class="long">2.0.0 Ok: queued as 1792390339.M015030P1Q250.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0017</td><td>corpus</td><td></td><td>mail018.box</td><td>postmaster@example.com</td><td class="long">Benachrichtung  	zum  	Übermittlungsstatus  	(Fehlgeschlagen) [testinghq:hq-2610190612-5508-0-0017]</td><td class="long">Dies ist eine automatisch erstellte Benachrichtigung über den Zustellstatus.
+
+Übermittlung an folgende Empfänger fehlgeschlagen.
+
+       m.smith@example.com</td><td>2</td><td>250</td><td>74.027</td><td class="long">2.0.0 Ok: queued as 1792390339.M222799P1Q251.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0018</td><td>corpus</td><td></td><td>mail019.box</td><td></td><td class="long">《欧美简讯》 [testinghq:hq-2610190612-5508-0-0018]</td><td></td><td>0</td><td>250</td><td>74.188</td><td class="long">2.0.0 Ok: queued as 1792390339.M423016P1Q252.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0019</td><td>corpus</td><td></td><td>mail020.box</td><td class="long">drugs-cheapest8-080e4a5959@corpus.example.test</td><td class="long">The Highest Grade Drugs And EXTRA LOW Price . [testinghq:hq-2610190612-5508-0-0019]</td><td></td><td>0</td><td>250</td><td>54.573</td><td class="long">2.0.0 Ok: queued as 1792390339.M603080P1Q253.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0020</td><td>corpus</td><td></td><td>mail021.box</td><td class="long">pharmacy-affordable1-deddb26e30@corpus.example.test</td><td class="long">World Best DRUGS Mall For a Reasonable Price. [testinghq:hq-2610190612-5508-0-0020]</td><td></td><td>0</td><td>250</td><td>55.295</td><td class="long">2.0.0 Ok: queued as 1792390339.M803288P1Q254.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0021</td><td>corpus</td><td></td><td>mail022.box</td><td>ireoniqla-bd53160cd7@corpus.example.test</td><td class="long">P..E..N-I..S__-E N L A R-G E-M..E..N T-___P..I-L-L..S...Info. [testinghq:hq-2610190612-5508-0-0021]</td><td></td><td>0</td><td>250</td><td>75.865</td><td class="long">2.0.0 Ok: queued as 1792390340.M022482P1Q255.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0022</td><td>corpus</td><td></td><td>mail023.box</td><td class="long">marketingmanager-3699b600bb@corpus.example.test</td><td>[testinghq:hq-2610190612-5508-0-0022]</td><td class="long">������������
+Message-ID: &lt;20140911055224675615-8be1ec3f55@corpus.example.test&gt;
+From: =?utf-8?B?6IOh5qW35ZKM?= &lt;marketingmanager-3699b600bb@corpus.example.test&gt;
+To: &lt;spviex-623fc82bca@corpus.example.test&gt;,
+	&lt;kmdc-info-d139e92edd@corpus.ex...</td><td>0</td><td>250</td><td>78.083</td><td class="long">2.0.0 Ok: queued as 1792390340.M227777P1Q256.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0023</td><td>corpus</td><td></td><td>mail024.box</td><td>oracle@IG0-1-DB01.example.com</td><td class="long">Regelsets im Test-Status gefunden: 1 [testinghq:hq-2610190612-5508-0-0023]</td><td></td><td>1</td><td>250</td><td>63.977</td><td class="long">2.0.0 Ok: queued as 1792390340.M410790P1Q257.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0024</td><td>corpus</td><td></td><td>mail025.box</td><td>oracle@IG0-1-DB01.example.com</td><td class="long">Regelsets im Test-Status gefunden: 1 [testinghq:hq-2610190612-5508-0-0024]</td><td class="long">begin 644 rulesets-report.csv
+M4E5,15-%5%])1#M.04U%.T%#5$E6.U)53E]-3T1%.T%51$E47TU/1$E&amp;65]$
+M051%&quot;C,X-SM$4&quot;!$2-p-348056f641@corpus.example.test])3B`M($5.(#h-b48babec77@corpus.example.test;&amp;%D=6YG(&amp;5!0SM4.U--
+*.S$W+C`Y+C$T&quot;@``
+`
+end</td><td>0</td><td>250</td><td>79.668</td><td class="long">2.0.0 Ok: queued as 1792390340.M626752P1Q258.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0025</td><td>corpus</td><td></td><td>mail026.box</td><td>team-308e1e7434@corpus.example.test</td><td class="long">Ihre Rechnung als PDF-Dokument [testinghq:hq-2610190612-5508-0-0025]</td><td class="long">********************************************************************
+
+
+gate                                                      Service
+
+
+--------------------------------------------------------------------
+
+
+gate GmbH   *   Gladbacher ...</td><td>1</td><td>250</td><td>62.947</td><td class="long">2.0.0 Ok: queued as 1792390340.M810875P1Q259.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0026</td><td>corpus</td><td></td><td>mail027.box</td><td class="long">caoyaoewfzfw-a7cdf01185@corpus.example.test</td><td class="long">蠭龕中層管理者如何避免角色行为誤区 [testinghq:hq-2610190612-5508-0-0026]</td><td></td><td>0</td><td>250</td><td>64.469</td><td class="long">2.0.0 Ok: queued as 1792390341.M010761P1Q260.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0027</td><td>corpus</td><td></td><td>mail028.box</td><td>kontakt-cae76b89b2@corpus.example.test</td><td class="long">Bewerbung auf Ihr Stellenangebot [testinghq:hq-2610190612-5508-0-0027]</td><td></td><td>2</td><td>250</td><td>63.805</td><td class="long">2.0.0 Ok: queued as 1792390341.M211183P1Q261.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0028</td><td>corpus</td><td></td><td>mail029.box</td><td>sales@example.com</td><td class="long">Example licensing information: No channel available [testinghq:hq-2610190612-5508-0-0028]</td><td></td><td>0</td><td>250</td><td>63.351</td><td class="long">2.0.0 Ok: queued as 1792390341.M410938P1Q262.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0029</td><td>corpus</td><td></td><td>mail030.box</td><td>Manfred.Haert@example.com</td><td class="long">Antragswesen in TesT abbilden [testinghq:hq-2610190612-5508-0-0029]</td><td></td><td>0</td><td>250</td><td>66.386</td><td class="long">2.0.0 Ok: queued as 1792390341.M614307P1Q263.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0030</td><td>corpus</td><td></td><td>mail031.box</td><td>zhengkang-fce9aaeb15@corpus.example.test</td><td class="long">�ȑ�力�a生与注塑工艺条件之间的关系； [testinghq:hq-2610190612-5508-0-0030]</td><td class="long">�|
+
+
+特色
+l.最佳注塑工艺参�翟O定方法，最佳模具�O计方案； 
+2.����分析注塑缺陷的原因，提出大师级的注塑�{�C、模具设计、产品�O��等解�Q方案；
+3.大量典型实例讲解、分析； 
+4.学�T自带不良品、�F�鼋饩���题、互动探��； 
+5.世界最先进的、全��独有的系统，全真展�F注塑生�a�^程，动态�@示生产现场看得见以及看不见的环��和��化，等于将注塑车间搬到培��大厅。
+6.培�B融汇注塑与模具技术的问�}解�Q专家。
+
+
+背景
+注塑成型...</td><td>0</td><td>250</td><td>66.719</td><td class="long">2.0.0 Ok: queued as 1792390341.M815065P1Q264.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0031</td><td>corpus</td><td></td><td>mail032.box</td><td class="long">dana-qin6e1-5cab02d9d6@corpus.example.test</td><td class="long">发现最美车间主任 [testinghq:hq-2610190612-5508-0-0031]</td><td class="long">=====================================================================================
+
+                        全能型车间主任实战技能训练
+
+    2015年03月21-22日(上海)    2015年03月28-29日(深圳)    2015年04月18-19日(上海)
+    2015年04月25-26日(深圳)    2015年06月06-07日(上海)...</td><td>0</td><td>250</td><td>54.718</td><td class="long">2.0.0 Ok: queued as 1792390342.M002799P1Q265.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0032</td><td>corpus</td><td></td><td class="long">mail033-undelivered-mail-returned-to-sender-notification.box</td><td class="long">mailer-daemon-cd96ddf2ac@corpus.example.test</td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0032]</td><td class="long">This is the mail system at host mx1.zammad.com.
+
+I&#x27;m sorry to have to inform you that your message could not
+be delivered to one or more recipients. It&#x27;s attached below.
+
+For further assistance, please send mail to postmaster.
+
+If you do...</td><td>2</td><td>250</td><td>76.739</td><td class="long">2.0.0 Ok: queued as 1792390342.M226881P1Q266.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0033</td><td>corpus</td><td></td><td class="long">mail033-undelivered-mail-returned-to-sender.box</td><td class="long">mailer-daemon-cd96ddf2ac@corpus.example.test</td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0033]</td><td class="long">This is the mail system at host mx1.zammad.com.
+
+I&#x27;m sorry to have to inform you that your message could not
+be delivered to one or more recipients. It&#x27;s attached below.
+
+For further assistance, please send mail to postmaster.
+
+If you do...</td><td>2</td><td>250</td><td>77.912</td><td class="long">2.0.0 Ok: queued as 1792390342.M427095P1Q267.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0034</td><td>corpus</td><td></td><td>mail034.box</td><td class="long">memberbay-12345-621e2a55ba@corpus.example.test</td><td class="long">strange email with empty text/plain [testinghq:hq-2610190612-5508-0-0034]</td><td></td><td>0</td><td>250</td><td>55.616</td><td class="long">2.0.0 Ok: queued as 1792390342.M602610P1Q268.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0035</td><td>corpus</td><td></td><td>mail035.box</td><td>finances8-a73ce9c813@corpus.example.test</td><td class="long">Darlehen bieten jetzt bewerben [testinghq:hq-2610190612-5508-0-0035]</td><td class="long">Beantworten :firstfinancelender@example.com
+
+Ich Mr.Squires Peter ist eine zuverlässige Kreditangebot mit einer
+Rate von 1.5% für den Zeitraum von 1 bis 40yrs nur, von der minimalen
+von 5,000.00euro sie an die maximale Menge an 150,000.0...</td><td>0</td><td>250</td><td>62.287</td><td class="long">2.0.0 Ok: queued as 1792390342.M811066P1Q269.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0036</td><td>corpus</td><td></td><td>mail036.box</td><td>m.Smith@example.com</td><td class="long">Fw: Zugangsdaten [testinghq:hq-2610190612-5508-0-0036]</td><td></td><td>0</td><td>250</td><td>54.616</td><td class="long">2.0.0 Ok: queued as 1792390343.M002572P1Q270.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0037</td><td>corpus</td><td></td><td>mail037.box</td><td>info@example.com</td><td class="long">Example: Java 8 Neuerungen [testinghq:hq-2610190612-5508-0-0037]</td><td>Tag Max / Ingo!</td><td>0</td><td>250</td><td>64</td><td class="long">2.0.0 Ok: queued as 1792390343.M210843P1Q271.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0038</td><td>corpus</td><td></td><td>mail038.box</td><td>me@example.com</td><td class="long">test 1234 äöü sig test without attachment [testinghq:hq-2610190612-5508-0-0038]</td><td class="long">test 1234 äöü sig test without attachment</td><td>1</td><td>250</td><td>63.455</td><td class="long">2.0.0 Ok: queued as 1792390343.M411136P1Q272.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0039</td><td>corpus</td><td></td><td>mail039.box</td><td>me@example.com</td><td class="long">test 1234 äöü sig test with attachment [testinghq:hq-2610190612-5508-0-0039]</td><td>test 1234 äöü sig test with attachment</td><td>2</td><td>250</td><td>62.709</td><td class="long">2.0.0 Ok: queued as 1792390343.M610993P1Q273.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0040</td><td>corpus</td><td></td><td>mail040.box</td><td>me@example.com</td><td class="long">smime signed 123 öäüß [testinghq:hq-2610190612-5508-0-0040]</td><td>smime signed 123 öäüß</td><td>1</td><td>250</td><td>55.564</td><td class="long">2.0.0 Ok: queued as 1792390343.M802652P1Q274.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0041</td><td>corpus</td><td></td><td>mail041.box</td><td>me@example.com</td><td class="long">smime sign &amp; crypt [testinghq:hq-2610190612-5508-0-0041]</td><td></td><td>1</td><td>250</td><td>64.048</td><td class="long">2.0.0 Ok: queued as 1792390344.M010804P1Q275.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0042</td><td>corpus</td><td></td><td>mail042.box</td><td>me@example.com</td><td class="long">pgp sign &amp; crypt [testinghq:hq-2610190612-5508-0-0042]</td><td></td><td>2</td><td>250</td><td>54.421</td><td class="long">2.0.0 Ok: queued as 1792390344.M201328P1Q276.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0043</td><td>corpus</td><td></td><td>mail043.box</td><td>databases.en@example.com</td><td class="long">Kontakte [testinghq:hq-2610190612-5508-0-0043]</td><td class="long">HTML newsletter could be read here:
+
+http://business-catalogs.example.com/cmVlbHQxODsxdDE5NWIzLTcyYzhjMjAt
+
+========
+
+If you want to unsubscribe click here:
+
+http://business-catalogs.example.com/c2JudXVlcmNic2I4MWk7MTgxOTMyNS1jMmMtNzA%3D</td><td>0</td><td>250</td><td>54.569</td><td class="long">2.0.0 Ok: queued as 1792390344.M401551P1Q277.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0044</td><td>corpus</td><td></td><td>mail044.box</td><td class="long">claudia-shu-fb9262d120@corpus.example.test</td><td class="long">精益生产闪婚,是谁的责任 [testinghq:hq-2610190612-5508-0-0044]</td><td class="long">标杆考察－丰田精益生产考察研修班(广州)
+
+                       ――中国精益生产第一课
+                       ――中国独家推出：工业4.0下的精益体系构建
+
+
+                2016年11月16-18日(第119期)    2016年12月21-23日(第120期)
+
+====================================================================...</td><td>0</td><td>250</td><td>54.219</td><td class="long">2.0.0 Ok: queued as 1792390344.M601331P1Q278.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0045</td><td>corpus</td><td></td><td>mail045.box</td><td>r.ordonaud@example.com</td><td class="long">Nouveau message contact élégibilité Zammad [testinghq:hq-2610190612-5508-0-0045]</td><td class="long">Nouveau message :
+=============================
+Nom: Orberer
+Prénom: Rémi
+Téléphone: xxxx
+Email: xxx@example.com
+Societé: KG
+Adresse: RdL
+CP: 11111
+Ville: Olèchena</td><td>0</td><td>250</td><td>66.75</td><td class="long">2.0.0 Ok: queued as 1792390344.M813269P1Q279.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0046</td><td>corpus</td><td></td><td>mail046.box</td><td>Glopelf7121@example.com</td><td class="long">ת��������������ҵ����ˮƽ [testinghq:hq-2610190612-5508-0-0046]</td><td class="long">Software zur Erkennung von &quot;Spam&quot; auf dem Rechner
+
+    bob.example.io
+
+hat die eingegangene E-mail als mögliche &quot;Spam&quot;-Nachricht identifiziert.
+Die ursprüngliche Nachricht wurde an diesen Bericht angehängt, so dass
+Sie sie anschauen könn...</td><td>1</td><td>250</td><td>54.645</td><td class="long">2.0.0 Ok: queued as 1792390345.M001569P1Q280.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0047</td><td>corpus</td><td></td><td>mail047.box</td><td class="long">anja-weber-eef95bd849@corpus.example.test</td><td class="long">-90%! Nur 3,90 statt 39,90 EUR: In-Ear-Stereo-Headset mit Bluetooth 4.1 und Magnetverschluss für Bob Max Example [testinghq:hq-2610190612-5508-0-0047]</td><td></td><td>0</td><td>250</td><td>59.911</td><td class="long">2.0.0 Ok: queued as 1792390345.M208063P1Q281.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0048</td><td>corpus</td><td></td><td>mail048.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0048]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>54.865</td><td class="long">2.0.0 Ok: queued as 1792390345.M402091P1Q282.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0049</td><td>corpus</td><td></td><td>mail049.box</td><td>marcus.smith@example.com</td><td class="long">Kinderschwimmbrille ABC Little Twist: Schnell angelegt, keine verhedderten Haare (Pressemitteilung) [testinghq:hq-2610190612-5508-0-0049]</td><td></td><td>2</td><td>250</td><td>66.369</td><td class="long">2.0.0 Ok: queued as 1792390345.M614935P1Q283.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0050</td><td>corpus</td><td></td><td>mail050.box</td><td>John.Smith@example.com</td><td class="long">ABC / 123 / Wetterau West / ABC [testinghq:hq-2610190612-5508-0-0050]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>55.357</td><td class="long">2.0.0 Ok: queued as 1792390345.M801203P1Q284.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0051</td><td>corpus</td><td></td><td>mail051.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0051]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>55.482</td><td class="long">2.0.0 Ok: queued as 1792390346.M001726P1Q285.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0052</td><td>corpus</td><td></td><td>mail052.box</td><td>MAILER-DAEMON@example.com</td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0052]</td><td>some test</td><td>0</td><td>250</td><td>67.513</td><td class="long">2.0.0 Ok: queued as 1792390346.M213278P1Q286.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0053</td><td>corpus</td><td></td><td>mail053.box</td><td></td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0053]</td><td class="long">This is the mail system at host smtp30.relay.dfw1a.example.com.
+
+I&#x27;m sorry to have to inform you that your message could not
+be delivered to one or more recipients. It&#x27;s attached below.
+
+For further assistance, please send mail to postma...</td><td>2</td><td>250</td><td>66.461</td><td class="long">2.0.0 Ok: queued as 1792390346.M413128P1Q287.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0054</td><td>corpus</td><td></td><td>mail054.box</td><td></td><td>[testinghq:hq-2610190612-5508-0-0054]</td><td class="long">Ig5drOCwmrVzP5sDoseXbDeYAxijWzLyk/IoE1owFz6ezFkxKrWjafpWpgfFOchcjF4eQwDZG
+iZbLL1ggnEOMEg3T97FCOIcZJX7/WsDcxcgJ5GxmlDg5wwvEZhPwkPhx6DUbiC0iYChxfOFUd
+hBbWEBWYsW5JYwQcTmJqY/OA9VwANluEivnqIGEWQRUJN69u8cCYvMKhEpsPziBCWLXUxaJk/
+Mvgc3hBJp/ueUn2...</td><td>0</td><td>250</td><td>55.391</td><td class="long">2.0.0 Ok: queued as 1792390346.M601261P1Q288.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0055</td><td>corpus</td><td></td><td>mail055.box</td><td class="long">mailer-daemon-e7a5251a34@corpus.example.test</td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0055]</td><td class="long">This is the mail system at host mx1.zammad.loc.
+
+I&#x27;m sorry to have to inform you that your message could not
+be delivered to one or more recipients. It&#x27;s attached below.
+
+For further assistance, please send mail to postmaster.
+
+If you do...</td><td>2</td><td>250</td><td>63.734</td><td class="long">2.0.0 Ok: queued as 1792390346.M813271P1Q289.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0056</td><td>corpus</td><td></td><td>mail056.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0056]</td><td>Enjoy!</td><td>1</td><td>250</td><td>66.363</td><td class="long">2.0.0 Ok: queued as 1792390347.M014092P1Q290.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0057</td><td>corpus</td><td></td><td>mail057.box</td><td>example@example.com</td><td class="long">W.: Invoice [testinghq:hq-2610190612-5508-0-0057]</td><td class="long">----- Original Nachricht ----
+Von:     example@example.com
+An:      bob@example.com
+Datum:   30.05.2017 16:17
+Betreff: Invoice
+
+Dear Mrs.Weber
+
+anbei mal wieder ein paar Invoice.
+
+Wünsche Ihnen noch einen schönen Arbeitstag.
+
+Mit freundl...</td><td>1</td><td>250</td><td>54.26</td><td class="long">2.0.0 Ok: queued as 1792390347.M201888P1Q291.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0058</td><td>corpus</td><td></td><td>mail058.box</td><td>bob@example.com</td><td class="long">new design solar street lights [testinghq:hq-2610190612-5508-0-0058]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>54.52</td><td class="long">2.0.0 Ok: queued as 1792390347.M401022P1Q292.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0059</td><td>corpus</td><td></td><td>mail059.box</td><td>ly@example.com</td><td class="long">new design solar street lights [testinghq:hq-2610190612-5508-0-0059]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>66.955</td><td class="long">2.0.0 Ok: queued as 1792390347.M613314P1Q293.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0060</td><td>corpus</td><td></td><td>mail060.box</td><td>martin@example.com</td><td class="long">abc [testinghq:hq-2610190612-5508-0-0060]</td><td class="long">Here it goes - äöü - 差出人Here it goes - ��� - hi �</td><td>0</td><td>250</td><td>66.853</td><td class="long">2.0.0 Ok: queued as 1792390347.M813403P1Q294.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0061</td><td>corpus</td><td></td><td>mail062.box</td><td>smith@example.com</td><td class="long">Gruß aus Oberalteich [testinghq:hq-2610190612-5508-0-0061]</td><td class="long">Herzliche Grüße aus Oberalteich sendet Herrn Smith
+
+ 
+
+Sepp Smith  - Dipl.Ing. agr. (FH)
+
+Geschäftsführer der example Straubing-Bogen
+
+Klosterhof 1 | 94327 Bogen-Oberalteich
+
+Tel: 09422-505601 | Fax: 09422-505620
+
+Internet: http://exampl...</td><td>7</td><td>250</td><td>54.241</td><td class="long">2.0.0 Ok: queued as 1792390348.M001127P1Q295.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0062</td><td>corpus</td><td></td><td>mail063.box</td><td>MAILER-DAEMON@mx1.example.com</td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0062]</td><td class="long">This is the mail system at host mx1.example.com.
+
+I&#x27;m sorry to have to inform you that your message could not
+be delivered to one or more recipients. It&#x27;s attached below.
+
+For further assistance, please send mail to postmaster.
+
+If you d...</td><td>2</td><td>250</td><td>53.981</td><td class="long">2.0.0 Ok: queued as 1792390348.M201268P1Q296.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0063</td><td>corpus</td><td></td><td>mail064.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0063]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>67.591</td><td class="long">2.0.0 Ok: queued as 1792390348.M414358P1Q297.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0064</td><td>corpus</td><td></td><td>mail065.box</td><td>smith@example.com</td><td class="long">aaäöüßad asd [testinghq:hq-2610190612-5508-0-0064]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>54.911</td><td class="long">2.0.0 Ok: queued as 1792390348.M601218P1Q298.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0065</td><td>corpus</td><td></td><td>mail066.box</td><td>info@example.com</td><td class="long">ABC gratuliert! [testinghq:hq-2610190612-5508-0-0065]</td><td></td><td>2</td><td>250</td><td>52.989</td><td class="long">2.0.0 Ok: queued as 1792390348.M801717P1Q299.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0066</td><td>corpus</td><td></td><td>mail067.box</td><td>info-fda689a56c@corpus.example.test</td><td class="long">Testmail - Alias in info-fda689a56c@corpus.example.test Gruppe [testinghq:hq-2610190612-5508-0-0066]</td><td></td><td>0</td><td>250</td><td>64.334</td><td class="long">2.0.0 Ok: queued as 1792390349.M009468P1Q300.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0067</td><td>corpus</td><td>unparseable</td><td>mail068.box</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0068</td><td>corpus</td><td></td><td>mail069.box</td><td>ahromdn@example.com</td><td class="long">Online-apotheke. Günstigster Preis. Ohne Rezepte [testinghq:hq-2610190612-5508-0-0068]</td><td class="long">Software zur Erkennung von &quot;Spam&quot; auf dem Rechner
+
+    hedwig.example.io
+
+hat die eingegangene E-mail als mögliche &quot;Spam&quot;-Nachricht identifiziert.
+Die ursprüngliche Nachricht wurde an diesen Bericht angehängt, so dass
+Sie sie anschauen k...</td><td>1</td><td>250</td><td>80.768</td><td class="long">2.0.0 Ok: queued as 1792390349.M226993P1Q301.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0069</td><td>corpus</td><td></td><td>mail070.box</td><td>http.abc@example.com</td><td class="long">test [testinghq:hq-2610190612-5508-0-0069]</td><td></td><td>0</td><td>250</td><td>62.967</td><td class="long">2.0.0 Ok: queued as 1792390349.M409330P1Q302.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0070</td><td>corpus</td><td></td><td>mail071.box</td><td>&quot;power quadrant system&quot;@example.com</td><td class="long">how&#x27;ve things been? [testinghq:hq-2610190612-5508-0-0070]</td><td></td><td>1</td><td>250</td><td>54.73</td><td class="long">2.0.0 Ok: queued as 1792390349.M600963P1Q303.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0071</td><td>corpus</td><td></td><td>mail072.box</td><td>me@example.com</td><td class="long">Réclamation commande n° 018255977840 [testinghq:hq-2610190612-5508-0-0071]</td><td class="long">Bonjour,
+
+Je vous contacte suite à ma commande du 14 août 2018 référencée ci-dessus.
+
+Cordialement,
+
+[XXXX]</td><td>0</td><td>250</td><td>54.187</td><td class="long">2.0.0 Ok: queued as 1792390349.M801409P1Q304.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0072</td><td>corpus</td><td></td><td>mail073.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">Test with different content type file name options [testinghq:hq-2610190612-5508-0-0072]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>2</td><td>250</td><td>64.461</td><td class="long">2.0.0 Ok: queued as 1792390350.M010956P1Q305.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0073</td><td>corpus</td><td></td><td>mail074.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">Test with different content type file name options [testinghq:hq-2610190612-5508-0-0073]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>62.905</td><td class="long">2.0.0 Ok: queued as 1792390350.M209304P1Q306.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0074</td><td>corpus</td><td></td><td>mail075.box</td><td>me-c8abaab078@corpus.example.test</td><td class="long">test email [testinghq:hq-2610190612-5508-0-0074]</td><td></td><td>0</td><td>250</td><td>66.579</td><td class="long">2.0.0 Ok: queued as 1792390350.M409408P1Q307.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0075</td><td>corpus</td><td></td><td>mail076.box</td><td class="long">&quot;Millions Lottery Spain transfer&quot;@example.com</td><td class="long">[SPAM] (19.9) Your Winning Notification!!! [testinghq:hq-2610190612-5508-0-0075]</td><td>test spam</td><td>0</td><td>250</td><td>61.854</td><td class="long">2.0.0 Ok: queued as 1792390350.M609290P1Q308.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0076</td><td>corpus</td><td></td><td>mail077.box</td><td>John.Smith@example.com</td><td class="long">Personaländerung [testinghq:hq-2610190612-5508-0-0076]</td><td class="long">äöüß ad asd
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>0</td><td>250</td><td>67.034</td><td class="long">2.0.0 Ok: queued as 1792390350.M812999P1Q309.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0077</td><td>corpus</td><td></td><td class="long">mail078-content_transfer_encoding_x_uuencode.box</td><td>lpeters@example.com</td><td class="long">PGP Comments on RTO West Release of Dec. 14 [testinghq:hq-2610190612-5508-0-0077]</td><td class="long">Attached are the comments of the Public Generating Pool.
+--
+_________________________________
+Lon L. Peters
+Example Economic Research, Inc.
+6765 S.W. Preslynn Drive
+Portland, Oregon 11111-2222
+503-000-0000 (voice)
+503-000-0000 (fax)
+503-...</td><td>1</td><td>250</td><td>54.336</td><td class="long">2.0.0 Ok: queued as 1792390351.M001011P1Q310.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0078</td><td>corpus</td><td></td><td>mail078.box</td><td>mailer-daemon@example.com</td><td class="long">Delivery Status Notification (Delay) [testinghq:hq-2610190612-5508-0-0078]</td><td class="long">** Zustellung nicht abgeschlossen **
+
+Bei der Zustellung Ihrer Nachricht an bob-smith-14cb7d68ab@corpus.example.test ist ein vorübergehendes Problem aufgetreten. Gmail versucht noch weitere 46 Stunden, die Nachricht zuzustellen. Sie werd...</td><td>2</td><td>250</td><td>53.95</td><td class="long">2.0.0 Ok: queued as 1792390351.M200974P1Q311.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0079</td><td>corpus</td><td></td><td>mail079.box</td><td>me@example.com</td><td class="long">image resize test [testinghq:hq-2610190612-5508-0-0079]</td><td>image resize test
+
+
+
+the end</td><td>1</td><td>250</td><td>66.4</td><td class="long">2.0.0 Ok: queued as 1792390351.M413090P1Q312.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0080</td><td>corpus</td><td></td><td>mail080.box</td><td>martin-3449ab9a74@corpus.example.test</td><td class="long">some test with blank filename in attachment [testinghq:hq-2610190612-5508-0-0080]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>55.635</td><td class="long">2.0.0 Ok: queued as 1792390351.M602273P1Q313.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0081</td><td>corpus</td><td></td><td>mail081.box</td><td>redacted-e2a42eea09@corpus.example.test</td><td class="long">UTF-8-Attachment-Test [testinghq:hq-2610190612-5508-0-0081]</td><td class="long">Regression test case for issue #2458 - Zammad fails to parse filename* in Content-Disposition header of attachment</td><td>1</td><td>250</td><td>53.809</td><td class="long">2.0.0 Ok: queued as 1792390351.M801334P1Q314.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0082</td><td>corpus</td><td></td><td>mail082.box</td><td>from@example.com</td><td class="long">FW: Tax Invoice  INX4183 [testinghq:hq-2610190612-5508-0-0082]</td><td class="long">Goeie dag,
+
+ 
+
+Jammer Janette hierdie is &#x27;n fout. Moet asb nie deurstuur medies toe nie.
+Die pasient het klaar betaal.
+
+Die invoice is verkeerde persoon, ek stuur die korrekte een.
+
+ 
+
+Dankie
+
+ 
+
+ 
+
+Chantel Wilken
+
+John Smith
+
+Tel: 053-8...</td><td>2</td><td>250</td><td>73.75</td><td class="long">2.0.0 Ok: queued as 1792390352.M030925P1Q315.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0083</td><td>corpus</td><td></td><td>mail083.box</td><td>martin083-badf67e01b@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0083]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>72.717</td><td class="long">2.0.0 Ok: queued as 1792390352.M214217P1Q316.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0084</td><td>corpus</td><td></td><td>mail084.box</td><td>martin084-73ae520240@corpus.example.test</td><td class="long">AW: OTRS / Anfrage OTRS Einführung/Präsentation [Ticket#11545] [testinghq:hq-2610190612-5508-0-0084]</td><td class="long">Enjoy!
+
+-Martin
+
+--
+Old programmers never die. They just branch to a new address.</td><td>1</td><td>250</td><td>56.297</td><td class="long">2.0.0 Ok: queued as 1792390352.M402743P1Q317.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0085</td><td>corpus</td><td></td><td>mail085.box</td><td>bob.smith@example.com</td><td class="long">Re: buy - Wir freuen uns über Deine kurze Bewertung! #1XXXX9 [testinghq:hq-2610190612-5508-0-0085]</td><td class="long">Liebes Team,
+
+Mit freundlichen Grüßen
+_____________________________________
+
+Office Management</td><td>0</td><td>250</td><td>52.943</td><td class="long">2.0.0 Ok: queued as 1792390352.M601941P1Q318.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0086</td><td>corpus</td><td></td><td>mail086.box</td><td>sender@example.com</td><td class="long">who knows [testinghq:hq-2610190612-5508-0-0086]</td><td></td><td>1</td><td>250</td><td>70.931</td><td class="long">2.0.0 Ok: queued as 1792390352.M817703P1Q319.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0087</td><td>corpus</td><td></td><td>mail087.box</td><td>&quot;Test test&quot;@example.com</td><td class="long">Failed Mail [testinghq:hq-2610190612-5508-0-0087]</td><td class="long">Sehr geehrter Kunde,
+
+Sie haben soeben ein neues Fax von +491234, fuer Rufnummer 012347 empfangen.
+
+Empfangszeit: Thursday, January 23 2020, at 03:39 PM
+Absender: +491234
+Empfaenger: 01234</td><td>1</td><td>250</td><td>55.186</td><td class="long">2.0.0 Ok: queued as 1792390353.M001364P1Q320.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0088</td><td>corpus</td><td></td><td>mail088.box</td><td>martin088-c1facbb007@corpus.example.test</td><td class="long">image as only content [testinghq:hq-2610190612-5508-0-0088]</td><td></td><td>1</td><td>250</td><td>72.485</td><td class="long">2.0.0 Ok: queued as 1792390353.M218102P1Q321.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0089</td><td>corpus</td><td></td><td>mail089.box</td><td>example-00dca76e76@corpus.example.test</td><td class="long">Incident INC678439 -- zugewiesen an EXT-XXXINIS [testinghq:hq-2610190612-5508-0-0089]</td><td>Incident content</td><td>0</td><td>250</td><td>57.298</td><td class="long">2.0.0 Ok: queued as 1792390353.M401501P1Q322.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0090</td><td>corpus</td><td></td><td>mail090.box</td><td>example-00dca76e76@corpus.example.test</td><td class="long">Incident INC678439 -- Arbeitsnotizen beigefügt [testinghq:hq-2610190612-5508-0-0090]</td><td>Incident content</td><td>0</td><td>250</td><td>71.07</td><td class="long">2.0.0 Ok: queued as 1792390353.M617242P1Q323.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0091</td><td>corpus</td><td></td><td>mail091.box</td><td>mail-fde3aad342@corpus.example.test</td><td class="long">メルマガ解除 [testinghq:hq-2610190612-5508-0-0091]</td><td>このアドレスへのメルマガを解除してください。</td><td>0</td><td>250</td><td>55.682</td><td class="long">2.0.0 Ok: queued as 1792390353.M801449P1Q324.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0092</td><td>corpus</td><td></td><td>mail092.box</td><td>postmaster@example.com</td><td class="long">Undelivered Mail Returned to Sender [testinghq:hq-2610190612-5508-0-0092]</td><td class="long">This is the mail system at Centrum Holdings
+
+I&#x27;m sorry to have to inform you that your message could not
+be delivered to one or more recipients. It&#x27;s attached below.
+
+For further assistance, please contact your system administrator.
+
+If ...</td><td>2</td><td>250</td><td>53.822</td><td class="long">2.0.0 Ok: queued as 1792390354.M001668P1Q325.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0093</td><td>corpus</td><td></td><td>mail093.box</td><td>bar@example.org</td><td class="long">�c�[�� [testinghq:hq-2610190612-5508-0-0093]</td><td></td><td>0</td><td>250</td><td>54.613</td><td class="long">2.0.0 Ok: queued as 1792390354.M201579P1Q326.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0094</td><td>corpus</td><td></td><td>mail094.box</td><td>noreply@example.com</td><td class="long">Otto Example Bestellung 4500258840 [testinghq:hq-2610190612-5508-0-0094]</td><td></td><td>1</td><td>250</td><td>55.446</td><td class="long">2.0.0 Ok: queued as 1792390354.M401333P1Q327.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0095</td><td>corpus</td><td></td><td>mail095.box</td><td>user.name@example.com</td><td class="long">Subject of message [testinghq:hq-2610190612-5508-0-0095]</td><td>Message text</td><td>0</td><td>250</td><td>56.256</td><td class="long">2.0.0 Ok: queued as 1792390354.M601953P1Q328.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0096</td><td>corpus</td><td></td><td>mail096.box</td><td>user.name@example.com</td><td class="long">Subject of message [testinghq:hq-2610190612-5508-0-0096]</td><td>Message text</td><td>0</td><td>250</td><td>68.31</td><td class="long">2.0.0 Ok: queued as 1792390354.M810036P1Q329.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0097</td><td>corpus</td><td></td><td>mail097.box</td><td>user.name@example.com</td><td class="long">Subject of message [testinghq:hq-2610190612-5508-0-0097]</td><td>Message text</td><td>0</td><td>250</td><td>67.539</td><td class="long">2.0.0 Ok: queued as 1792390355.M013390P1Q330.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0098</td><td>corpus</td><td></td><td>mail098.box</td><td>noreply@example.org</td><td class="long">一覧」をアップします [testinghq:hq-2610190612-5508-0-0098]</td><td>カテゴリ：全メンバー</td><td>0</td><td>250</td><td>54.098</td><td class="long">2.0.0 Ok: queued as 1792390355.M201544P1Q331.a3905361ff67</td><td></td><td></td><td>true</td></tr><tr><td>corpus-0-0099</td><td>corpus</td><td></td><td>mail099.box</td><td>noreply@example.org</td><td class="long">example [testinghq:hq-2610190612-5508-0-0099]</td><td>�１都３県の鯵と、</td><td>0</td><td>250</td><td>52.762</td><td class="long">2.0.0 Ok: queued as 1792390355.M401466P1Q332.a3905361ff67</td><td></td><td></td><td>true</td></tr></tbody></table></div></section><section aria-label="Config"><h2>Config</h2><pre>{
+  &quot;allow_public_target&quot;: false,
+  &quot;corpus_dir&quot;: &quot;sweep/.cache/zammad/test/data/mail&quot;,
+  &quot;corpus_ignored&quot;: 119,
+  &quot;count&quot;: 100,
+  &quot;dry_run&quot;: false,
+  &quot;fail_on_body&quot;: null,
+  &quot;format&quot;: &quot;mime&quot;,
+  &quot;seed&quot;: 0,
+  &quot;tag_prefix&quot;: &quot;hq-2610190612-5508&quot;,
+  &quot;target&quot;: &quot;zammad&quot;,
+  &quot;transport&quot;: &quot;smtp&quot;
+}</pre></section><footer>Written by testinghq 1.0.0. Self-contained: this file loads nothing from the network.</footer>
+</main>
+<script>// TestingHQ report page: sorting and filtering for the tables that
+// `testinghq report --html` writes.
+//
+// The page is complete without this script. Python renders every verdict,
+// count and row; this file only reorders and hides rows that are already
+// there, so it never decides what a result means.
+//
+// The pure functions are exported for `node --test`. In a browser the same
+// file publishes window.TestingHQRender and wires up the page it is inlined
+// into. It makes no network requests and loads nothing.
+
+(function (root, factory) {
+  "use strict";
+  var api = factory();
+  if (typeof module === "object" && module.exports) {
+    module.exports = api;
+    return;
+  }
+  root.TestingHQRender = api;
+  if (root.document && typeof root.document.querySelectorAll === "function") {
+    api.enhance(root.document);
+  }
+})(
+  typeof self !== "undefined" ? self : this,
+  function () {
+    "use strict";
+
+    var NUMBER = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
+
+    //: A cell's numeric value, or null when it is not a plain number.
+    function numericValue(text) {
+      var trimmed = String(text === null || text === undefined ? "" : text).trim();
+      if (!NUMBER.test(trimmed)) {
+        return null;
+      }
+      return Number(trimmed);
+    }
+
+    //: Order two cell texts. Empty cells sort last, numbers compare as
+    //: numbers, and anything else compares as case-insensitive text.
+    function compareCells(a, b) {
+      var left = String(a === null || a === undefined ? "" : a).trim();
+      var right = String(b === null || b === undefined ? "" : b).trim();
+      if (left === "" && right === "") return 0;
+      if (left === "") return 1;
+      if (right === "") return -1;
+      var ln = numericValue(left);
+      var rn = numericValue(right);
+      if (ln !== null && rn !== null) {
+        return ln < rn ? -1 : ln > rn ? 1 : 0;
+      }
+      if (ln !== null) return -1;
+      if (rn !== null) return 1;
+      var lc = left.toLowerCase();
+      var rc = right.toLowerCase();
+      return lc < rc ? -1 : lc > rc ? 1 : 0;
+    }
+
+    //: A sorted copy of rows ({cells: [...]}) by one column. Stable, and the
+    //: input is left as it was. Empty cells stay last in both directions.
+    function sortRows(rows, column, descending) {
+      var indexed = (rows || []).map(function (row, index) {
+        return { row: row, index: index };
+      });
+      indexed.sort(function (x, y) {
+        var a = (x.row.cells || [])[column];
+        var b = (y.row.cells || [])[column];
+        var aEmpty = String(a === null || a === undefined ? "" : a).trim() === "";
+        var bEmpty = String(b === null || b === undefined ? "" : b).trim() === "";
+        var order;
+        if (aEmpty || bEmpty) {
+          order = compareCells(a, b);
+        } else {
+          order = descending ? compareCells(b, a) : compareCells(a, b);
+        }
+        return order !== 0 ? order : x.index - y.index;
+      });
+      return indexed.map(function (entry) {
+        return entry.row;
+      });
+    }
+
+    //: True when any cell contains the query, ignoring case. An empty query
+    //: matches every row.
+    function matchesQuery(row, query) {
+      var needle = String(query || "").trim().toLowerCase();
+      if (needle === "") return true;
+      return (row.cells || []).some(function (cell) {
+        return String(cell === null || cell === undefined ? "" : cell)
+          .toLowerCase()
+          .indexOf(needle) !== -1;
+      });
+    }
+
+    function filterRows(rows, query) {
+      return (rows || []).filter(function (row) {
+        return matchesQuery(row, query);
+      });
+    }
+
+    //: The aria-sort value a header moves to when it is clicked.
+    function nextDirection(current) {
+      return current === "ascending" ? "descending" : "ascending";
+    }
+
+    function toArray(list) {
+      return Array.prototype.slice.call(list || []);
+    }
+
+    function rowsOf(tbody) {
+      return toArray(tbody.rows).map(function (node) {
+        return {
+          node: node,
+          cells: toArray(node.cells).map(function (cell) {
+            return cell.textContent;
+          }),
+        };
+      });
+    }
+
+    function wireSorting(table) {
+      var head = table.tHead && table.tHead.rows[0];
+      var tbody = table.tBodies && table.tBodies[0];
+      if (!head || !tbody) return;
+      var headers = toArray(head.cells);
+      headers.forEach(function (th, column) {
+        var button = th.querySelector("button");
+        if (!button) return;
+        button.addEventListener("click", function () {
+          var direction = nextDirection(th.getAttribute("aria-sort"));
+          headers.forEach(function (other) {
+            other.removeAttribute("aria-sort");
+          });
+          th.setAttribute("aria-sort", direction);
+          sortRows(rowsOf(tbody), column, direction === "descending").forEach(
+            function (row) {
+              tbody.appendChild(row.node);
+            }
+          );
+        });
+      });
+    }
+
+    function wireFilter(doc, input) {
+      var table = doc.getElementById(input.getAttribute("data-filter"));
+      if (!table || !table.tBodies || !table.tBodies[0]) return;
+      var tbody = table.tBodies[0];
+      input.hidden = false;
+      input.addEventListener("input", function () {
+        rowsOf(tbody).forEach(function (row) {
+          row.node.hidden = !matchesQuery(row, input.value);
+        });
+      });
+    }
+
+    //: Attach sorting to every table marked data-sortable and show the
+    //: filter boxes, which are hidden until a script can make them work.
+    //: Returns the number of tables wired, for the tests.
+    function enhance(doc) {
+      var tables = toArray(doc.querySelectorAll("table[data-sortable]"));
+      tables.forEach(wireSorting);
+      toArray(doc.querySelectorAll("input[data-filter]")).forEach(function (input) {
+        wireFilter(doc, input);
+      });
+      return tables.length;
+    }
+
+    return {
+      numericValue: numericValue,
+      compareCells: compareCells,
+      sortRows: sortRows,
+      matchesQuery: matchesQuery,
+      filterRows: filterRows,
+      nextDirection: nextDirection,
+      enhance: enhance,
+    };
+  }
+);
+</script>
+</body>
+</html>
