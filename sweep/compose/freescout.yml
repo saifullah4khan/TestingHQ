@@ -1,0 +1,140 @@
+# FreeScout for the helpdesk sweep, with the mail path it needs.
+#
+# FreeScout takes mail by fetching a mailbox over IMAP, so the stack is four
+# services:
+#
+#   freescout  FreeScout 1.8.248 in the nfrastack/freescout image (formerly
+#              tiredofit/freescout, the image FreeScout's own Docker
+#              instructions point at). Its init migrates a fresh database and
+#              creates the admin, and its scheduler service runs
+#              `artisan schedule:run` every minute, which runs
+#              `freescout:fetch-emails` every minute.
+#   db         MariaDB 11.8, FreeScout's database. Published on 127.0.0.1 so
+#              the TestingHQ readback adapter can read it.
+#   dovecot    Dovecot 2.3.21.1 serving one Maildir over IMAP to FreeScout.
+#   deliver    A standard-library Python SMTP server (freescout/maildir_smtp.py)
+#              that writes each message for support@freescout.test into the
+#              Maildir Dovecot serves, and records any other recipient's mail
+#              (what FreeScout sends out) in sweep/.state/freescout/outbound.jsonl.
+#
+# TestingHQ sends over SMTP to deliver on 127.0.0.1:3425, Dovecot holds it,
+# FreeScout fetches it within a minute, and the readback reads the database
+# on 127.0.0.1:3406.
+#
+#   docker compose -f sweep/compose/freescout.yml up -d
+#   bash sweep/setup/freescout.sh
+#
+# Every port is bound to 127.0.0.1. The passwords below are fixed values for
+# a throwaway local stack holding synthetic mail only; override them through
+# the environment if you like. The readback uses its own read-only database
+# user, created by the setup script with a random password.
+
+name: thq-freescout
+
+services:
+  freescout:
+    image: docker.io/nfrastack/freescout:2.2.19
+    depends_on:
+      db:
+        condition: service_healthy
+      dovecot:
+        condition: service_started
+      deliver:
+        condition: service_started
+    environment:
+      - CONTAINER_NAME=thq-freescout
+      - TIMEZONE=Etc/UTC
+      - SETUP_TYPE=AUTO
+      - ENABLE_AUTO_UPDATE=FALSE
+      - APP_URL=http://127.0.0.1:3400
+      - DB_TYPE=mariadb
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_NAME=freescout
+      - DB_USER=freescout
+      - DB_PASS=${FREESCOUT_DB_PASS:-thq-freescout-db}
+      - ADMIN_EMAIL=admin@freescout.test
+      - ADMIN_FIRST_NAME=Sweep
+      - ADMIN_LAST_NAME=Admin
+      - ADMIN_PASS=${FREESCOUT_ADMIN_PASS:-thq-freescout-admin}
+      # `service` runs the scheduler (fetching every minute) and the queue
+      # worker (sending auto-replies) as long-lived services.
+      - SCHEDULER_TYPE=service
+      - FREESCOUT_APP_LOCALE=en
+      # System mail (notifications to the admin) goes to the log; mail to
+      # customers goes through the mailbox's own SMTP settings, which the
+      # setup script points at the deliver sidecar.
+      - FREESCOUT_MAIL_DRIVER=log
+    ports:
+      - "127.0.0.1:3400:80"
+    volumes:
+      - freescout-data:/data
+      - freescout-logs:/logs
+    restart: unless-stopped
+
+  db:
+    image: docker.io/library/mariadb:11.8.9
+    environment:
+      - MARIADB_ROOT_PASSWORD=${FREESCOUT_DB_ROOT_PASS:-thq-freescout-root}
+      - MARIADB_DATABASE=freescout
+      - MARIADB_USER=freescout
+      - MARIADB_PASSWORD=${FREESCOUT_DB_PASS:-thq-freescout-db}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "127.0.0.1:3406:3306"
+    volumes:
+      - freescout-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  dovecot:
+    image: docker.io/dovecot/dovecot:2.3.21.1
+    volumes:
+      - ./freescout/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - freescout-mail:/srv/mail
+    ports:
+      # Not needed by the sweep; published so the mailbox can be inspected
+      # with an IMAP client (user support, the password in dovecot.conf).
+      - "127.0.0.1:3443:143"
+    restart: unless-stopped
+
+  deliver:
+    image: docker.io/library/python:3.13.16-alpine3.24
+    # Root, so it can create the Maildir and hand every file to uid 1000,
+    # the user Dovecot reads the mailbox as.
+    user: "0:0"
+    command:
+      - python
+      - -u
+      - /app/maildir_smtp.py
+      - --port
+      - "25"
+      - --maildir
+      - /srv/mail/support/Maildir
+      - --address
+      - support@freescout.test
+      - --uid
+      - "1000"
+      - --gid
+      - "1000"
+      - --sink
+      - /sink/outbound.jsonl
+    volumes:
+      - ./freescout/maildir_smtp.py:/app/maildir_smtp.py:ro
+      - freescout-mail:/srv/mail
+      - ../.state/freescout:/sink
+    ports:
+      - "127.0.0.1:3425:25"
+    restart: unless-stopped
+
+volumes:
+  freescout-data:
+  freescout-logs:
+  freescout-db:
+  freescout-mail:
