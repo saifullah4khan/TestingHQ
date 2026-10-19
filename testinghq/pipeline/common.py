@@ -242,16 +242,18 @@ def _round_up(value: float, places: int = 0) -> float:
 
 def _fit_advice(
     tags: int, rate: Optional[float], quiet_window: float, max_wait: float,
-    per_poll: Optional[float] = None,
+    per_poll: Optional[float] = None, requests_per_tag: int = 1,
 ) -> str:
     """The --max-wait, and with a paced adapter the --readback-rate, that would
     leave room for two complete polls plus the quiet window."""
     if per_poll is None:
-        per_poll = tags / rate if rate else 0.0
+        per_poll = tags * requests_per_tag / rate if rate else 0.0
     need = _round_up(2 * per_poll + quiet_window)
     advice = f"raise --max-wait to at least {need:g}"
     if rate and tags and max_wait > quiet_window:
-        rate_needed = max(_round_up(2 * tags / (max_wait - quiet_window), 1), rate)
+        rate_needed = max(
+            _round_up(2 * tags * requests_per_tag / (max_wait - quiet_window), 1), rate
+        )
         if rate_needed > rate:
             advice += f", or --readback-rate to at least {rate_needed:g} if the store allows it"
     return advice
@@ -273,22 +275,48 @@ def adapter_rate(readback: Any) -> Optional[float]:
     return None
 
 
+def requests_per_lookup(readback: Any) -> int:
+    """Paced requests one lookup of a found tag makes, for a `ReadbackConfig`
+    or an adapter.
+
+    Two for an http readback numbered by `page_param` with no
+    `page_size_param`: without a page size the adapter cannot tell a short
+    first page from a full one, so a lookup that finds its record asks for
+    the next page as well, and that request is paced like the first. One
+    otherwise: a known page size or a `next_path` link ends a one-record
+    lookup at the first page."""
+    if adapter_rate(readback) is None:
+        return 1
+    if getattr(readback, "page_param", None) and not getattr(readback, "page_size_param", None):
+        return 2
+    return 1
+
+
+def _poll_cost(tags: int, rate: float, requests_per_tag: int) -> str:
+    """`N tag(s) at --readback-rate R/s`, naming the requests a lookup makes
+    when there is more than one."""
+    per = f" at {requests_per_tag} requests a lookup and" if requests_per_tag > 1 else " at"
+    return f"{tags} tag(s){per} --readback-rate {rate:g}/s"
+
+
 def settle_time_needed(
     tags: int,
     readback_rate: Optional[float],
     quiet_window: float = DEFAULT_QUIET_WINDOW,
+    requests_per_tag: int = 1,
 ) -> float:
     """Seconds a readback of `tags` tags needs to settle on an instantly
     consistent store.
 
     A readback settles at the earliest after two complete polls, and each poll
-    asks every tag once, paced to `readback_rate` per second. So a run needs
-    about 2 x tags / rate seconds to poll twice, plus the quiet window.
-    `readback_rate` None means lookups are not paced, and only the quiet
-    window counts. The one statement of this arithmetic: the dry-run warning
-    and the plan-sized --max-wait default both use it.
+    asks every tag once, in `requests_per_tag` requests
+    (`requests_per_lookup`) paced to `readback_rate` per second. So a run
+    needs about 2 x tags x requests / rate seconds to poll twice, plus the
+    quiet window. `readback_rate` None means lookups are not paced, and only
+    the quiet window counts. The one statement of this arithmetic: the
+    dry-run warning and the plan-sized --max-wait default both use it.
     """
-    per_poll = tags / readback_rate if readback_rate else 0.0
+    per_poll = tags * requests_per_tag / readback_rate if readback_rate else 0.0
     return 2 * per_poll + quiet_window
 
 
@@ -306,6 +334,7 @@ class MaxWait:
     needed: float
     tags: int = 0
     readback_rate: Optional[float] = None
+    requests_per_tag: int = 1
 
     @property
     def raised(self) -> bool:
@@ -320,7 +349,7 @@ class MaxWait:
         if not self.raised:
             return f"readback max-wait: {self.seconds:g}s (default)"
         cost = (
-            f"{self.tags} tag(s) at --readback-rate {self.readback_rate:g}/s"
+            _poll_cost(self.tags, self.readback_rate, self.requests_per_tag)
             if self.readback_rate else f"{self.tags} tag(s)"
         )
         return (
@@ -349,11 +378,12 @@ def resolve_max_wait(
     adapter, or None, whose pacing `adapter_rate` reads.
     """
     rate = adapter_rate(readback)
-    needed = settle_time_needed(tags, rate, quiet_window)
+    requests = requests_per_lookup(readback)
+    needed = settle_time_needed(tags, rate, quiet_window, requests)
     if max_wait is not None:
-        return MaxWait(float(max_wait), MAX_WAIT_GIVEN, needed, tags, rate)
+        return MaxWait(float(max_wait), MAX_WAIT_GIVEN, needed, tags, rate, requests)
     seconds = max(DEFAULT_MAX_WAIT, _round_up(needed * (1 + MAX_WAIT_MARGIN)))
-    return MaxWait(seconds, MAX_WAIT_DEFAULT, needed, tags, rate)
+    return MaxWait(seconds, MAX_WAIT_DEFAULT, needed, tags, rate, requests)
 
 
 def readback_poll_settings(
@@ -382,6 +412,7 @@ def settle_time_warning(
     readback_rate: Optional[float],
     quiet_window: float = DEFAULT_QUIET_WINDOW,
     max_wait: float = DEFAULT_MAX_WAIT,
+    requests_per_tag: int = 1,
 ) -> Optional[str]:
     """A warning for a dry run whose real run may end UNSETTLED for lack of
     time, or None when it fits.
@@ -390,19 +421,21 @@ def settle_time_warning(
     --max-wait is sized to fit (`resolve_max_wait`), so this only fires for a
     --max-wait the user gave. Every pipeline tool's dry run calls this.
     """
-    per_poll = tags / readback_rate if readback_rate else 0.0
-    need = settle_time_needed(tags, readback_rate, quiet_window)
+    per_poll = tags * requests_per_tag / readback_rate if readback_rate else 0.0
+    need = settle_time_needed(tags, readback_rate, quiet_window, requests_per_tag)
     if need <= max_wait:
         return None
     if readback_rate:
         cost = (
-            f"{tags} tag(s) at --readback-rate {readback_rate:g}/s take about "
+            f"{_poll_cost(tags, readback_rate, requests_per_tag)} take about "
             f"{per_poll:.1f}s a poll, so two polls plus --quiet-window "
             f"{quiet_window:g}s is about {need:.1f}s"
         )
     else:
         cost = f"--quiet-window {quiet_window:g}s"
-    advice = _fit_advice(tags, readback_rate, quiet_window, max_wait)
+    advice = _fit_advice(
+        tags, readback_rate, quiet_window, max_wait, requests_per_tag=requests_per_tag
+    )
     return (
         f"warning: a real run may end UNSETTLED for lack of time: {cost}, over "
         f"--max-wait {max_wait:g}s. {advice[0].upper()}{advice[1:]}"
@@ -724,6 +757,7 @@ def read_back_all(
             cause, reason, advice = _why_unsettled(
                 tags=len(asked),
                 rate=adapter_rate(adapter),
+                requests_per_tag=requests_per_lookup(adapter),
                 quiet_window=quiet_window,
                 max_wait=max_wait,
                 complete=complete,
@@ -762,6 +796,7 @@ def _why_unsettled(
     quiet_window: float,
     max_wait: float,
     complete: int,
+    requests_per_tag: int = 1,
     first_poll_s: Optional[float],
     elapsed: float,
     changed: bool,
@@ -771,7 +806,10 @@ def _why_unsettled(
     """(cause, reason, advice) for a readback that did not settle."""
     if complete < 2:
         if rate:
-            cost = f"{tags} tag(s) at --readback-rate {rate:g}/s take about {tags / rate:.1f}s a poll"
+            cost = (
+                f"{_poll_cost(tags, rate, requests_per_tag)} take about "
+                f"{tags * requests_per_tag / rate:.1f}s a poll"
+            )
             per_poll = None
         else:
             per_poll = first_poll_s if first_poll_s is not None else elapsed
@@ -783,7 +821,10 @@ def _why_unsettled(
             CAUSE_NO_TIME,
             f"not enough time to poll every tag twice: {cost}, and --max-wait is "
             f"{max_wait:g}s",
-            _fit_advice(tags, rate, quiet_window, max_wait, per_poll=per_poll),
+            _fit_advice(
+                tags, rate, quiet_window, max_wait, per_poll=per_poll,
+                requests_per_tag=requests_per_tag,
+            ),
         )
     if not last_two_identical:
         return (
@@ -909,6 +950,7 @@ __all__ = [
     "resolve_max_wait",
     "resolve_target_url",
     "send_all",
+    "requests_per_lookup",
     "settle_time_needed",
     "settle_time_warning",
     "status_class",

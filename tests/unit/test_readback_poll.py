@@ -747,3 +747,32 @@ def test_a_max_wait_given_is_honoured_exactly():
         123, http, quiet_window=5.0, max_wait=30.0, poll_interval=0.5
     ) == {"quiet_window": 5.0, "max_wait": 30.0, "max_wait_source": "given",
           "poll_interval": 0.5}
+
+
+def test_a_page_numbered_lookup_is_planned_at_the_requests_it_makes():
+    """With page_param and no page_size_param the adapter cannot tell a full
+    first page from a short one, so a lookup that finds its record asks for
+    the next page too: two paced requests a tag, and the plan counts both."""
+    from testinghq.pipeline.adapters import ReadbackConfig
+
+    paged = ReadbackConfig(kind="http", url="http://localhost:9/tickets", page_param="page")
+    # 2 polls x 123 tags x 2 requests / 4 per second + 5 = 128s, plus 25% is 160s.
+    resolved = common.resolve_max_wait(None, 123, paged, 5.0)
+    assert resolved.needed == 128.0
+    assert resolved.seconds == 160.0
+    assert "2 requests a lookup" in resolved.describe()
+    # A page size, or a next link, ends a one-record lookup at one request.
+    sized = ReadbackConfig(
+        kind="http", url="http://localhost:9/tickets", page_param="page",
+        page_size_param="per_page",
+    )
+    linked = ReadbackConfig(kind="http", url="http://localhost:9/tickets", next_path="/next")
+    assert common.resolve_max_wait(None, 123, sized, 5.0).needed == 66.5
+    assert common.resolve_max_wait(None, 123, linked, 5.0).needed == 66.5
+
+
+def test_the_settle_warning_counts_every_request_of_a_lookup():
+    # 2 x 100 x 2 / 4 + 5 = 105s, over 60s; 400 requests in 55s is 7.28/s.
+    warning = common.settle_time_warning(100, 4.0, 5.0, 60.0, requests_per_tag=2)
+    assert "100 tag(s) at 2 requests a lookup and --readback-rate 4/s take about 50.0s a poll" in warning
+    assert "Raise --max-wait to at least 105, or --readback-rate to at least 7.3" in warning
