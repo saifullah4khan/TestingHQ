@@ -22,7 +22,10 @@
 #      osTicket then falls back to sendmail, which has nowhere to go), and
 #      the new-ticket and new-message auto-responders (off on a fresh
 #      install), so osTicket answers ordinary mail and loop can see whether
-#      it also answers machine mail;
+#      it also answers machine mail. The new-ticket and new-message alerts
+#      to staff are turned off: they quote the message, tag and all, so loop
+#      read each one as a reply to the sender, and they go to staff, not
+#      back to the sender, so they cannot make a loop;
 #   5. creates a SELECT-only database user for the readback adapter;
 #   6. writes OSTICKET_API_KEY and OSTICKET_MYSQL_DSN to sweep/.env.osticket.
 set -euo pipefail
@@ -151,7 +154,10 @@ sql "UPDATE ${PREFIX}email_account SET active = 1, updated = NOW()
     WHERE namespace = 'core' AND \`key\` = 'default_email_id');
 UPDATE ${PREFIX}config SET value = '1', updated = NOW()
   WHERE namespace = 'core'
-    AND \`key\` IN ('ticket_autoresponder', 'message_autoresponder');" >/dev/null
+    AND \`key\` IN ('ticket_autoresponder', 'message_autoresponder');
+UPDATE ${PREFIX}config SET value = '0', updated = NOW()
+  WHERE namespace = 'core'
+    AND \`key\` IN ('ticket_alert_active', 'message_alert_active');" >/dev/null
 smtp_on="$(sql "SELECT COUNT(*) FROM ${PREFIX}email_account WHERE type = 'smtp' AND active = 1")"
 if [ "$smtp_on" = "0" ]; then
   echo "osticket setup: no active SMTP account for the default email; osTicket's replies will not reach mail-out" >&2
