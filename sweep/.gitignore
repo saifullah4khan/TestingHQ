@@ -1,0 +1,6 @@
+# Written by sweep/setup/<helpdesk>.sh: the credentials the run uses.
+.env.*
+# Every run's artifacts. Published runs are copied to examples/runs/.
+runs/
+# The Zammad corpus clone and the Mailpit download.
+.cache/
