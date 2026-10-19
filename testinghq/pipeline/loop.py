@@ -234,6 +234,11 @@ def _message(
     attachments: Tuple[Attachment, ...] = (),
 ) -> InboundEmail:
     envelope_from = from_addr.split("<")[-1].strip("> ")
+    # A message whose Return-Path is empty is a bounce, and a bounce is sent
+    # with a null reverse-path (MAIL FROM:<>), which the receiving server
+    # writes as the Return-Path the pipeline reads.
+    if any(name.casefold() == "return-path" and value.strip() == "<>" for name, value in headers):
+        envelope_from = ""
     return InboundEmail(
         to=to,
         from_addr=from_addr,

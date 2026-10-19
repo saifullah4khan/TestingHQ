@@ -118,6 +118,10 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   prefix of another or inside one.
   The bytes of every `mime` message with attachments change; they are still
   the same from run to run.
+- `loop` sends its bounce with a null envelope sender, as a delivery status
+  notification is sent. It used to go out with `MAIL FROM:<MAILER-DAEMON@...>`,
+  which the receiving server wrote as the Return-Path above the message's own
+  `<>`, so over SMTP the case did not have the shape it claims to test.
 - `report` on a verify artifact lists every failed check as a `mismatched`
   finding, named by record, as verify prints them (the first 20, then a
   `truncated` finding). It used to say MISMATCHED with only the skipped
