@@ -1,10 +1,11 @@
 # The sweep's Zammad target and readback, for sweep/compose/zammad.yml.
 #
 # Zammad pulls mail, so nothing is posted to it. Each message goes over SMTP
-# into the Mailpit sidecar (zammad-mail-in), the email channel that
-# sweep/setup/zammad.sh creates fetches that Mailpit over POP3 every 30
-# seconds and opens a ticket per message, and the readback asks Zammad's
-# ticket search for the tag. sweep/PULL_MAIL.md describes the pattern.
+# to the delivery sidecar (zammad-deliver), which writes it into the Maildir
+# Dovecot serves (zammad-mail-in); the email channel that
+# sweep/setup/zammad.sh creates fetches that over POP3 every 30 seconds and
+# opens a ticket per message, and the readback asks Zammad's ticket search
+# for the tag. sweep/PULL_MAIL.md describes the pattern.
 #
 # Secrets come from sweep/.env.zammad, which the setup script writes:
 #
@@ -19,9 +20,8 @@ name = "zammad"
 transport = "smtp"
 host = "127.0.0.1"
 port = 3325
-# The address the channel's email address is set to. Mailpit takes mail for
-# any recipient and the POP3 fetch reads all of it, so this only has to be
-# synthetic and the same everywhere.
+# The address the channel's email address is set to, and the one address the
+# delivery sidecar writes into the mailbox.
 envelope_to = "support@zammad.test"
 
 [readback]
@@ -58,3 +58,47 @@ body = false
 attachment_names = false
 # `priority` here is Zammad's own urgency ("2 normal"), not a classifier label.
 priority = false
+
+# ---------------------------------------------------------------------------
+# loop
+# ---------------------------------------------------------------------------
+#
+# The loop bait goes to the channel's own address. Zammad opens a ticket for
+# every message it fetches, an auto-reply included, and its shipped "auto
+# reply (on new tickets)" trigger is what answers the sender, so a ticket is
+# reported, not a finding, and an auto-reply to machine mail is a finding.
+
+[loop]
+reply_address = "support@zammad.test"
+ticket_policy = "allowed"
+
+# What Zammad sent: the zammad-mail-out sidecar takes the channel's outbound
+# SMTP and keeps it on its Mailpit API, the same lookup as
+# examples/readback/mailpit.toml.
+
+[loop.outbound]
+kind = "http"
+url = "http://127.0.0.1:3386/api/v1/search"
+tag_param = "query"
+query = "\"{tag}\""
+items_key = "messages"
+list_path = "/api/v1/messages?limit=5000"
+timeout = 10.0
+
+[loop.outbound.fields]
+ticket_id = "ID"
+from_addr = "From"
+subject = "Subject"
+message_id = "MessageID"
+route = "To.0.Address"
+
+# ---------------------------------------------------------------------------
+# steady
+# ---------------------------------------------------------------------------
+#
+# Zammad does not classify mail. The one decision the channel makes is the
+# group it files a ticket under, so steady reads that: every variant should
+# land in the same one.
+
+[steady]
+label_field = "route"

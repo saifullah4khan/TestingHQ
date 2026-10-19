@@ -33,21 +33,28 @@ not one the helpdesk has. Give outbound its own sidecar (`zammad-mail-out`).
 Its API then holds every reply the helpdesk sent, which is what a
 `[loop.outbound]` sink reads.
 
-## Mailpit as mail-in
+## Mail-in: a delivery sidecar and Dovecot
 
-Mailpit takes SMTP on 1025 and serves what it took over POP3 on 1110 and over
-its API on 8025. It has no IMAP server.
+The mailbox the helpdesk fetches has to hand mail back in the order it
+arrived, because a helpdesk imports a fetch in the order the server lists it,
+and a thread delivered together is only threaded if its original is imported
+before its replies. The sweep uses two sidecars for it:
 
-- POP3 starts only with a credential: `MP_POP3_AUTH: "user:password"` (plain
-  text, or an htpasswd hash). There is no TLS unless a certificate is given,
-  so the channel connects with SSL off. Any POP3 user sees every message.
-- A POP3 `DELE` deletes the message from Mailpit, so a fetched message is
-  gone from the mailbox, as with a real server.
-- `MP_MAX_MESSAGES: "0"` turns off the default cap of 500, which would drop
-  the oldest unfetched mail under barrage.
+- a delivery sidecar, `sweep/compose/freescout/maildir_smtp.py`, an SMTP
+  server that writes each message for the mailbox address into a Maildir,
+  `tmp/` then `new/`, under a name that sorts in arrival order;
+- Dovecot serving that Maildir over POP3 or IMAP, which lists it in the order
+  the mail arrived. A POP3 `DELE` or an IMAP expunge removes a fetched
+  message, as with a real server.
 
-A helpdesk that can only fetch IMAP needs an IMAP server instead (Dovecot),
-with something delivering into the store it serves.
+`sweep/compose/zammad.yml` (POP3) and `sweep/compose/freescout.yml` (IMAP) are
+the two worked examples.
+
+Mailpit is not used as mail-in, although it serves POP3: its POP3 server lists
+newest first. Zammad imports a fetch in list order, so against Mailpit every
+fetch was imported in reverse, an in-order thread was filed reply before
+original, and redeliver reported a broken thread the helpdesk did not cause.
+Mailpit stays the outbound sink, where only its API is read.
 
 ## Target
 
@@ -60,8 +67,8 @@ envelope_to = "support@zammad.test" # synthetic, and the channel's own address
 ```
 
 `envelope_to` must be on a reserved domain or TLD: TestingHQ refuses any other.
-The sidecar accepts every recipient, so the address only needs to match what
-the setup script gives the channel.
+The delivery sidecar writes mail for this address into the mailbox and records
+mail for any other address as outbound, so it is the channel's own address.
 
 ## Waiting
 

@@ -32,7 +32,7 @@ ENV_FILE="sweep/.env.zammad"
 ZAMMAD_URL="${ZAMMAD_URL:-http://127.0.0.1:3380}"
 ADMIN_LOGIN="admin@zammad.test"
 SUPPORT_ADDRESS="support@zammad.test"
-# Must match MP_POP3_AUTH on zammad-mail-in in the compose file.
+# Must match the passdb in sweep/compose/zammad/dovecot.conf.
 POP3_USER="zammad"
 POP3_PASSWORD="thq-sweep-pop3"
 TIMEOUT="${ZAMMAD_SETUP_TIMEOUT:-900}"
