@@ -8,18 +8,32 @@
 # per thread. This recipe looks a conversation up by label.
 #
 #   export CHATWOOT_API_TOKEN="..."   # Profile settings > Access token
+#   testinghq config basic-auth actionmailbox --env CHATWOOT_INGRESS_AUTH
 #   testinghq verify fire --target chatwoot --send --config target.toml
 #
-# Never put the token in this file: a [readback.headers] value that is not an
-# `env:` reference is refused.
+# Never put the token or the ingress password in this file: a header value
+# that is not an `env:` reference is refused.
 
 # Chatwoot ingests SendGrid's raw mode (the whole message in the `email`
-# field) at the Action Mailbox ingress below, which also wants the ingress
-# password Chatwoot is configured with. Set `format = "sendgrid-raw"` on this
-# target (TestingHQ 1.0 and later) so the message arrives in that shape.
+# field) at the Action Mailbox ingress below, with RAILS_INBOUND_EMAIL_SERVICE
+# set to sendgrid. The ingress wants HTTP Basic auth, user `actionmailbox` and
+# the RAILS_INBOUND_EMAIL_PASSWORD Chatwoot runs with: `testinghq config
+# basic-auth actionmailbox --env CHATWOOT_INGRESS_AUTH` reads that password
+# and prints the CHATWOOT_INGRESS_AUTH line for .env.
+#
+# The ingress turns each envelope recipient into an X-Original-To header, and
+# Chatwoot files a message under the email inbox whose address or forwarding
+# address is in To, Cc or X-Original-To, dropping anything else. Set
+# envelope_to to your inbox's address (Settings > Inboxes > the inbox >
+# Configuration), a synthetic one as every address TestingHQ sends must be.
 [targets.chatwoot]
 name = "chatwoot"
 url = "http://127.0.0.1:3000/rails/action_mailbox/sendgrid/inbound_emails"
+format = "sendgrid-raw"
+envelope_to = "support@chatwoot.test"
+
+[targets.chatwoot.headers]
+Authorization = "env:CHATWOOT_INGRESS_AUTH"
 
 # ---------------------------------------------------------------------------
 # Readback
@@ -32,11 +46,13 @@ url = "http://127.0.0.1:3000/rails/action_mailbox/sendgrid/inbound_emails"
 #   {"payload": [{"attribute_key": "labels", "filter_operator": "equal_to",
 #                 "values": ["<tag>"], "query_operator": null}]}
 #
-# That needs the tag on the conversation as a label: an automation rule, or
-# whatever sits in front of Chatwoot, copies the X-TestingHQ-Tag header (or the
-# [testinghq:<tag>] body marker) into a label. Chatwoot labels allow lowercase
-# letters, digits, hyphens and underscores, which every TestingHQ tag is made
-# of.
+# That needs the tag on the conversation as a label, put there by whatever sits
+# in front of Chatwoot: a Chatwoot automation rule adds a fixed label, not one
+# taken from the message. Chatwoot labels allow lowercase letters, digits,
+# hyphens and underscores, which every TestingHQ tag is made of. With nothing
+# in front, look the conversation up by the [testinghq:<tag>] body marker
+# instead, through the conversation list's `q` search, as
+# sweep/configs/chatwoot.toml does.
 #
 # Results come under `payload`, 25 to a page, paged with `page`. A POST search
 # cannot list every conversation, so stray detection is off.
