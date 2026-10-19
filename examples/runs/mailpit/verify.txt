@@ -1,0 +1,17 @@
+report: wrote sweep/runs/mailpit/20261019T031516Z/verify.html
+tool:    verify (fire)
+verdict: VERIFIED
+seed:    0
+target:  pipeline
+
+counts:
+  sent        20
+  found       20
+  passed      20
+  records     20
+
+findings: 2
+  [skipped:adapter cannot see field] 40 check(s) not verified: attachments, body
+  [skipped:no expected route] 20 check(s) not verified: routing
+
+exit code: 0 (derived, not recorded in the artifact)

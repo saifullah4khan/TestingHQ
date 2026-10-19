@@ -1,0 +1,1 @@
+Hand-written sample corpus for the blast --corpus tests. Not mail; the corpus reader skips it.

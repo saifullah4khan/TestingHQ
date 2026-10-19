@@ -14,6 +14,7 @@ from ..blast.corpus import (
     parse_catalog,
     parse_mix,
 )
+from ..blast.mailcorpus import MailCorpusPlan
 from ..blast.payload import InboundEmail
 from ..core import guardrails, report
 from ..core.config import ConfigError, load_config
@@ -21,7 +22,8 @@ from ..core.exit_codes import EXIT_DRY_RUN, EXIT_FINDING, EXIT_OK, EXIT_REFUSED
 from ..core.formats import get_format
 from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target, wire_format_for
-from ..core.transport import DEFAULT_BOUNDARY, DEFAULT_FORMAT, post
+from ..core.transport import DEFAULT_BOUNDARY, DEFAULT_FORMAT, as_destination, send
+from ..pipeline.messages import run_tag_prefix
 from .common import (
     DEFAULT_RATE,
     DEFAULT_TARGET_CONFIG,
@@ -32,21 +34,36 @@ from .common import (
 
 
 def _add_corpus_args(parser) -> None:
-    """`--count`, `--seed`, `--mix`, `--catalog` and `--attachments`."""
+    """`--count`, `--seed`, `--mix`, `--catalog`, `--corpus`, `--tag-prefix`
+    and `--attachments`. `--mix`, `--catalog` and `--corpus` are three
+    different sources and only one can be named."""
     parser.add_argument(
         "--count", type=int, default=None,
-        help=f"payloads to build (default {DEFAULT_COUNT})",
+        help=f"payloads to build (default {DEFAULT_COUNT}); with --corpus, the "
+        "most files to read (default all)",
     )
     parser.add_argument("--seed", type=int, default=0, help="corpus seed (default 0)")
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
         "--mix",
         help="category percentages adding up to 100, e.g. "
         "clean=20,messy=40,multilingual=20,malformed=15,degenerate=5",
     )
-    parser.add_argument(
+    source.add_argument(
         "--catalog", nargs="?", const="all", default=None, metavar="NAMES",
         help="build the named edge cases instead of the mix: every case, or a "
         "comma-separated list of case names",
+    )
+    source.add_argument(
+        "--corpus", metavar="DIR",
+        help="read real mail instead: every .eml and .box file under DIR, in "
+        "name order, every address rewritten to corpus.example.test and each "
+        "message tagged",
+    )
+    parser.add_argument(
+        "--tag-prefix", default=None,
+        help="with --corpus, the prefix of each message's tag. The default is "
+        "drawn per run (hq-<yymmddHHMM>-<4 hex>)",
     )
     parser.add_argument(
         "--attachments", choices=ATTACHMENT_MODES, default=None,
@@ -110,8 +127,23 @@ def add_blast_parser(sub):
     return blast
 
 
-def _plan_from_args(args) -> CorpusPlan:
-    """The corpus plan the command line asks for. Raises CorpusError."""
+def _plan_from_args(args):
+    """The corpus plan the command line asks for: a CorpusPlan, or a
+    MailCorpusPlan for `--corpus`. Raises CorpusError."""
+    if getattr(args, "corpus", None) is not None:
+        if args.attachments is not None:
+            raise CorpusError(
+                "--corpus sends each file's own attachments and cannot be "
+                "combined with --attachments"
+            )
+        return MailCorpusPlan(
+            args.corpus,
+            seed=args.seed,
+            count=args.count,
+            tag_prefix=args.tag_prefix or run_tag_prefix(),
+        )
+    if getattr(args, "tag_prefix", None) is not None:
+        raise CorpusError("--tag-prefix applies to --corpus only")
     if args.catalog is not None:
         clashes = [
             flag
@@ -154,7 +186,23 @@ def _category_tally(pairs: List[Tuple[InboundEmail, str]]) -> Dict[str, int]:
     return tally
 
 
-def _print_dry_run_preview(pairs: List[Tuple[InboundEmail, str]], seed: int) -> None:
+def _print_dry_run_preview(
+    pairs: List[Tuple[InboundEmail, str]], seed: int, plan=None
+) -> None:
+    if isinstance(plan, MailCorpusPlan):
+        attached = sum(1 for email, _label in pairs if email.attachments)
+        print(
+            f"dry-run preview: {plan.size} file(s) from {plan.corpus_dir}, "
+            f"seed={seed}, tag prefix {plan.tag_prefix!r}"
+        )
+        print(f"  parsed: {len(pairs)}")
+        print(f"  unparseable: {len(plan.unparseable)}")
+        for entry in plan.unparseable:
+            print(f"    - {entry.source}: {entry.error}")
+        print(f"  ignored (not .eml or .box): {plan.ignored}")
+        print(f"  with attachments: {attached}")
+        print("no network calls were made (pass --send to fire for real)")
+        return
     tally = _category_tally(pairs)
     print(f"dry-run preview: {len(pairs)} payload(s), seed={seed}")
     for label in report.CATEGORIES:
@@ -168,11 +216,18 @@ def _address_fields(email: InboundEmail) -> List[str]:
     return [email.to, email.from_addr, email.envelope.from_addr, *email.envelope.to]
 
 
-def _require_synthetic_corpus(pairs: List[Tuple[InboundEmail, str]]) -> None:
+def _require_synthetic_corpus(
+    pairs: List[Tuple[InboundEmail, str]], *, allow_empty: bool = False
+) -> None:
     """Guardrail check before any network call: every address in every
     generated payload must look synthetic. Checked once for the whole
     corpus up front, so a bad payload aborts the run before anything is
-    sent, rather than after some prefix of the corpus already fired."""
+    sent, rather than after some prefix of the corpus already fired.
+
+    `allow_empty` lets a `--corpus` run whose every file was unparseable
+    through: it sends nothing, so there is nothing to check."""
+    if allow_empty and not pairs:
+        return
     fields: List[str] = []
     for email, _label in pairs:
         fields.extend(_address_fields(email))
@@ -182,7 +237,7 @@ def _require_synthetic_corpus(pairs: List[Tuple[InboundEmail, str]]) -> None:
 def _fire_corpus(
     pairs: List[Tuple[InboundEmail, str]],
     seed: int,
-    url: str,
+    target,
     rate: float,
     client=None,
     wire_format=None,
@@ -191,8 +246,11 @@ def _fire_corpus(
     fail_on_body=None,
     records: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Fire every payload in `pairs` at `url`, paced by a token bucket at
+    """Fire every payload in `pairs` at `target`, paced by a token bucket at
     `rate` requests per second, and build one record per payload.
+
+    `target` is the ResolvedTarget (any transport), or a bare HTTP URL sent in
+    `wire_format`.
 
     Records are appended to `records` (a new list by default) as they
     complete, so a caller that catches KeyboardInterrupt keeps what was sent.
@@ -200,14 +258,46 @@ def _fire_corpus(
     compiled `--fail-on-body` pattern.
     """
     bucket = TokenBucket(rate_per_sec=rate, capacity=max(rate, 1.0))
+    destination = as_destination(target, wire_format)
     if records is None:
         records = []
     for index, (email, label) in enumerate(pairs):
         bucket.acquire()
-        result = post(email, url, client=client, wire_format=wire_format)
+        result = send(email, destination, client)
         response = report.response_from_transport(result, fail_on_body)
         case = cases[index] if cases is not None else None
         records.append(report.build_record(email, label, seed, index, response, case=case))
+    return records
+
+
+def _fire_mail_corpus(
+    plan: MailCorpusPlan,
+    target,
+    rate: float,
+    client=None,
+    *,
+    fail_on_body=None,
+    records: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """`_fire_corpus` for a `--corpus` plan: one record per file, in file
+    order, each naming its source. An unparseable file is recorded and not
+    sent."""
+    bucket = TokenBucket(rate_per_sec=rate, capacity=max(rate, 1.0))
+    destination = as_destination(target, None)
+    if records is None:
+        records = []
+    for entry in plan.entries:
+        if entry.email is None:
+            records.append(report.unparseable_record(
+                report.CORPUS, plan.seed, entry.index, entry.source, entry.error or "",
+            ))
+            continue
+        bucket.acquire()
+        result = send(entry.email, destination, client)
+        response = report.response_from_transport(result, fail_on_body)
+        records.append(report.build_record(
+            entry.email, report.CORPUS, plan.seed, entry.index, response, source=entry.source,
+        ))
     return records
 
 
@@ -219,6 +309,7 @@ def _write_artifact(path: Optional[str], artifact: Dict[str, Any]) -> None:
 
 def _validate_send_plan(
     pairs: List[Tuple[InboundEmail, str]], args, target_name: Optional[str],
+    *, allow_empty: bool = False,
 ) -> Optional[str]:
     """Check that a send is permitted, returning the refusal or None.
 
@@ -230,7 +321,7 @@ def _validate_send_plan(
     assume its caller validated.
     """
     try:
-        _require_synthetic_corpus(pairs)
+        _require_synthetic_corpus(pairs, allow_empty=allow_empty)
         resolve_for_send(args, "blast", target_name=target_name)
     except (guardrails.GuardrailError, ConfigError) as exc:
         return str(exc)
@@ -260,8 +351,9 @@ def _run_fire(
     use; tests pass a fake one to stay hermetic. Ctrl-C stops the run, and
     the artifact records what was sent with `aborted: true`.
     """
+    corpus = isinstance(plan, MailCorpusPlan)
     try:
-        _require_synthetic_corpus(pairs)
+        _require_synthetic_corpus(pairs, allow_empty=corpus)
         target = resolve_target(
             target_name, config_path, allow_public_target=allow_public_target
         )
@@ -275,11 +367,15 @@ def _run_fire(
     records: List[Dict[str, Any]] = []
     aborted = False
     try:
-        _fire_corpus(
-            pairs, seed, target.url, rate, client=client,
-            wire_format=target.wire_format, cases=plan.cases(),
-            fail_on_body=pattern, records=records,
-        )
+        if corpus:
+            _fire_mail_corpus(
+                plan, target, rate, client=client, fail_on_body=pattern, records=records,
+            )
+        else:
+            _fire_corpus(
+                pairs, seed, target, rate, client=client, cases=plan.cases(),
+                fail_on_body=pattern, records=records,
+            )
     except KeyboardInterrupt:
         aborted = True
     config_dict = {
@@ -327,15 +423,18 @@ def _cmd_generate(args) -> int:
 
     cases = plan.cases()
     manifest_items = []
-    for index, (email, label) in enumerate(pairs):
+    for index, email, label, source, error in _slots(plan, pairs):
         item_id = f"{label}-{args.seed}-{index:04d}"
+        item: Dict[str, Any] = {"id": item_id, "category": label}
+        if source is not None:
+            item["source"] = source
+        if email is None:
+            item.update(outcome=report.UNPARSEABLE, error=error)
+            manifest_items.append(item)
+            continue
         body = wire_format.encode(email).body
         (out_dir / f"{item_id}{suffix}").write_bytes(body)
-        item = {
-            "id": item_id,
-            "category": label,
-            "payload_sha256": report.payload_sha256(email),
-        }
+        item["payload_sha256"] = report.payload_sha256(email)
         if cases is not None:
             item["case"] = cases[index]
         manifest_items.append(item)
@@ -351,7 +450,26 @@ def _cmd_generate(args) -> int:
         json.dumps(manifest, indent=2, sort_keys=False), encoding="utf-8"
     )
     print(f"generate: wrote {len(pairs)} payload(s) to {out_dir}")
+    if isinstance(plan, MailCorpusPlan):
+        print(
+            f"generate: {len(plan.unparseable)} unparseable, {plan.ignored} "
+            "ignored (not .eml or .box)"
+        )
+        for entry in plan.unparseable:
+            print(f"  - {entry.source}: {entry.error}")
     return EXIT_OK
+
+
+def _slots(plan, pairs: List[Tuple[InboundEmail, str]]):
+    """(index, email or None, category, source or None, error or None) for
+    every record `plan` produces, in record order. Only a `--corpus` plan has
+    sources, and slots with no email (its unparseable files)."""
+    if isinstance(plan, MailCorpusPlan):
+        return [
+            (entry.index, entry.email, report.CORPUS, entry.source, entry.error)
+            for entry in plan.entries
+        ]
+    return [(index, email, label, None, None) for index, (email, label) in enumerate(pairs)]
 
 
 def _dry_run_artifact(
@@ -361,13 +479,18 @@ def _dry_run_artifact(
     the endpoint was never asked."""
     cases = plan.cases()
     records = []
-    for index, (email, label) in enumerate(pairs):
+    for index, email, label, source, error in _slots(plan, pairs):
+        if email is None:
+            records.append(report.unparseable_record(label, plan.seed, index, source, error or ""))
+            continue
         response = {
             "status": None, "latency_ms": None, "body_snippet": "",
             "error": None, "error_kind": None,
         }
         case = cases[index] if cases is not None else None
-        record = report.build_record(email, label, plan.seed, index, response, case=case)
+        record = report.build_record(
+            email, label, plan.seed, index, response, case=case, source=source,
+        )
         record["assertion"] = {"passed": True, "mismatches": []}
         records.append(record)
     config_dict = {
@@ -391,7 +514,9 @@ def _cmd_fire(args) -> int:
     # announced, so a refusal does not follow a line describing what the
     # command was about to do. A dry run does not need the target to resolve.
     if args.send:
-        refusal = _validate_send_plan(pairs, args, args.target)
+        refusal = _validate_send_plan(
+            pairs, args, args.target, allow_empty=isinstance(plan, MailCorpusPlan),
+        )
         if refusal is not None:
             print(f"refused: {refusal}", file=sys.stderr)
             return EXIT_REFUSED
@@ -400,7 +525,7 @@ def _cmd_fire(args) -> int:
     print(f"fire: {decision.reason}")
 
     if not decision.will_send:
-        _print_dry_run_preview(pairs, args.seed)
+        _print_dry_run_preview(pairs, args.seed, plan)
         if args.out:
             _write_artifact(args.out, _dry_run_artifact(pairs, plan, args.fail_on_body))
         return EXIT_DRY_RUN
@@ -454,7 +579,10 @@ def _cmd_replay(args, client=None) -> int:
         return EXIT_REFUSED
 
     try:
-        plan = CorpusPlan.from_config(seed, config)
+        if config.get("corpus_dir") is not None:
+            plan = MailCorpusPlan.from_config(seed, config)
+        else:
+            plan = CorpusPlan.from_config(seed, config)
     except CorpusError as exc:
         print(f"replay: {args.run!r} records a corpus that cannot be rebuilt: {exc}", file=sys.stderr)
         return EXIT_REFUSED
@@ -469,13 +597,34 @@ def _cmd_replay(args, client=None) -> int:
 
     original_records = data.get("records") or []
     mismatches = []
-    for index, (email, _label) in enumerate(pairs):
+    for index, email, _label, source, _error in _slots(plan, pairs):
         if index >= len(original_records):
             break
-        original_hash = original_records[index].get("payload_sha256")
+        original = original_records[index]
+        if source is not None and original.get("source") != source:
+            mismatches.append(original.get("id", f"index {index}"))
+            continue
+        if email is None:
+            if original.get("outcome") != report.UNPARSEABLE:
+                mismatches.append(original.get("id", f"index {index}"))
+            continue
+        original_hash = original.get("payload_sha256")
         recomputed_hash = report.payload_sha256(email)
         if original_hash and original_hash != recomputed_hash:
-            mismatches.append(original_records[index].get("id", f"index {index}"))
+            mismatches.append(original.get("id", f"index {index}"))
+    if isinstance(plan, MailCorpusPlan) and plan.size < len(original_records):
+        mismatches.extend(
+            record.get("id", f"index {index}")
+            for index, record in enumerate(original_records[plan.size:], start=plan.size)
+        )
+    if mismatches and isinstance(plan, MailCorpusPlan):
+        print(
+            f"replay: the files under {plan.corpus_dir!r} no longer build the "
+            f"payloads the saved run sent, for record(s): {mismatches}. A file "
+            "was changed, added or removed since the run.",
+            file=sys.stderr,
+        )
+        return EXIT_REFUSED
     if mismatches:
         print(
             "replay: regenerated corpus is NOT byte-identical to the saved run "
@@ -489,7 +638,9 @@ def _cmd_replay(args, client=None) -> int:
     # Same rule as `fire`: a dry run needs no target, a send is validated
     # before anything is announced. The target comes from the saved artifact.
     if args.send:
-        refusal = _validate_send_plan(pairs, args, target_name)
+        refusal = _validate_send_plan(
+            pairs, args, target_name, allow_empty=isinstance(plan, MailCorpusPlan),
+        )
         if refusal is not None:
             print(f"refused: {refusal}", file=sys.stderr)
             return EXIT_REFUSED
@@ -498,7 +649,7 @@ def _cmd_replay(args, client=None) -> int:
     print(f"replay: {decision.reason}")
 
     if not decision.will_send:
-        _print_dry_run_preview(pairs, seed)
+        _print_dry_run_preview(pairs, seed, plan)
         return EXIT_DRY_RUN
 
     return _run_fire(

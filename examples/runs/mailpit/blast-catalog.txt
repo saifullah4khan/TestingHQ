@@ -1,0 +1,16 @@
+report: wrote sweep/runs/mailpit/20261019T031516Z/blast-catalog.html
+tool:    blast
+verdict: FLAGGED (derived)
+seed:    0
+target:  pipeline
+
+counts:
+  sent        26
+  passed      25
+  failed      1
+  records     26
+
+findings: 1
+  [flag] structurally-malformed structurally-malformed-0-0010 got no response: Remote end closed connection without response
+
+exit code: 3 (derived, not recorded in the artifact)

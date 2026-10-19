@@ -1,0 +1,33 @@
+From: Anna Berg <anna.berg@mapleridge-insurance.com>
+To: Orchard Lane Claims <claims@orchardlane-supplies.com>
+Subject: Claim 4471: signed form and contact list
+Date: Wed, 8 Oct 2025 08:30:00 -0400
+Message-ID: <claim-4471.20251008@mapleridge-insurance.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mix-91a"
+
+--mix-91a
+Content-Type: text/plain; charset=utf-8
+
+Please find the signed claim form attached, and the list of who to contact.
+
+Anna
+
+--mix-91a
+Content-Type: application/pdf; name="claim-4471.pdf"
+Content-Disposition: attachment; filename="claim-4471.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKdHJhaWxlciA8PCAv
+Um9vdCAxIDAgUiA+PgolJUVPRgo=
+
+--mix-91a
+Content-Type: text/csv; charset=utf-8; name="contacts.csv"
+Content-Disposition: attachment; filename="contacts.csv"
+Content-Transfer-Encoding: base64
+
+bmFtZSxlbWFpbCxyb2xlCkFubmEgQmVyZyxhbm5hLmJlcmdAbWFwbGVyaWRnZS1pbnN1cmFuY2Uu
+Y29tLGNsYWltcwpMZW8gSGFydCxsZW8uaGFydEBtYXBsZXJpZGdlLWluc3VyYW5jZS5jb20sYmls
+bGluZwo=
+
+--mix-91a--

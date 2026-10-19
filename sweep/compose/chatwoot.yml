@@ -1,0 +1,121 @@
+# Chatwoot for the TestingHQ sweep, after Chatwoot's own
+# docker-compose.production.yaml (v4.18.0): rails, sidekiq, Postgres with
+# pgvector (Chatwoot's schema enables the `vector` extension) and Redis.
+#
+#   docker compose -f sweep/compose/chatwoot.yml up -d
+#   bash sweep/setup/chatwoot.sh
+#
+# Differences from the upstream file, each for the sweep:
+# - Pinned images: the Community Edition build of v4.18.0, and exact
+#   pgvector and Redis tags.
+# - A one-shot `prepare` service runs `rails db:chatwoot_prepare` (create,
+#   load the schema, seed, migrate; safe to repeat) before rails and sidekiq
+#   start, which upstream asks you to run by hand first.
+# - Inbound mail through Action Mailbox's SendGrid ingress, behind HTTP Basic
+#   auth with RAILS_INBOUND_EMAIL_PASSWORD, and a synthetic inbound domain for
+#   the inbox forwarding addresses.
+# - Only the web port is published, on 127.0.0.1:3100. Postgres and Redis
+#   stay on the compose network.
+#
+# The defaults below are for a throwaway local stack. Set
+# CHATWOOT_INBOUND_PASSWORD, CHATWOOT_SECRET_KEY_BASE or
+# CHATWOOT_POSTGRES_PASSWORD in the shell before `up` to use other values;
+# the setup script reads the ingress password from the running container.
+
+name: thq-chatwoot
+
+x-chatwoot-env: &chatwoot-env
+  NODE_ENV: production
+  RAILS_ENV: production
+  INSTALLATION_ENV: docker
+  SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:-thqsweepchatwootsecretkeybase0123456789abcdef0123456789abcdef}
+  FRONTEND_URL: http://127.0.0.1:3100
+  DEFAULT_LOCALE: en
+  ENABLE_ACCOUNT_SIGNUP: "false"
+  DISABLE_TELEMETRY: "true"
+  RAILS_LOG_TO_STDOUT: "true"
+  LOG_LEVEL: info
+  REDIS_URL: redis://redis:6379
+  REDIS_PASSWORD: ""
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USERNAME: postgres
+  POSTGRES_PASSWORD: ${CHATWOOT_POSTGRES_PASSWORD:-thq-sweep-postgres}
+  POSTGRES_DATABASE: chatwoot
+  ACTIVE_STORAGE_SERVICE: local
+  MAILER_SENDER_EMAIL: "TestingHQ Sweep <support@chatwoot.test>"
+  # The domain Chatwoot gives an email inbox's forwarding address. Reserved
+  # (.test), so no address it makes can be a real mailbox.
+  MAILER_INBOUND_EMAIL_DOMAIN: inbound.chatwoot.test
+  RAILS_INBOUND_EMAIL_SERVICE: sendgrid
+  RAILS_INBOUND_EMAIL_PASSWORD: ${CHATWOOT_INBOUND_PASSWORD:-thq-sweep-inbound}
+
+x-chatwoot: &chatwoot
+  image: chatwoot/chatwoot:v4.18.0-ce
+  environment: *chatwoot-env
+  volumes:
+    # Action Mailbox keeps each raw message in Active Storage; rails writes
+    # it and sidekiq routes it, so both mount the same storage.
+    - storage_data:/app/storage
+
+services:
+  prepare:
+    <<: *chatwoot
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "db:chatwoot_prepare"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  rails:
+    <<: *chatwoot
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:3100:3000"
+    restart: unless-stopped
+
+  sidekiq:
+    <<: *chatwoot
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_DB: chatwoot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${CHATWOOT_POSTGRES_PASSWORD:-thq-sweep-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chatwoot"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.1-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  storage_data:
+  postgres_data:
+  redis_data:

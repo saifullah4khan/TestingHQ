@@ -246,12 +246,15 @@ def test_every_documented_command_runs_as_a_dry_run(name, line_no, command, tmp_
     argv = _prepare(shlex.split(command), tmp_path)
     assert "--send" not in argv
 
+    # `config basic-auth` reads a password; standard input supplies one, so the
+    # command never waits on a terminal.
     result = subprocess.run(
         [sys.executable, "-m", "testinghq.cli", *argv],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
         timeout=120,
+        input="docs-example-password\n",
     )
 
     expected = EXIT_DRY_RUN if ("fire" in argv or "replay" in argv) else EXIT_OK

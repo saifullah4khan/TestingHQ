@@ -27,9 +27,11 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import List, Optional, Sequence, Tuple
 
+from ..blast.generate import rfc5322_date
 from ..blast.payload import InboundEmail
 from .readback import Probe
 
@@ -150,9 +152,14 @@ def stamp(
     in_reply_to: Optional[str] = None,
     references: Optional[str] = None,
     subject: Optional[str] = None,
+    date: Optional[str] = None,
 ) -> InboundEmail:
     """Stamp a payload with a tag, plus any RFC 5322 threading headers the caller
     is pinning.
+
+    A pinned `date` replaces the Date header, and the timestamp the generator
+    put at the end of the Received header with it, so the two still agree. A
+    thread gets its Dates from `thread_dates`.
 
     The copy is total: headers are copied rather than shared, because
     `InboundEmail` is frozen but its `headers` dict is not, and mutating it in
@@ -183,6 +190,8 @@ def stamp(
         # The header blob is what every wire format serializes, so a pinned
         # subject has to land there too or the two disagree on the wire.
         headers["Subject"] = subject
+    if date is not None:
+        _set_date(headers, date)
 
     changes: dict = {
         "headers": headers,
@@ -212,6 +221,83 @@ def _with_changes(email: InboundEmail, changes: dict) -> InboundEmail:
     if subject is not None:
         updated = updated.with_changes(subject=subject)
     return updated
+
+
+#: The shortest gap between one message of a thread and the next. The rest of
+#: each gap comes from the later message's own generated Date.
+_MIN_THREAD_GAP = timedelta(minutes=5)
+
+
+def _parsed_date(value: Optional[str]) -> Optional[datetime]:
+    """A Date header value as an aware datetime, or None when it does not
+    parse. A value with no usable offset is read as UTC."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    return when if when.tzinfo is not None else when.replace(tzinfo=timezone.utc)
+
+
+def _offset_text(offset: timedelta) -> str:
+    """A UTC offset as a Date header writes it: `+0530`, `-0800`."""
+    minutes = int(offset.total_seconds()) // 60
+    sign = "-" if minutes < 0 else "+"
+    hours, minutes = divmod(abs(minutes), 60)
+    return f"{sign}{hours:02d}{minutes:02d}"
+
+
+def thread_dates(emails: Sequence[InboundEmail]) -> List[str]:
+    """Date header values for `emails` as one thread, in the order they were
+    written: the first keeps its own Date and each later one is dated after
+    the one before it.
+
+    The generator draws every Date on its own, so two payloads used as a
+    message and its reply are as likely as not to say the reply was written
+    first. A helpdesk that processes one mail fetch in Date order, as
+    FreeScout does, then files the reply before its original exists and opens
+    a second conversation for it: a broken thread the tool caused and
+    reported as the helpdesk's. Real mail is dated in the order it was
+    written, whatever order it is delivered in, so a scenario that delivers a
+    thread out of order still dates it in thread order.
+
+    Each gap is five minutes plus the minutes and seconds of the later
+    message's own generated Date, so the Dates depend on the payloads, and so
+    on the seed, and on nothing else. Each message keeps its own UTC offset,
+    the way a reply from someone in another timezone is dated in theirs."""
+    dates: List[str] = []
+    previous: Optional[datetime] = None
+    for email in emails:
+        raw = (email.headers or {}).get("Date")
+        own = _parsed_date(raw)
+        if previous is None:
+            if own is None:
+                raise ValueError(
+                    f"the first message of a thread needs a Date, got {raw!r}"
+                )
+            dates.append(raw.strip())
+            previous = own
+            continue
+        if own is None:
+            gap, offset = _MIN_THREAD_GAP, previous.utcoffset() or timedelta(0)
+        else:
+            gap = _MIN_THREAD_GAP + timedelta(minutes=own.minute, seconds=own.second)
+            offset = own.utcoffset() or timedelta(0)
+        when = (previous + gap).astimezone(timezone(offset))
+        dates.append(rfc5322_date(when.replace(tzinfo=None), _offset_text(offset)))
+        previous = when
+    return dates
+
+
+def _set_date(headers: dict, date: str) -> None:
+    """Replace the Date header in `headers`, and the same timestamp where the
+    generator also wrote it, at the end of the Received header."""
+    old = headers.get("Date")
+    headers["Date"] = date
+    received = headers.get("Received")
+    if isinstance(old, str) and old and isinstance(received, str) and received.endswith(old):
+        headers["Received"] = received[: -len(old)] + date
 
 
 def message_id_of(email: InboundEmail) -> str:

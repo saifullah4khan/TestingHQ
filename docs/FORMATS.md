@@ -102,5 +102,72 @@ The whole RFC 5322 message as the request body, `Content-Type:
 message/rfc822`, CRLF line endings. Text and HTML are `multipart/alternative`;
 attachments make it `multipart/mixed`. Every boundary is derived from the
 fixed one (`<boundary>`, `<boundary>-1`, ...). Non-ASCII headers are RFC 2047
-encoded. For a receiver that takes a raw message, such as osTicket's
+encoded. A `message/*` attachment (an embedded message, a delivery or
+disposition report) is written as a structured part in 7bit or 8bit, never
+base64. For a receiver that takes a raw message, such as osTicket's
 `api/tickets.email` or an SMTP-to-HTTP bridge.
+
+## SMTP targets
+
+A target with `transport = "smtp"` is not POSTed to. Each message is handed to
+the mail server at `host` and `port` (default 25) in one SMTP transaction, for
+a pipeline that pulls mail rather than taking a webhook: a helpdesk polling a
+mailbox over POP3 or IMAP, behind a server such as Mailpit or Postfix.
+
+```toml
+[targets.helpdesk]
+transport = "smtp"
+host = "127.0.0.1"
+port = 1025
+envelope_to = "support@helpdesk.test"
+```
+
+- **The message** is exactly the `mime` format's bytes, above. `format` on an
+  SMTP target is `mime` or absent; anything else is refused when the config
+  loads. `blast generate --target <name>` writes those bytes as `.eml` files.
+- **The connection.** Connect, EHLO as `testinghq.localhost`, STARTTLS when
+  `starttls = true` (the certificate is verified against `host`), AUTH when
+  `username` and `password` are set (both `env:` references), then `MAIL
+  FROM`, one `RCPT TO` per recipient and `DATA`. A negative reply to MAIL or
+  RCPT ends the transaction there, with `RSET`, and DATA is not sent.
+- **The envelope.** `MAIL FROM` is the payload's envelope sender, or the
+  target's `envelope_from`; an empty envelope sender stays empty (`MAIL
+  FROM:<>`, as a bounce carries). `RCPT TO` is the payload's envelope
+  recipients, or its To addresses when it has none, or the target's
+  `envelope_to`. Every address must be synthetic.
+- **The status** recorded for a message is the reply code that ended the
+  transaction: `250` after DATA when it was accepted, or the first 4xx or 5xx
+  reply, whose text is recorded as `error`. No reply at all (refused, DNS,
+  timeout, TLS) is a transport error in the same buckets as an HTTP one.
+  Latency runs to the reply after DATA.
+- **Barrage** keeps one SMTP connection per worker, opened before its first
+  message and reported under `connections` as the HTTP keep-alive path is
+  (`setup_ms` covers connect, EHLO, STARTTLS and AUTH). A connection the server
+  drops is reopened once. `--no-keepalive` opens a connection per message.
+- **sigcheck** refuses an SMTP target: a provider signature is an HTTP
+  concept with no SMTP equivalent.
+
+Every artifact records the target's `transport` (`http` or `smtp`) under
+`config`.
+
+## Target headers
+
+An HTTP target can carry request headers, for an endpoint behind HTTP Basic
+auth or a gateway token. Values are `env:` references only, never literals,
+and a URL carrying `user:pass@` is refused in favour of this table:
+
+```toml
+[targets.chatwoot]
+url = "http://127.0.0.1:3000/rails/action_mailbox/sendgrid/inbound_emails"
+format = "sendgrid-raw"
+
+[targets.chatwoot.headers]
+Authorization = "env:CHATWOOT_INGRESS_AUTH"
+```
+
+`testinghq config basic-auth actionmailbox --env CHATWOOT_INGRESS_AUTH`
+reads the password from the terminal and prints the `.env` line,
+`CHATWOOT_INGRESS_AUTH=Basic <base64 of actionmailbox:password>`. The headers
+go on every request at that target, after the format's own `Content-Type` and
+`Content-Length`, which a target header cannot replace.
+

@@ -36,6 +36,13 @@ shared id the slow-retry scenario re-delivered messages the duplicate scenario
 had already sent, and a second run re-delivered the first run's; the pipeline
 correctly recognised them as redeliveries and the scenario reported total loss.
 Every component was correct; the test design was not.
+
+The threaded scenarios also rewrite the replies' Date headers. The generator
+dates every payload independently, so a reply could say it was written before
+its original, and a helpdesk that processes a mail fetch in Date order (as
+FreeScout does) then opened a second conversation for it. That was the tool's
+broken thread, not the helpdesk's. `messages.thread_dates` dates a thread in
+the order it was written, whatever order the scenario delivers it in.
 """
 from __future__ import annotations
 
@@ -47,7 +54,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from ..blast.payload import InboundEmail
 from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target
-from ..core.transport import post
+from ..core.transport import as_destination, send
 from . import messages
 from .adapters import ReadbackConfig
 from .common import (
@@ -276,6 +283,7 @@ def _make(
     in_reply_to: Optional[str] = None,
     references: Optional[str] = None,
     subject: Optional[str] = None,
+    date: Optional[str] = None,
     delay_before: float = 0.0,
     in_reply_to_tag: Optional[str] = None,
 ) -> Delivery:
@@ -290,7 +298,8 @@ def _make(
 
     The ids are given bare and written to the headers in angle brackets, as
     RFC 5322 requires; `references` is a space-separated chain. The Delivery
-    keeps the bare id.
+    keeps the bare id. `date` is the message's place in its thread, from
+    `messages.thread_dates`.
     """
     stamped = messages.stamp(
         email,
@@ -299,6 +308,7 @@ def _make(
         in_reply_to=None if in_reply_to is None else _header_ids(in_reply_to),
         references=None if references is None else _header_ids(*references.split()),
         subject=subject,
+        date=date,
     )
     return Delivery(
         email=stamped,
@@ -413,6 +423,11 @@ def build_reply_first(
     that keys dedup on arrival order rather than on Message-ID files all three
     as separate conversations, and a pipeline that drops a reply whose parent it
     has not seen loses it outright.
+
+    The Dates are in thread order, root first, even though the delivery is
+    not: a reply is written after its original whatever order it arrives in.
+    So a helpdesk that sorts what it fetches by Date threads them, and the
+    scenario catches one that files mail in the order it arrived.
     """
     if len(corpus) < 3:
         raise ScenarioError(
@@ -424,6 +439,9 @@ def build_reply_first(
     reply_two_tag = messages.make_tag(tag_prefix, seed, 2)
     root_id = messages.build_chain_message_id(root_tag)
     subject = reply_subject(root_email.ground_truth.subject)
+    root_date, reply_one_date, reply_two_date = messages.thread_dates(
+        (root_email, reply_one_email, reply_two_email)
+    )
 
     return Scenario(
         name=SCENARIO_REPLY_FIRST,
@@ -438,6 +456,7 @@ def build_reply_first(
                 references=root_id,
                 in_reply_to_tag=root_tag,
                 subject=subject,
+                date=reply_one_date,
             ),
             _make(
                 reply_two_email,
@@ -449,8 +468,9 @@ def build_reply_first(
                 references=root_id,
                 in_reply_to_tag=root_tag,
                 subject=subject,
+                date=reply_two_date,
             ),
-            _make(root_email, root_tag, 0, seed, message_id=root_id),
+            _make(root_email, root_tag, 0, seed, message_id=root_id, date=root_date),
         ),
         question=(
             "both replies delivered before the message they answer, with correct "
@@ -469,7 +489,8 @@ def build_references(
     The chain is the difference from reply-first: a reply answers its immediate
     parent, and its References lists the whole ancestry. A pipeline that only
     reads In-Reply-To threads this correctly by accident; one that only reads
-    the first Reference does not.
+    the first Reference does not. The Dates follow the thread, as in
+    reply-first.
     """
     if len(corpus) < 3:
         raise ScenarioError(
@@ -482,11 +503,14 @@ def build_references(
     root_id = messages.build_chain_message_id(root_tag)
     reply_one_id = messages.build_chain_message_id(reply_one_tag)
     subject = reply_subject(root_email.ground_truth.subject)
+    root_date, reply_one_date, reply_two_date = messages.thread_dates(
+        (root_email, reply_one_email, reply_two_email)
+    )
 
     return Scenario(
         name=SCENARIO_REFERENCES,
         deliveries=(
-            _make(root_email, root_tag, 0, seed, message_id=root_id),
+            _make(root_email, root_tag, 0, seed, message_id=root_id, date=root_date),
             _make(
                 reply_one_email,
                 reply_one_tag,
@@ -497,6 +521,7 @@ def build_references(
                 references=root_id,
                 in_reply_to_tag=root_tag,
                 subject=subject,
+                date=reply_one_date,
             ),
             _make(
                 reply_two_email,
@@ -508,6 +533,7 @@ def build_references(
                 references=f"{root_id} {reply_one_id}",
                 in_reply_to_tag=reply_one_tag,
                 subject=subject,
+                date=reply_two_date,
             ),
         ),
         question=(
@@ -583,7 +609,7 @@ def build_scenarios(
 
 def send_scenario(
     scenario: Scenario,
-    url: str,
+    target: Any,
     rate: float,
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -598,7 +624,12 @@ def send_scenario(
     a test of the slow-retry scenario would either take five seconds or would be
     testing a scenario with no gap in it, which is the duplicate scenario
     wearing a different name.
+
+    `target` is the ResolvedTarget, sent over its own transport, or a bare
+    HTTP URL sent in `wire_format`.
     """
+    destination = as_destination(target, wire_format)
+    override = None if isinstance(target, str) else wire_format
     bucket = TokenBucket(
         rate_per_sec=rate, capacity=max(rate, 1.0), sleep=sleep, clock=clock
     )
@@ -607,10 +638,7 @@ def send_scenario(
         if delivery.delay_before > 0:
             sleep(delivery.delay_before)
         bucket.acquire()
-        if wire_format is not None:
-            result = post(delivery.email, url, client=client, wire_format=wire_format)
-        else:
-            result = post(delivery.email, url, client=client)
+        result = send(delivery.email, destination, client, wire_format=override)
         sent.append(
             SentMessage(
                 index=index,
@@ -904,6 +932,7 @@ def run_config(
     attachment_match: str = DEFAULT_ATTACHMENT_MATCH,
     wire_format: Optional[str] = None,
     allow_public_target: bool = False,
+    transport: str = "http",
 ) -> Dict[str, Any]:
     config: Dict[str, Any] = {
         "tool": "redeliver",
@@ -920,6 +949,7 @@ def run_config(
         {
             "format": wire_format,
             "allow_public_target": allow_public_target,
+            "transport": transport,
             "dry_run": False,
         }
     )
@@ -1167,6 +1197,7 @@ def execute(
         route=route, body_exact=body_exact, subject_match=subject_match,
         attachment_match=attachment_match, wire_format=target.format_name,
         allow_public_target=bool(target.public),
+        transport=target.transport,
     )
     poll = readback_poll_settings(
         len({tag for scenario in built for tag in scenario.tags}), readback,
@@ -1179,8 +1210,8 @@ def execute(
         for scenario in built:
             sent.extend(
                 send_scenario(
-                    scenario, target.url, rate, client=client, sleep=sleep,
-                    clock=clock, wire_format=target.wire_format,
+                    scenario, target, rate, client=client, sleep=sleep,
+                    clock=clock,
                 )
             )
         phase = "readback"

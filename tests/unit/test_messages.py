@@ -8,6 +8,8 @@ the subject check if it went the other way.
 """
 from __future__ import annotations
 
+from email.utils import parsedate_to_datetime
+
 import pytest
 
 from testinghq.blast.generate import generate_corpus
@@ -212,6 +214,30 @@ def test_a_replaced_subject_reaches_the_header_blob_too():
     email = messages.stamp(corpus[0], messages.make_tag("hq", 11, 0), subject="Re: x")
     assert email.headers["Subject"] == "Re: x"
     assert email.ground_truth.subject == "Re: x"
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_thread_dates_keep_the_first_date_and_date_each_later_message_after_it(seed):
+    corpus = generate_corpus(seed, 4)
+    dates = messages.thread_dates(corpus)
+    assert dates[0] == corpus[0].headers["Date"]
+    instants = [parsedate_to_datetime(d) for d in dates]
+    assert all(a < b for a, b in zip(instants, instants[1:])), dates
+    # Each message stays in its own timezone, and the same payloads always
+    # give the same Dates.
+    assert [d[-5:] for d in dates] == [e.headers["Date"][-5:] for e in corpus]
+    assert messages.thread_dates(generate_corpus(seed, 4)) == dates
+
+
+def test_a_pinned_date_reaches_the_date_and_received_headers():
+    [email] = generate_corpus(11, 1)
+    old = email.headers["Date"]
+    stamped = messages.stamp(
+        email, messages.make_tag("hq", 11, 0), date="Mon, 06 Oct 2025 09:14:02 +0000"
+    )
+    assert stamped.headers["Date"] == "Mon, 06 Oct 2025 09:14:02 +0000"
+    assert stamped.headers["Received"].endswith("; Mon, 06 Oct 2025 09:14:02 +0000")
+    assert old not in messages.thread_header_text(stamped)
 
 
 def test_stamping_omits_threading_headers_it_was_not_given():

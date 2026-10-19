@@ -3,10 +3,12 @@
 ## Responsible use
 
 TestingHQ POSTs provider-shaped webhook payloads at an HTTP endpoint you
-control, to find where your inbound-email pipeline breaks. It is not an email
-sender. It never opens an SMTP connection, never delivers to a real inbox, and
-does not forge sender authentication or evade spam filters. Contributions that
-add any of those are out of scope and will not be accepted.
+control, or hands synthetic messages to a mail server you control over SMTP,
+to find where your inbound-email pipeline breaks. It is not an email sender.
+It opens an SMTP connection only to a configured `transport = "smtp"` target,
+never delivers to a real inbox, and does not forge sender authentication or
+evade spam filters. Contributions that weaken any of those are out of scope
+and will not be accepted.
 
 Only test endpoints you own or are explicitly authorized to test. The
 guardrails below stop this tool from making that mistake automatically; they
@@ -23,6 +25,12 @@ are not a substitute for authorization.
   `.invalid`, `.example`, `.localhost`). Every address in every payload is
   checked before the first request, with `email.utils.getaddresses`, so a
   multi-recipient header cannot smuggle a second address past the check.
+- **Send a real address read from a mail corpus.** `blast --corpus` reads
+  real mail, so every address in it, in any header, the body or a textual
+  attachment, is rewritten to `corpus.example.test` before the payload exists,
+  and the rewritten payload goes through the same check. A file whose
+  addresses cannot all be made synthetic is recorded as unparseable and not
+  sent. See docs/CORPUS.md.
 - **Claim a real domain's authentication.** The SendGrid `dkim` and `SPF`
   fields are fixed synthetic values naming `example.com`, and `sender_ip` is
   `192.0.2.1` (TEST-NET-1). See docs/FORMATS.md.
@@ -37,7 +45,7 @@ not resolve only to such addresses.
 
 | Action | Requires |
 | --- | --- |
-| Fire at a public target (blast, verify, ledger, loop, redeliver, steady) | `--allow-public-target` on the run |
+| Fire at a public target, HTTP or SMTP (blast, verify, ledger, loop, redeliver, steady) | `--allow-public-target` on the run |
 | Load-test a public target with barrage | `--allow-public-target` on the run **and** `public = true` in `[targets.<name>]` |
 | Read back from a public readback URL | `--allow-public-readback` on the run, or `allow_public_hosts = true` in `[readback]` |
 
@@ -45,6 +53,16 @@ The flag is per run on purpose: the decision is made again every time. The
 artifact of a run fired at a public host records `allow_public_target: true`
 under `config`. `testinghq config validate` prints, per target, whether its
 host is public and what firing at it needs.
+
+**SMTP targets are held to the same consent rules.** A `transport = "smtp"`
+target is declared in `[targets.<name>]` like any other, and its `host` goes
+through the same public-host check as a URL: a public mail server needs
+`--allow-public-target`, and barrage at one needs `public = true` as well.
+Every recipient is a synthetic address: the payload's own envelope is checked
+with the rest of the payload, and a target's `envelope_from` and `envelope_to`
+overrides are refused unless they are on a reserved domain or TLD, so a run
+cannot address a real mailbox through a relay. SMTP credentials, like header
+values, are `env:` references only, and no artifact records them.
 
 ## How "public" is decided, and its limits
 
@@ -77,8 +95,9 @@ be reachable as a side effect; your own endpoint must not be hit unexpectedly
 or flooded; generated content must not be mistakable for a real identity.
 
 Scenarios: accidental real delivery (dry-run default, allow-list, public-host
-consent); repurposing as a spam tool (synthetic addresses only, no SMTP, no
-authentication forgery); runaway volume (rate limits, Barrage ceilings);
+consent); repurposing as a spam tool (synthetic addresses only, SMTP only to
+a configured target and only to synthetic recipients, no authentication
+forgery); runaway volume (rate limits, Barrage ceilings);
 supply-chain compromise (stdlib only at run time, Dependabot, a scheduled
 dependency audit in CI).
 

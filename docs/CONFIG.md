@@ -9,8 +9,9 @@
 The tables below, generated from the code so they cannot drift. A key added to
 a loader without a line here fails the suite.
 
-**Scope.** `[targets.<name>]`, `[readback]`, `[readback.fields]` and
-`[readback.headers]` are read by the `core.config` loader. `[loop]`,
+**Scope.** `[targets.<name>]`, `[targets.<name>.headers]`, `[readback]`,
+`[readback.fields]` and `[readback.headers]` are read by the `core.config`
+loader. `[loop]`,
 `[loop.outbound]`, `[steady]` and `[sigcheck]` are read from the same file by
 the tool they name, and `config validate` checks their key names but not their
 values.
@@ -20,9 +21,9 @@ top-level table other than those below, stops every tool before it sends
 anything (exit 1), and `config validate` reports the same error, naming the
 file, the table, the key and the closest known key. A typo is never ignored,
 because an ignored `formt = "mailgun"` would send in the default format.
-Three exceptions, all by design: the names inside `[readback.fields]` and
-`[readback.headers]` are data (field names are checked against the readback
-fields when the adapter loads), and a `[readback]` or `[loop.outbound]` table
+Three exceptions, all by design: the names inside `[readback.fields]`,
+`[readback.headers]` and `[targets.<name>.headers]` are data (field names are
+checked against the readback fields when the adapter loads), and a `[readback]` or `[loop.outbound]` table
 whose `kind` (or `spec`) names a custom `module:attribute` adapter may carry
 keys of its own.
 
@@ -43,14 +44,36 @@ python -m testinghq.config_doc
 
 ## `[targets.<name>]`
 
-Named firing targets. Only a target declared here may be fired at, so this table is the whole of what the tool is allowed to send to. A target is only required once `--send` is passed; a dry run needs no config at all. A target whose host is public (not a reserved test domain, an internal name or a private address, and not resolving only to private addresses) is refused unless the run passes --allow-public-target.
+Named firing targets. Only a target declared here may be fired at, so this table is the whole of what the tool is allowed to send to. A target is only required once `--send` is passed; a dry run needs no config at all. A target whose host is public (not a reserved test domain, an internal name or a private address, and not resolving only to private addresses) is refused unless the run passes --allow-public-target. The rule is the same for an HTTP url and an SMTP host.
 
 | Key | Type | Default | Required | Meaning |
 | --- | --- | --- | --- | --- |
-| `url` | string | none | yes | Where to POST. Must start with http:// or https://. May be overridden per run by the environment variable TESTINGHQ_TARGET_<NAME>_URL, which replaces the URL and nothing else. |
+| `transport` | string | `"http"` | no | How messages reach the target. 'http': POST each message to `url` in `format`. 'smtp': hand each message to the mail server at `host` in one SMTP transaction (MAIL, RCPT, DATA), the message bytes exactly what the mime format builds. An unknown name is refused at load. sigcheck refuses an smtp target, since a provider signature is an HTTP concept. |
+| `url` | string | none | for transport = http | Where to POST. Must start with http:// or https://. A url carrying credentials (user:pass@host) is refused: put them in [targets.<name>.headers] instead. May be overridden per run by the environment variable TESTINGHQ_TARGET_<NAME>_URL, which replaces the URL and nothing else. Refused on an smtp target. |
 | `name` | string | none | no | Redundant with the table name and ignored. |
-| `format` | string | `"sendgrid"` | no | The wire format every send to this target uses. One of: sendgrid (Inbound Parse, parsed mode), sendgrid-raw (Inbound Parse, raw mode: the full message in the email field), mailgun, postmark, mime (the raw message as message/rfc822). An unknown name is refused at load. Field lists are in docs/FORMATS.md. |
+| `format` | string | `"sendgrid"` | no | The wire format every send to this target uses. One of: sendgrid (Inbound Parse, parsed mode), sendgrid-raw (Inbound Parse, raw mode: the full message in the email field), mailgun, postmark, mime (the raw message as message/rfc822). An unknown name is refused at load. Field lists are in docs/FORMATS.md. An smtp target sends mime: absent means mime there, and any other value is refused. |
 | `public` | boolean | `false` | no | Read only by barrage. A load test at a public host needs both this and --allow-public-target on the command line. Other tools need only the flag. |
+| `host` | string | none | for transport = smtp | The mail server's host name or address, bare (no scheme, no port). Held to the same public-host rule as a url. |
+| `port` | integer | `25` | no | The SMTP port. smtp only. |
+| `starttls` | boolean | `false` | no | Upgrade the connection with STARTTLS after EHLO, verifying the server's certificate against `host`. A server that does not offer it is a TLS failure. smtp only. |
+| `username` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH user. With it, the connection logs in after EHLO (and STARTTLS). A literal is refused. smtp only. |
+| `password` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH password. Needs username. A literal is refused. smtp only. |
+| `envelope_from` | string | none | no | MAIL FROM for every message. Absent means each payload's own envelope sender. Must be a synthetic address (a reserved domain or TLD), like every address in a payload. smtp only. |
+| `envelope_to` | string or list | none | no | RCPT TO for every message, one address or a list: the mailbox a helpdesk polls, say. Absent means each payload's own envelope recipients. Must be synthetic addresses. On an http target it replaces the envelope recipients in SendGrid's `envelope` field, for a receiver that routes on the envelope, such as Action Mailbox's SendGrid ingress; the To header is left as it is. Only the sendgrid and sendgrid-raw formats carry an envelope, so any other http format refuses it. |
+
+An smtp target's status is the reply code that ended the transaction: 250 after DATA when the message was accepted, or the first 4xx or 5xx reply (to MAIL, RCPT or DATA), whose text is recorded as the error. No reply at all is a transport error, sorted into the same buckets as an HTTP one: refused, dns, timeout, tls or other. Every artifact records the target's `transport` under `config`.
+
+## `[targets.<name>.headers]`
+
+Request headers sent with every HTTP request to the target. Each key is a header name and each value MUST be an `env:NAME` reference, the same rule as `[readback.headers]`. For a target behind HTTP Basic auth, `Authorization = "env:TARGET_AUTH"` with TARGET_AUTH holding `Basic <base64 of user:password>`; `testinghq config basic-auth <user>` prints that value.
+
+Keys are data rather than a fixed set. The fields or headers this table may name are:
+
+| Key | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `headers` | table | none | no | Every value must be 'env:<VARIABLE>'. A literal is REFUSED when the file loads. A variable that is not set is refused before the run sends anything, and by `config validate`. Content-Type and Content-Length cannot be set: the transport computes them from the body. Not allowed on an smtp target. |
+
+A run artifact records neither the header names nor the values, and `config validate` shows each header as `env:NAME`.
 
 ## `[readback]`
 
@@ -77,6 +100,8 @@ Where the pipeline's own output can be read back from. Optional for blast, barra
 | `enumerate` | boolean | `true` | no | Also list every record, to look for records that belong to no payload at all. Set false if the API cannot list; the report then says strays were not searched for, rather than claiming there were none. A POST search with no list_path cannot list either. |
 | `list_path` | string | none | no | A separate endpoint for the listing, absolute or relative to url. Without it the listing is url with the tag parameter removed and every other parameter kept. Only useful if that endpoint returns full records: the adapter cannot follow a second hop to fetch each one. |
 | `spec` | string | none | no | An import path for a custom adapter. Usually given as kind = 'module:attribute' instead, which produces the same thing. A class is instantiated (with the [readback] table if its __init__ takes one argument), a function whose one parameter is named config is called with the same table, an object with fetch is used as is, and any other callable taking one argument is a fetch function. The table holds the adapter's own keys exactly as written (an 'env:NAME' value in them is passed through, not resolved) plus every built-in key as loaded, with [readback.headers] by name only, so a credential is read from the environment by the adapter itself. An import or construction failure is refused before sending. |
+
+A custom adapter that needs a library TestingHQ does not ship, such as a database driver, brings it as its own dependency: installed next to TestingHQ, never added to TestingHQ's. It imports the library inside the code that connects rather than at the top of its module, so a config naming it loads and `config validate` runs without the library, and the adapter's `preflight()` refuses a run that lacks it before anything is sent, naming the package to install. A secret it needs, such as a DSN, is one of its own keys written as `env:NAME`, which reaches it unresolved; it resolves the reference with `testinghq.core.config.resolve_env_references`, so a literal is refused by the same rule as `[readback.headers]`. The import path must be importable: an adapter kept in a checkout rather than installed needs that directory on PYTHONPATH. examples/readback/adapters/osticket_mysql.py is a worked example, reading osTicket's MySQL tables through PyMySQL.
 
 Before anything is sent, the http adapter makes one lookup and, when listing is on, one listing request: a 401 or 403, a 404 list url, a response that is not JSON, or records with no identifier are refused then rather than discovered after the run.
 

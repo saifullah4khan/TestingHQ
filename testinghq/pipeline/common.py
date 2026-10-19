@@ -31,7 +31,7 @@ from ..core import guardrails
 from ..core.formats import WireFormat
 from ..core.ratelimit import TokenBucket
 from ..core.targets import resolve_target
-from ..core.transport import TransportResult, post
+from ..core.transport import TransportResult, as_destination, send
 from .adapters import BudgetExhausted, ReadbackConfig, build_adapter, parse_readback_config
 from .messages import Probe
 from .readback import Readback, ReadbackAdapter, ReadbackError
@@ -104,11 +104,17 @@ class SentMessage:
     result: TransportResult
 
     def response_json(self) -> Dict[str, Any]:
-        return {
+        """The record's `response`. `error` is present only when the transport
+        gave one: why no response came, or an SMTP 4xx or 5xx reply's text."""
+        response: Dict[str, Any] = {
             "status": self.result.status,
             "latency_ms": self.result.latency_ms,
             "body_snippet": self.result.body_snippet,
         }
+        error = getattr(self.result, "error", None)
+        if error:
+            response["error"] = error
+        return response
 
 
 def require_synthetic(emails: Sequence[InboundEmail]) -> None:
@@ -136,7 +142,7 @@ def resolve_target_url(
 
 def send_all(
     items: Sequence[Tuple[InboundEmail, str, str, Probe]],
-    url: str,
+    target: Any,
     rate: float,
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -145,6 +151,10 @@ def send_all(
 ) -> List[SentMessage]:
     """Fire every (email, tag, record_id, probe) in order, paced by a token
     bucket, and return what happened to each.
+
+    `target` is the ResolvedTarget, sent over its own transport, or a bare
+    HTTP URL sent in `wire_format`. With a ResolvedTarget, `wire_format`
+    overrides the target's format (loop's DSN encoder wraps it).
 
     Serial, and that is a deliberate constraint rather than a missing feature.
     The five tools in this package are about what the pipeline produced, not
@@ -169,10 +179,12 @@ def send_all(
     bucket = TokenBucket(
         rate_per_sec=rate, capacity=max(rate, 1.0), sleep=sleep, clock=clock
     )
+    destination = as_destination(target, wire_format)
+    override = None if isinstance(target, str) else wire_format
     sent: List[SentMessage] = []
     for index, (email, tag, record_id, probe) in enumerate(items):
         bucket.acquire()
-        result = post(email, url, client=client, wire_format=wire_format)
+        result = send(email, destination, client, wire_format=override)
         sent.append(
             SentMessage(
                 index=index,

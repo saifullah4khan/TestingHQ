@@ -12,6 +12,9 @@ start, and the exit codes.
 - [FORMATS.md](FORMATS.md): the five wire formats (`sendgrid`, `sendgrid-raw`,
   `mailgun`, `postmark`, `mime`), field by field, and the synthetic provider
   fields.
+- [CORPUS.md](CORPUS.md): `blast --corpus`, sending a directory of real
+  `.eml` and `.box` files with every address rewritten, and what the artifact
+  and `report` say about it.
 - [SECURITY.md](SECURITY.md): what the tool cannot do, what needs explicit
   consent (public targets and readback hosts), the threat model, and how to
   report a vulnerability.

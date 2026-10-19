@@ -1150,8 +1150,8 @@ def execute(
         except Exception as exc:  # noqa: BLE001 - nothing has been sent yet
             printer(f"refused: {exc}")
             return EXIT_REFUSED
-        sent = send_all(items + repeated, target.url, rate, client=client, sleep=sleep,
-                        clock=clock, wire_format=target.wire_format)
+        sent = send_all(items + repeated, target, rate, client=client, sleep=sleep,
+                        clock=clock)
         outcome = read_back_all(
             adapter, [probe for _e, _t, _r, probe in items + repeated],
             sleep=sleep, clock=clock, quiet_window=quiet_window,

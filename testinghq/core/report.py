@@ -11,6 +11,9 @@ Different categories have different definitions of success:
   parser rejected garbage cleanly.
 - A 2xx whose body matches the run's `--fail-on-body` pattern is flagged: the
   endpoint said yes in the status and no in the body.
+- A `--corpus` file that could not be turned into a payload is a record with
+  `outcome: unparseable`. Nothing was sent for it, so it has no response class
+  and raises no flag; the summary lists it under `unparseable`.
 
 Pure functions only, no I/O, no wall-clock reads, no network. The same
 records, seed and config always yield the same artifact dict.
@@ -63,6 +66,13 @@ ASSERTION_FAILED = "assertion_failed"
 OK = "ok"
 
 FLAGGED_OUTCOMES = (CLEAN_FAILED, DEGENERATE_FAILED, SERVER_ERROR, NO_RESPONSE, BODY_FAILED)
+
+#: The category of a payload read from a `--corpus` directory. Not one of
+#: CATEGORIES: it is counted in `by_category` only in a run that has it.
+CORPUS = "corpus"
+
+#: The recorded outcome of a corpus file that never became a payload.
+UNPARSEABLE = "unparseable"
 
 #: Response classes in the summary, in print order. `no_response` is every
 #: record whose request got no HTTP response at all.
@@ -156,6 +166,8 @@ def classify_record(record: Dict[str, Any]) -> str:
     `record` is a dict matching the run artifact schema's record shape (must
     have "category" and "response" with a "status" key at minimum).
     """
+    if record.get("outcome") == UNPARSEABLE:
+        return UNPARSEABLE
     category = record.get("category")
     response = record.get("response") or {}
     status = response.get("status")
@@ -207,29 +219,53 @@ def empty_status_classes() -> Dict[str, int]:
     return {name: 0 for name in STATUS_CLASSES}
 
 
+def _category_counts(records: List[Dict[str, Any]]) -> Dict[str, int]:
+    """CATEGORIES, all present, plus `corpus` when a record carries it."""
+    by_category = {c: 0 for c in CATEGORIES}
+    for record in records:
+        category = record.get("category")
+        if category == CORPUS:
+            by_category.setdefault(CORPUS, 0)
+        if category in by_category:
+            by_category[category] += 1
+    return by_category
+
+
+def _corpus_summary(records: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
+    """The `unparseable` list of a corpus run, nothing for any other run."""
+    if (config or {}).get("corpus_dir") is None:
+        return {}
+    return {
+        "unparseable": [
+            {"source": record.get("source"), "error": record.get("error")}
+            for record in records
+            if record.get("outcome") == UNPARSEABLE
+        ]
+    }
+
+
 def compute_summary(
     records: List[Dict[str, Any]], seed: int, config: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Build the "summary" block of a run artifact from a list of records.
 
-    `seed` and `config` are accepted for signature symmetry and not
-    consulted: the summary is derived from the records alone.
+    `seed` is accepted for signature symmetry and not consulted. The
+    summary is derived from the records alone, except that a corpus run (one
+    whose `config` names a `corpus_dir`) also lists its unparseable files.
+    An unparseable record was never sent, so it has no response class.
     """
     by_status_class = empty_status_classes()
     transport_errors = {kind: 0 for kind in TRANSPORT_ERROR_KINDS}
-    by_category = {c: 0 for c in CATEGORIES}
     flags: List[str] = []
 
     for record in records:
+        if record.get("outcome") == UNPARSEABLE:
+            continue
         response = record.get("response") or {}
         status = response.get("status")
         by_status_class[status_class(status)] += 1
         if status is None:
             transport_errors[_error_kind(response)] += 1
-
-        category = record.get("category")
-        if category in by_category:
-            by_category[category] += 1
 
         flag = flag_for_record(record)
         if flag:
@@ -238,8 +274,9 @@ def compute_summary(
     return {
         "by_status_class": by_status_class,
         "transport_errors": transport_errors,
-        "by_category": by_category,
+        "by_category": _category_counts(records),
         "flags": flags,
+        **_corpus_summary(records, config),
     }
 
 
@@ -275,10 +312,6 @@ def build_dry_run_artifact(
 ) -> Dict[str, Any]:
     """The artifact for a run that deliberately sent nothing: no response
     classes, no flags, the real category tally."""
-    by_category = {c: 0 for c in CATEGORIES}
-    for record in records:
-        if record.get("category") in by_category:
-            by_category[record["category"]] += 1
     return {
         "schema_version": SCHEMA_VERSION,
         "tool": TOOL,
@@ -287,8 +320,9 @@ def build_dry_run_artifact(
         "summary": {
             "by_status_class": empty_status_classes(),
             "transport_errors": {kind: 0 for kind in TRANSPORT_ERROR_KINDS},
-            "by_category": by_category,
+            "by_category": _category_counts(records),
             "flags": [],
+            **_corpus_summary(records, config),
         },
         "records": list(records),
         "aborted": False,
@@ -345,7 +379,10 @@ def format_summary(artifact: Dict[str, Any]) -> str:
     lines.append("By category:")
     for category in CATEGORIES:
         lines.append(f"  {category}: {by_category.get(category, 0)}")
+    if CORPUS in by_category:
+        lines.append(f"  {CORPUS}: {by_category[CORPUS]}")
     lines.append("")
+    lines.extend(_corpus_lines(artifact))
     if flags:
         lines.append(f"Look here ({len(flags)}):")
         for flag in flags:
@@ -359,6 +396,25 @@ def format_summary(artifact: Dict[str, Any]) -> str:
     lines.append(f"Verdict: {verdict(artifact)}")
 
     return "\n".join(lines)
+
+
+def _corpus_lines(artifact: Dict[str, Any]) -> List[str]:
+    """The corpus block of the human summary, or nothing for another run."""
+    config = artifact.get("config") or {}
+    if config.get("corpus_dir") is None:
+        return []
+    unparseable = (artifact.get("summary") or {}).get("unparseable") or []
+    records = artifact.get("records") or []
+    lines = [
+        f"Corpus {config['corpus_dir']}:",
+        f"  files read: {len(records)}",
+        f"  unparseable: {len(unparseable)}",
+        f"  ignored (not .eml or .box): {config.get('corpus_ignored', 0)}",
+    ]
+    for item in unparseable:
+        lines.append(f"    - {item.get('source')}: {item.get('error')}")
+    lines.append("")
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -451,11 +507,13 @@ def payload_sha256(email) -> str:
 def response_from_transport(result, fail_on_body: Optional[Pattern[str]] = None) -> Dict[str, Any]:
     """The record's `response` block for a transport.TransportResult.
 
-    `error` is the transport's message and `error_kind` one of
-    TRANSPORT_ERROR_KINDS, both None when a response arrived. With
-    `fail_on_body`, `body_failure` says whether a 2xx body snippet matched it.
+    `error` is the transport's message: why no response arrived, or, for an
+    SMTP target, the text of a 4xx or 5xx reply (an HTTP response never
+    carries one). `error_kind` is one of TRANSPORT_ERROR_KINDS when no
+    response arrived and None otherwise. With `fail_on_body`, `body_failure`
+    says whether a 2xx body snippet matched it.
     """
-    error = getattr(result, "error", None) if result.status is None else None
+    error = getattr(result, "error", None)
     response: Dict[str, Any] = {
         "status": result.status,
         "latency_ms": result.latency_ms,
@@ -490,13 +548,16 @@ def build_record(
     matcher: Optional[Matcher] = None,
     readback: Any = None,
     case: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build one schema-shaped record from a generated email, its category,
     and the response an endpoint gave back for it.
 
     `category` is the schema's hyphenated label (see category_label()). `id`
     is "{category}-{seed}-{index:04d}". `case` names the catalog case the
-    payload came from, recorded as "case" when given.
+    payload came from, recorded as "case" when given. `source` names the
+    `--corpus` file it was read from, recorded as "source" right after the
+    category when given.
 
     The record's "assertion" is `matcher.match(...)` (default
     StatusOnlyMatcher), except that a flagged outcome (see classify_record)
@@ -507,6 +568,7 @@ def build_record(
     record: Dict[str, Any] = {
         "id": f"{category}-{seed}-{index:04d}",
         "category": category,
+        **({"source": source} if source is not None else {}),
         "payload_sha256": payload_sha256(email),
         "intended": {
             "from": email.ground_truth.from_addr,
@@ -531,3 +593,21 @@ def build_record(
         record["assertion"] = {"passed": False, "mismatches": [flag] if flag else []}
 
     return record
+
+
+def unparseable_record(category: str, seed: int, index: int, source: str, error: str) -> Dict[str, Any]:
+    """The record of a corpus file that never became a payload: its source,
+    `outcome: unparseable` and why. Nothing was sent, so the response is
+    empty, as a dry run's is."""
+    return {
+        "id": f"{category}-{seed}-{index:04d}",
+        "category": category,
+        "source": source,
+        "outcome": UNPARSEABLE,
+        "error": error,
+        "response": {
+            "status": None, "latency_ms": None, "body_snippet": "",
+            "error": None, "error_kind": None,
+        },
+        "assertion": {"passed": True, "mismatches": []},
+    }

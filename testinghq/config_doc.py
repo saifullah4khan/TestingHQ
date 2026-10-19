@@ -40,7 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .core import config_schema
 from .core.config import ConfigError, Target, load_config
-from .core.targets import host_is_public
+from .core.targets import host_is_public, resolve_secrets
 from .pipeline.adapters import AdapterError, ReadbackConfig, parse_readback_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +90,19 @@ def validate(path: Path) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], List
             raise ValidationError(str(exc)) from None
         readback_effective = _render_readback(readback, readback_raw, notes)
 
+    for target in config.targets.values():
+        # Resolved only to prove each variable is set; the values are dropped.
+        try:
+            resolve_secrets(target, os.environ)
+        except ConfigError as exc:
+            raise ValidationError(str(exc)) from None
+        if target.headers:
+            notes.append(
+                f"{len(target.headers)} header(s) for target {target.name!r} "
+                "resolved from the environment. Values are not shown, here or "
+                "in any artifact."
+            )
+
     return (
         {name: _render_target(t) for name, t in config.targets.items()},
         readback_effective,
@@ -100,20 +113,37 @@ def validate(path: Path) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], List
 def _render_target(target: Target) -> Dict[str, Any]:
     """One target as the loaders resolved it, plus whether its host is public
     (which decides whether firing needs --allow-public-target). Deciding that
-    may need a DNS lookup of the host; nothing is sent."""
-    return {
+    may need a DNS lookup of the host; nothing is sent. Headers and SMTP
+    credentials appear as their `env:NAME` references, never as values."""
+    rendered: Dict[str, Any] = {
+        "transport": target.transport,
         "url": target.url,
         "format": target.wire_format,
         "public": target.public,
         "public_host": host_is_public(target.url),
     }
+    if target.headers:
+        rendered["headers"] = dict(target.headers)
+    if target.envelope_to:
+        rendered["envelope_to"] = list(target.envelope_to)
+    if target.smtp is not None:
+        smtp = target.smtp
+        rendered.update({"host": smtp.host, "port": smtp.port, "starttls": smtp.starttls})
+        rendered.update(smtp.secret_references())
+        if smtp.envelope_from is not None:
+            rendered["envelope_from"] = smtp.envelope_from
+        if smtp.envelope_to:
+            rendered["envelope_to"] = list(smtp.envelope_to)
+    return rendered
 
 
 def describe_target(name: str, target: Dict[str, Any]) -> str:
     """One line for `config validate`: url, format, the `public` key, and what
     firing at it requires."""
+    transport = target.get("transport", "http")
+    via = "" if transport == "http" else f"transport {transport}, "
     head = (
-        f"{name}: {target['url']} (format {target['format']}, "
+        f"{name}: {target['url']} ({via}format {target['format']}, "
         f"public = {'true' if target['public'] else 'false'})"
     )
     if not target["public_host"]:
@@ -184,7 +214,15 @@ def _render_readback(
 # ---------------------------------------------------------------------------
 
 
+def _toml_key(key: str) -> str:
+    if key and all(ch.isalnum() or ch in "-_" for ch in key):
+        return key
+    return _toml_value(key)
+
+
 def _toml_value(value: Any) -> str:
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
@@ -214,9 +252,20 @@ def render_effective(
 
     for name, target in targets.items():
         lines.append(f"[targets.{name}]")
-        for key in ("url", "format", "public"):
+        smtp = target.get("transport") == "smtp"
+        keys = (
+            ("transport", "host", "port", "starttls", "username", "password",
+             "envelope_from", "envelope_to", "format", "public")
+            if smtp else ("url", "envelope_to", "format", "public")
+        )
+        for key in keys:
             if key in target:
                 lines.append(f"{key} = {_toml_value(target[key])}")
+        if target.get("headers"):
+            lines.append("")
+            lines.append(f"[targets.{name}.headers]")
+            for header, reference in target["headers"].items():
+                lines.append(f"{_toml_key(header)} = {_toml_value(reference)}")
         lines.append("")
 
     if readback is not None:
@@ -245,8 +294,9 @@ _HEADER = """<!-- GENERATED FILE. Do not edit by hand. -->
 The tables below, generated from the code so they cannot drift. A key added to
 a loader without a line here fails the suite.
 
-**Scope.** `[targets.<name>]`, `[readback]`, `[readback.fields]` and
-`[readback.headers]` are read by the `core.config` loader. `[loop]`,
+**Scope.** `[targets.<name>]`, `[targets.<name>.headers]`, `[readback]`,
+`[readback.fields]` and `[readback.headers]` are read by the `core.config`
+loader. `[loop]`,
 `[loop.outbound]`, `[steady]` and `[sigcheck]` are read from the same file by
 the tool they name, and `config validate` checks their key names but not their
 values.
@@ -256,9 +306,9 @@ top-level table other than those below, stops every tool before it sends
 anything (exit 1), and `config validate` reports the same error, naming the
 file, the table, the key and the closest known key. A typo is never ignored,
 because an ignored `formt = "mailgun"` would send in the default format.
-Three exceptions, all by design: the names inside `[readback.fields]` and
-`[readback.headers]` are data (field names are checked against the readback
-fields when the adapter loads), and a `[readback]` or `[loop.outbound]` table
+Three exceptions, all by design: the names inside `[readback.fields]`,
+`[readback.headers]` and `[targets.<name>.headers]` are data (field names are
+checked against the readback fields when the adapter loads), and a `[readback]` or `[loop.outbound]` table
 whose `kind` (or `spec`) names a custom `module:attribute` adapter may carry
 keys of its own.
 
@@ -288,9 +338,7 @@ def render_reference() -> str:
     parts: List[str] = [_HEADER]
 
     for table in config_schema.TABLES:
-        heading = (
-            f"`[{table.name}.<name>]`" if table.patterned else f"`[{table.name}]`"
-        )
+        heading = f"`[{_patterned_name(table)}]`"
         parts.append(f"## {heading}\n")
         parts.append(table.summary + "\n")
 
@@ -313,6 +361,16 @@ def render_reference() -> str:
             parts.append(note + "\n")
 
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _patterned_name(table) -> str:
+    """`targets` -> `targets.<name>`, `targets.headers` ->
+    `targets.<name>.headers`: the user-chosen part goes after the first
+    segment."""
+    if not table.patterned:
+        return table.name
+    head, dot, rest = table.name.partition(".")
+    return f"{head}.<name>{dot}{rest}"
 
 
 def _default_cell(key) -> str:

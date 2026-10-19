@@ -9,6 +9,86 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
 
 ## [Unreleased]
 
+### Added
+
+- `transport = "smtp"` on a target: each message is handed to the mail server
+  at `host` and `port` (default 25) in one SMTP transaction, for pipelines that
+  pull mail instead of taking a webhook. The message is the `mime` format's
+  bytes; `format` on an SMTP target is `mime` or absent. `starttls`,
+  `username` and `password` (`env:` references), `envelope_from` and
+  `envelope_to` are optional. The status is the reply code that ended the
+  transaction (`250` after DATA, or the first 4xx or 5xx, with its text as
+  the error), and a missing reply lands in the usual refused, DNS, timeout,
+  TLS and other buckets. Every send command takes it: blast, barrage, verify,
+  ledger, redeliver, loop and steady.
+- Barrage over SMTP keeps one connection per worker, reports its setup under
+  `connections` as the HTTP keep-alive path does, and reopens a dropped
+  connection once. Latency runs to the reply after DATA.
+- `[targets.<name>.headers]`: request headers sent with every HTTP request to
+  a target, for an endpoint behind Basic auth or a gateway token. Values are
+  `env:` references only, with the same rule and refusal as
+  `[readback.headers]`, and are never written to an artifact.
+- `testinghq config basic-auth <user>`: reads a password from the terminal
+  (never from the command line) and prints the `.env` line holding
+  `Basic <base64 of user:password>`; `--env NAME` names the variable.
+- Every artifact records the target's `transport` under `config`. Records of
+  the pipeline tools carry the transport's `error` when there is one.
+- `envelope_to` on an HTTP target in the `sendgrid` or `sendgrid-raw` format
+  replaces the envelope recipients in SendGrid's `envelope` field, for a
+  receiver that routes on the envelope, such as Chatwoot's Action Mailbox
+  ingress. The To header is left as it is; the addresses must be synthetic,
+  and any other HTTP format refuses the key.
+- `blast generate` and `blast fire` take `--corpus <dir>`: every `.eml` and
+  `.box` file under the directory, sorted by name, is parsed, tagged the way
+  the generated corpus is, re-addressed to the synthetic domain and fired in
+  the target's format. Other files are counted and skipped, a file that does
+  not parse is a record with outcome `unparseable` rather than an error, and
+  `--count` caps the files used. Exclusive with `--mix` and `--catalog`. The
+  artifact records `corpus_dir` and each record's source file.
+- Readback recipes for osTicket, Zammad, FreeScout and Frappe Helpdesk in
+  `examples/readback/`, and a headers table in the Chatwoot recipe for Action
+  Mailbox's Basic auth. Zammad, FreeScout and Frappe Helpdesk fetch mail, so
+  their targets are SMTP targets.
+- Custom readback adapter examples for the two helpdesks without a read API:
+  `examples/readback/adapters/osticket_mysql.py` and `freescout_mysql.py` read
+  the helpdesk's MySQL tables. They need PyMySQL, an example dependency and
+  never one of TestingHQ's; the DSN is an `env:` reference.
+- `sweep/`, in the source distribution only: `sweep/run.sh <helpdesk>` starts
+  Chatwoot, osTicket, Zammad, FreeScout or Frappe Helpdesk with Docker
+  Compose, creates its account, inbox and API token, runs every tool against
+  it, renders every report and writes `summary.json` with each step's command
+  and exit code. `sweep/run.sh all` runs the five in turn, and
+  `sweep/run.sh mailpit` runs a pinned, checksum-verified Mailpit binary and
+  the demo pipeline with no Docker at all.
+- `examples/runs/mailpit/`: the Mailpit recipe run against Mailpit v1.31.6
+  and the demo pipeline, every tool's artifact with its HTML report.
+
+### Changed
+
+- A target `url` carrying credentials (`user:pass@host`) is refused, with a
+  pointer to `[targets.<name>.headers]`.
+- `sigcheck` refuses an SMTP target, since a provider signature is an HTTP
+  concept.
+- An SMTP target's `host` is held to the public-host rule, and its
+  `envelope_from` and `envelope_to` must be synthetic addresses.
+- The Mailpit recipe says which `redeliver` scenarios a mail sink can answer:
+  the duplicate ones, which count copies, and not the threading ones, which
+  need a ticket store.
+
+### Fixed
+
+- The `mime` format writes a `message/*` attachment (an embedded message, a
+  delivery or disposition report) as a structured part instead of base64, so
+  a bounce read by `blast --corpus` builds and is sent rather than being
+  recorded as unparseable.
+- `redeliver`'s reply-first and references scenarios date each thread in the
+  order it was written: the root keeps its generated Date and each reply is
+  dated after the message before it, whatever order the scenario delivers
+  them in. Each payload used to keep its own random Date, so a reply could be
+  dated before its original, and a helpdesk that processes a mail fetch in
+  Date order, as FreeScout does, filed it first on a conversation of its own
+  and was reported for a broken thread it did not cause.
+
 ## [1.0.0] - 2026-10-15
 
 The first published release.

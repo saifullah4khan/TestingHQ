@@ -7,6 +7,8 @@ dist/
 venv/
 .pytest_cache/
 corpus/
+# The hand-written sample corpus the blast --corpus tests read is tracked.
+!tests/fixtures/corpus/
 *.run.json
 
 # A real deployment's credentials, loaded from the shell. `.env.example` is
@@ -15,9 +17,18 @@ corpus/
 # followed by a paste is one `git add -A` away from publishing a token.
 .env
 
+# What the sweep's setup scripts write: the API keys and DSNs of the local
+# helpdesks.
+sweep/.env.*
+
 # A config pointed at a real deployment, with its URL in it. The recipes are
 # tracked templates; these are the working copies.
 examples/readback/*.local.toml
 target.local.toml
 
 .ruff_cache/
+
+# What the sweep's setup scripts write: each helpdesk's credentials
+# (sweep/.env.<helpdesk>) and the mail a helpdesk sent (sweep/.state/).
+sweep/.env.*
+sweep/.state/
