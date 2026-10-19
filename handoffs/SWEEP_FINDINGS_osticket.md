@@ -144,8 +144,8 @@ the setup's or TestingHQ's own are listed at the end with what was fixed.
 - Sent: two replies, each with `In-Reply-To` and `References` naming the
   root's Message-ID and a `Re:` subject, then the root. The Dates are in thread
   order, root first.
-- Stored: each reply opened its own ticket (167944 and 527872 in the published
-  run) and the root opened a third (273014). Nothing was merged once the root
+- Stored: each reply opened its own ticket (317801 and 631964 in the published
+  run) and the root opened a third (258987). Nothing was merged once the root
   arrived. The `references` scenario, delivered in order, threads all three
   onto one ticket, so osTicket reads the headers when the parent exists.
 - Why it is osTicket's: the API files each message synchronously on arrival,

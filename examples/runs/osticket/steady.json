@@ -7,7 +7,7 @@
     "tool": "steady",
     "seed": 0,
     "count": 6,
-    "tag_prefix": "hq-2610190505-95eb",
+    "tag_prefix": "hq-2610190744-e7ba",
     "target": "osticket",
     "readback": {
       "kind": "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter",
@@ -238,7 +238,7 @@
     "sent": 105,
     "unsettled": false,
     "readback": {
-      "elapsed_s": 10.425,
+      "elapsed_s": 10.361,
       "polls": 12,
       "stable": true,
       "unsettled": false,

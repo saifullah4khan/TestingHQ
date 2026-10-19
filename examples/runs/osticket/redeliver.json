@@ -6,7 +6,7 @@
     "tool": "redeliver",
     "seed": 0,
     "count": 3,
-    "tag_prefix": "hq-2610190502-b7b3",
+    "tag_prefix": "hq-2610190741-9134",
     "target": "osticket",
     "readback": {
       "kind": "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter",
@@ -80,284 +80,284 @@
     "strays_not_searched_reason": null,
     "other_runs": [
       {
-        "tag": "hq-2610190501-9f12-0-0000",
-        "ticket": "923398"
+        "tag": "hq-2610190741-98cd-0-0000",
+        "ticket": "478911"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0001",
-        "ticket": "554794"
+        "tag": "hq-2610190741-98cd-0-0001",
+        "ticket": "311077"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0002",
-        "ticket": "417809"
+        "tag": "hq-2610190741-98cd-0-0002",
+        "ticket": "357571"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0003",
-        "ticket": "802668"
+        "tag": "hq-2610190741-98cd-0-0003",
+        "ticket": "207415"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0004",
-        "ticket": "897813"
+        "tag": "hq-2610190741-98cd-0-0004",
+        "ticket": "556991"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0005",
-        "ticket": "779153"
+        "tag": "hq-2610190741-98cd-0-0005",
+        "ticket": "829608"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0006",
-        "ticket": "104104"
+        "tag": "hq-2610190741-98cd-0-0006",
+        "ticket": "357637"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0007",
-        "ticket": "922832"
+        "tag": "hq-2610190741-98cd-0-0007",
+        "ticket": "478553"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0008",
-        "ticket": "499167"
+        "tag": "hq-2610190741-98cd-0-0008",
+        "ticket": "551232"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0009",
-        "ticket": "730944"
+        "tag": "hq-2610190741-98cd-0-0009",
+        "ticket": "837127"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0010",
-        "ticket": "765261"
+        "tag": "hq-2610190741-98cd-0-0010",
+        "ticket": "372855"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0011",
-        "ticket": "436866"
+        "tag": "hq-2610190741-98cd-0-0011",
+        "ticket": "596504"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0012",
-        "ticket": "599972"
+        "tag": "hq-2610190741-98cd-0-0012",
+        "ticket": "906976"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0013",
-        "ticket": "578579"
+        "tag": "hq-2610190741-98cd-0-0013",
+        "ticket": "337633"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0014",
-        "ticket": "578174"
+        "tag": "hq-2610190741-98cd-0-0014",
+        "ticket": "246015"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0015",
-        "ticket": "701408"
+        "tag": "hq-2610190741-98cd-0-0015",
+        "ticket": "158472"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0016",
-        "ticket": "578516"
+        "tag": "hq-2610190741-98cd-0-0016",
+        "ticket": "451676"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0017",
-        "ticket": "291286"
+        "tag": "hq-2610190741-98cd-0-0017",
+        "ticket": "945112"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0018",
-        "ticket": "386152"
+        "tag": "hq-2610190741-98cd-0-0018",
+        "ticket": "106987"
       },
       {
-        "tag": "hq-2610190501-9f12-0-0019",
-        "ticket": "271184"
+        "tag": "hq-2610190741-98cd-0-0019",
+        "ticket": "529384"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0000",
-        "ticket": "825256"
+        "tag": "hq-2610190741-1659-0-0000",
+        "ticket": "778914"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0001",
-        "ticket": "234964"
+        "tag": "hq-2610190741-1659-0-0001",
+        "ticket": "238743"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0002",
-        "ticket": "683176"
+        "tag": "hq-2610190741-1659-0-0002",
+        "ticket": "181538"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0003",
-        "ticket": "603926"
+        "tag": "hq-2610190741-1659-0-0003",
+        "ticket": "470595"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0004",
-        "ticket": "407749"
+        "tag": "hq-2610190741-1659-0-0004",
+        "ticket": "644476"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0005",
-        "ticket": "172667"
+        "tag": "hq-2610190741-1659-0-0005",
+        "ticket": "821113"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0006",
-        "ticket": "506353"
+        "tag": "hq-2610190741-1659-0-0006",
+        "ticket": "162042"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0007",
-        "ticket": "304059"
+        "tag": "hq-2610190741-1659-0-0007",
+        "ticket": "340393"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0008",
-        "ticket": "354671"
+        "tag": "hq-2610190741-1659-0-0008",
+        "ticket": "528924"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0009",
-        "ticket": "963504"
+        "tag": "hq-2610190741-1659-0-0009",
+        "ticket": "297651"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0010",
-        "ticket": "597491"
+        "tag": "hq-2610190741-1659-0-0010",
+        "ticket": "237586"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0011",
-        "ticket": "435502"
+        "tag": "hq-2610190741-1659-0-0011",
+        "ticket": "948623"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0012",
-        "ticket": "132038"
+        "tag": "hq-2610190741-1659-0-0012",
+        "ticket": "274869"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0013",
-        "ticket": "995014"
+        "tag": "hq-2610190741-1659-0-0013",
+        "ticket": "184744"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0014",
-        "ticket": "792586"
+        "tag": "hq-2610190741-1659-0-0014",
+        "ticket": "898748"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0015",
-        "ticket": "119383"
+        "tag": "hq-2610190741-1659-0-0015",
+        "ticket": "385547"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0016",
-        "ticket": "627780"
+        "tag": "hq-2610190741-1659-0-0016",
+        "ticket": "390417"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0017",
-        "ticket": "496752"
+        "tag": "hq-2610190741-1659-0-0017",
+        "ticket": "328803"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0018",
-        "ticket": "420463"
+        "tag": "hq-2610190741-1659-0-0018",
+        "ticket": "351102"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0019",
-        "ticket": "286157"
+        "tag": "hq-2610190741-1659-0-0019",
+        "ticket": "459340"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0020",
-        "ticket": "490300"
+        "tag": "hq-2610190741-1659-0-0020",
+        "ticket": "508213"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0021",
-        "ticket": "678784"
+        "tag": "hq-2610190741-1659-0-0021",
+        "ticket": "989753"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0022",
-        "ticket": "151476"
+        "tag": "hq-2610190741-1659-0-0022",
+        "ticket": "748757"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0023",
-        "ticket": "713300"
+        "tag": "hq-2610190741-1659-0-0023",
+        "ticket": "383959"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0024",
-        "ticket": "817175"
+        "tag": "hq-2610190741-1659-0-0024",
+        "ticket": "133979"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0025",
-        "ticket": "202822"
+        "tag": "hq-2610190741-1659-0-0025",
+        "ticket": "984104"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0026",
-        "ticket": "525923"
+        "tag": "hq-2610190741-1659-0-0026",
+        "ticket": "490855"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0027",
-        "ticket": "393103"
+        "tag": "hq-2610190741-1659-0-0027",
+        "ticket": "962624"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0028",
-        "ticket": "781621"
+        "tag": "hq-2610190741-1659-0-0028",
+        "ticket": "308378"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0029",
-        "ticket": "217775"
+        "tag": "hq-2610190741-1659-0-0029",
+        "ticket": "479623"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0030",
-        "ticket": "900964"
+        "tag": "hq-2610190741-1659-0-0030",
+        "ticket": "396091"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0031",
-        "ticket": "231496"
+        "tag": "hq-2610190741-1659-0-0031",
+        "ticket": "560471"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0032",
-        "ticket": "435902"
+        "tag": "hq-2610190741-1659-0-0032",
+        "ticket": "818562"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0033",
-        "ticket": "430548"
+        "tag": "hq-2610190741-1659-0-0033",
+        "ticket": "683079"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0034",
-        "ticket": "700869"
+        "tag": "hq-2610190741-1659-0-0034",
+        "ticket": "787872"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0035",
-        "ticket": "189905"
+        "tag": "hq-2610190741-1659-0-0035",
+        "ticket": "756502"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0036",
-        "ticket": "634021"
+        "tag": "hq-2610190741-1659-0-0036",
+        "ticket": "848430"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0037",
-        "ticket": "214163"
+        "tag": "hq-2610190741-1659-0-0037",
+        "ticket": "505855"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0038",
-        "ticket": "219252"
+        "tag": "hq-2610190741-1659-0-0038",
+        "ticket": "815507"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0039",
-        "ticket": "206057"
+        "tag": "hq-2610190741-1659-0-0039",
+        "ticket": "721053"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0040",
-        "ticket": "538146"
+        "tag": "hq-2610190741-1659-0-0040",
+        "ticket": "669039"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0041",
-        "ticket": "637279"
+        "tag": "hq-2610190741-1659-0-0041",
+        "ticket": "505751"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0042",
-        "ticket": "485686"
+        "tag": "hq-2610190741-1659-0-0042",
+        "ticket": "480910"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0043",
-        "ticket": "245794"
+        "tag": "hq-2610190741-1659-0-0043",
+        "ticket": "780390"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0044",
-        "ticket": "790164"
+        "tag": "hq-2610190741-1659-0-0044",
+        "ticket": "408858"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0045",
-        "ticket": "682763"
+        "tag": "hq-2610190741-1659-0-0045",
+        "ticket": "918161"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0046",
-        "ticket": "511931"
+        "tag": "hq-2610190741-1659-0-0046",
+        "ticket": "556675"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0047",
-        "ticket": "183162"
+        "tag": "hq-2610190741-1659-0-0047",
+        "ticket": "291439"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0048",
-        "ticket": "331678"
+        "tag": "hq-2610190741-1659-0-0048",
+        "ticket": "111827"
       },
       {
-        "tag": "hq-2610190501-fadd-0-0049",
-        "ticket": "242664"
+        "tag": "hq-2610190741-1659-0-0049",
+        "ticket": "124724"
       }
     ],
     "other_runs_count": 70,
@@ -366,7 +366,7 @@
     "verdict": "DELIVERY-BUGS",
     "verdict_source": "tool",
     "readback": {
-      "elapsed_s": 10.432,
+      "elapsed_s": 10.425,
       "polls": 20,
       "stable": true,
       "unsettled": false,
@@ -395,18 +395,18 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190502-b7b3-dup-0-0000",
+          "tag": "hq-2610190741-9134-dup-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190502-b7b3-dup-0-0000@hq.example.test",
+          "message_id": "hq-2610190741-9134-dup-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "269679"
+            "510885"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 269679",
+              "detail": "created as 510885",
               "expected": null,
               "actual": null,
               "reason": null
@@ -454,18 +454,18 @@
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-dup-0-0001",
+          "tag": "hq-2610190741-9134-dup-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190502-b7b3-dup-0-0001@hq.example.test",
+          "message_id": "hq-2610190741-9134-dup-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "319556"
+            "791589"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 319556",
+              "detail": "created as 791589",
               "expected": null,
               "actual": null,
               "reason": null
@@ -513,18 +513,18 @@
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-dup-0-0002",
+          "tag": "hq-2610190741-9134-dup-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190502-b7b3-dup-0-0002@hq.example.test",
+          "message_id": "hq-2610190741-9134-dup-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "855919"
+            "593285"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 855919",
+              "detail": "created as 593285",
               "expected": null,
               "actual": null,
               "reason": null
@@ -586,18 +586,18 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190502-b7b3-rty-0-0000",
+          "tag": "hq-2610190741-9134-rty-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190502-b7b3-rty-0-0000@hq.example.test",
+          "message_id": "hq-2610190741-9134-rty-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "715002"
+            "587390"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 715002",
+              "detail": "created as 587390",
               "expected": null,
               "actual": null,
               "reason": null
@@ -645,18 +645,18 @@
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-rty-0-0001",
+          "tag": "hq-2610190741-9134-rty-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190502-b7b3-rty-0-0001@hq.example.test",
+          "message_id": "hq-2610190741-9134-rty-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "486809"
+            "571102"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 486809",
+              "detail": "created as 571102",
               "expected": null,
               "actual": null,
               "reason": null
@@ -704,18 +704,18 @@
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-rty-0-0002",
+          "tag": "hq-2610190741-9134-rty-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190502-b7b3-rty-0-0002@hq.example.test",
+          "message_id": "hq-2610190741-9134-rty-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "104546"
+            "520583"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 104546",
+              "detail": "created as 520583",
               "expected": null,
               "actual": null,
               "reason": null
@@ -772,26 +772,26 @@
       "strays_searched": true,
       "passed": false,
       "findings": [
-        "hq-2610190502-b7b3-r1st-0-0001: the reply is on ticket 167944 but its original is on 273014",
-        "hq-2610190502-b7b3-r1st-0-0002: the reply is on ticket 527872 but its original is on 273014"
+        "hq-2610190741-9134-r1st-0-0001: the reply is on ticket 317801 but its original is on 258987",
+        "hq-2610190741-9134-r1st-0-0002: the reply is on ticket 631964 but its original is on 258987"
       ],
       "missing": [],
       "not_checked": [],
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190502-b7b3-r1st-0-0001",
+          "tag": "hq-2610190741-9134-r1st-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190502-b7b3-r1st-0-0001@hq.example.test",
-          "replies_to": "hq-2610190502-b7b3-r1st-0-0000",
+          "message_id": "hq-2610190741-9134-r1st-0-0001@hq.example.test",
+          "replies_to": "hq-2610190741-9134-r1st-0-0000",
           "tickets": [
-            "167944"
+            "317801"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 167944",
+              "detail": "created as 317801",
               "expected": null,
               "actual": null,
               "reason": null
@@ -839,34 +839,34 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190502-b7b3-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
-              "expected": "hq-2610190502-b7b3-r1st-0-0000@hq.example.test",
+              "detail": "linked to hq-2610190741-9134-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190741-9134-r1st-0-0000@hq.example.test",
               "actual": null,
               "reason": null
             },
             {
               "check": "thread_together",
               "status": "failed",
-              "detail": "the reply is on ticket 167944 but its original is on 273014",
-              "expected": "273014",
-              "actual": "167944",
+              "detail": "the reply is on ticket 317801 but its original is on 258987",
+              "expected": "258987",
+              "actual": "317801",
               "reason": null
             }
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-r1st-0-0002",
+          "tag": "hq-2610190741-9134-r1st-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190502-b7b3-r1st-0-0002@hq.example.test",
-          "replies_to": "hq-2610190502-b7b3-r1st-0-0000",
+          "message_id": "hq-2610190741-9134-r1st-0-0002@hq.example.test",
+          "replies_to": "hq-2610190741-9134-r1st-0-0000",
           "tickets": [
-            "527872"
+            "631964"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 527872",
+              "detail": "created as 631964",
               "expected": null,
               "actual": null,
               "reason": null
@@ -914,34 +914,34 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190502-b7b3-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
-              "expected": "hq-2610190502-b7b3-r1st-0-0000@hq.example.test",
+              "detail": "linked to hq-2610190741-9134-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190741-9134-r1st-0-0000@hq.example.test",
               "actual": null,
               "reason": null
             },
             {
               "check": "thread_together",
               "status": "failed",
-              "detail": "the reply is on ticket 527872 but its original is on 273014",
-              "expected": "273014",
-              "actual": "527872",
+              "detail": "the reply is on ticket 631964 but its original is on 258987",
+              "expected": "258987",
+              "actual": "631964",
               "reason": null
             }
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-r1st-0-0000",
+          "tag": "hq-2610190741-9134-r1st-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190502-b7b3-r1st-0-0000@hq.example.test",
+          "message_id": "hq-2610190741-9134-r1st-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "273014"
+            "258987"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 273014",
+              "detail": "created as 258987",
               "expected": null,
               "actual": null,
               "reason": null
@@ -1003,18 +1003,18 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190502-b7b3-ref-0-0000",
+          "tag": "hq-2610190741-9134-ref-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190502-b7b3-ref-0-0000@hq.example.test",
+          "message_id": "hq-2610190741-9134-ref-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "296531"
+            "599520"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 296531",
+              "detail": "created as 599520",
               "expected": null,
               "actual": null,
               "reason": null
@@ -1062,18 +1062,18 @@
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-ref-0-0001",
+          "tag": "hq-2610190741-9134-ref-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190502-b7b3-ref-0-0001@hq.example.test",
-          "replies_to": "hq-2610190502-b7b3-ref-0-0000",
+          "message_id": "hq-2610190741-9134-ref-0-0001@hq.example.test",
+          "replies_to": "hq-2610190741-9134-ref-0-0000",
           "tickets": [
-            "296531"
+            "599520"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 296531",
+              "detail": "created as 599520",
               "expected": null,
               "actual": null,
               "reason": null
@@ -1121,15 +1121,15 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190502-b7b3-ref-0-0000@hq.example.test, References carries all 1 ancestor(s)",
-              "expected": "hq-2610190502-b7b3-ref-0-0000@hq.example.test",
+              "detail": "linked to hq-2610190741-9134-ref-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190741-9134-ref-0-0000@hq.example.test",
               "actual": null,
               "reason": null
             },
             {
               "check": "thread_together",
               "status": "passed",
-              "detail": "both on ticket 296531",
+              "detail": "both on ticket 599520",
               "expected": null,
               "actual": null,
               "reason": null
@@ -1137,18 +1137,18 @@
           ]
         },
         {
-          "tag": "hq-2610190502-b7b3-ref-0-0002",
+          "tag": "hq-2610190741-9134-ref-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190502-b7b3-ref-0-0002@hq.example.test",
-          "replies_to": "hq-2610190502-b7b3-ref-0-0001",
+          "message_id": "hq-2610190741-9134-ref-0-0002@hq.example.test",
+          "replies_to": "hq-2610190741-9134-ref-0-0001",
           "tickets": [
-            "296531"
+            "599520"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 296531",
+              "detail": "created as 599520",
               "expected": null,
               "actual": null,
               "reason": null
@@ -1196,15 +1196,15 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190502-b7b3-ref-0-0001@hq.example.test, References carries all 2 ancestor(s)",
-              "expected": "hq-2610190502-b7b3-ref-0-0001@hq.example.test",
+              "detail": "linked to hq-2610190741-9134-ref-0-0001@hq.example.test, References carries all 2 ancestor(s)",
+              "expected": "hq-2610190741-9134-ref-0-0001@hq.example.test",
               "actual": null,
               "reason": null
             },
             {
               "check": "thread_together",
               "status": "passed",
-              "detail": "both on ticket 296531",
+              "detail": "both on ticket 599520",
               "expected": null,
               "actual": null,
               "reason": null

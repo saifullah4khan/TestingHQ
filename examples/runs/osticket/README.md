@@ -29,20 +29,22 @@ auto-responders, and turns off the staff alerts.
 | [steady](steady.html) | STABLE | 0 | 105 variants, every one in Support: osTicket makes no other decision about a message |
 | [blast --catalog](blast-catalog.html) | CLEAN | 0 | 26 of 26 edge cases answered 2xx |
 | [blast --corpus](blast-corpus.html) | FLAGGED | 3 | 95 of 99 of Zammad's test mails filed; the 4 with no usable sender answered 500 |
-| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 168ms, no errors, no knee |
+| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 160ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
 
-The four osTicket findings, with what was sent, what was stored and how to
+The five osTicket findings, with what was sent, what was stored and how to
 reproduce each, are in
 [handoffs/SWEEP_FINDINGS_osticket.md](../../../handoffs/SWEEP_FINDINGS_osticket.md):
-zero-byte attachments dropped, auto-responses to machine mail, a reply filed
-before its original never threaded, and a 500 for a message with no sender.
+zero-byte attachments dropped, auto-responses to machine mail, its own
+auto-response's Auto-Submitted and Precedence sent as encoded words, a reply
+filed before its original never threaded, and a 500 for a message with no
+sender.
 
 steady's constant-label warning is expected here: the department is the only
 label osTicket gives a message, so every variant reading `Support` is the
 stable answer, not a misconfigured field.
 
 Paths in the artifacts are relative to the repository root and point at the
-run directory the sweep wrote, `sweep/runs/osticket/20261019T050107Z/`.
+run directory the sweep wrote, `sweep/runs/osticket/20261019T074051Z/`.

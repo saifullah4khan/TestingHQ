@@ -6,7 +6,7 @@
     "tool": "verify",
     "seed": 0,
     "count": 20,
-    "tag_prefix": "hq-2610190501-9f12",
+    "tag_prefix": "hq-2610190741-98cd",
     "target": "osticket",
     "readback": {
       "kind": "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter",
@@ -85,7 +85,7 @@
     },
     "unsettled": false,
     "readback": {
-      "elapsed_s": 10.505,
+      "elapsed_s": 10.493,
       "polls": 19,
       "stable": true,
       "unsettled": false,
@@ -106,9 +106,9 @@
     {
       "id": "clean-0-0000",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0000",
-      "message_id": "hq-2610190501-9f12-0-0000@hq.example.test",
-      "payload_sha256": "40f0e0ff3db4a5f9cfa1e424cfa51ee686665cd29a299ffc5d3c5cb65f9bc720",
+      "tag": "hq-2610190741-98cd-0-0000",
+      "message_id": "hq-2610190741-98cd-0-0000@hq.example.test",
+      "payload_sha256": "aae3b6cc48718d0825ab10982a4bd0e7769c3bdeb61a2d6c1a7f1110e9654792",
       "intended": {
         "sender": "grace.brown@internal.localhost",
         "subject": "Onboarding - action needed",
@@ -123,8 +123,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 299.66580000473186,
-        "body_snippet": "923398"
+        "latency_ms": 348.1442000193056,
+        "body_snippet": "478911"
       },
       "assertion": {
         "passed": true,
@@ -133,18 +133,18 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "923398",
+          "ticket_id": "478911",
           "from_addr": "grace.brown@internal.localhost",
           "subject": "Onboarding - action needed",
-          "body": "<div>Hey Grace, <div><br /></div><div>This message is about onboarding. Looking forward to your reply.</div><div><br /></div><div>Best regards,<br />Grace</div></div><p>[testinghq:hq-2610190501-9f12-0-0000]</p> ",
+          "body": "<div>Hey Grace, <div><br /></div><div>This message is about onboarding. Looking forward to your reply.</div><div><br /></div><div>Best regards,<br />Grace</div></div><p>[testinghq:hq-2610190741-98cd-0-0000]</p> ",
           "attachment_names": [
             "invoice4.jpg"
           ],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0000@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0000@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0000",
+          "tag": "hq-2610190741-98cd-0-0000",
           "category": null,
           "priority": null,
           "fields": [
@@ -163,14 +163,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0000",
-        "tag": "hq-2610190501-9f12-0-0000",
+        "tag": "hq-2610190741-98cd-0-0000",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 923398",
+            "detail": "created as 478911",
             "expected": null,
             "actual": null,
             "reason": null
@@ -221,9 +221,9 @@
     {
       "id": "clean-0-0001",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0001",
-      "message_id": "hq-2610190501-9f12-0-0001@hq.example.test",
-      "payload_sha256": "325cf631f741e40663689709195b209560a34ac2f76e8ef49afc2f0de0afacc5",
+      "tag": "hq-2610190741-98cd-0-0001",
+      "message_id": "hq-2610190741-98cd-0-0001@hq.example.test",
+      "payload_sha256": "debc70e032f784ff4c636c86e8192719838707b1a72f215f78e35aea004d2663",
       "intended": {
         "sender": "bmuller19@example.com",
         "subject": "Update on the Z\u00fcrich office move",
@@ -236,8 +236,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 225.12909999932162,
-        "body_snippet": "554794"
+        "latency_ms": 240.32460001762956,
+        "body_snippet": "311077"
       },
       "assertion": {
         "passed": true,
@@ -246,16 +246,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "554794",
+          "ticket_id": "311077",
           "from_addr": "bmuller19@example.com",
           "subject": "Update on the Z\u00fcrich office move",
-          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">This message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.</p><p class=\"MsoNormal\">Best,<br />Bob</p></div><p>[testinghq:hq-2610190501-9f12-0-0001]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">This message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.</p><p class=\"MsoNormal\">Best,<br />Bob</p></div><p>[testinghq:hq-2610190741-98cd-0-0001]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0001@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0001@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0001",
+          "tag": "hq-2610190741-98cd-0-0001",
           "category": null,
           "priority": null,
           "fields": [
@@ -274,14 +274,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0001",
-        "tag": "hq-2610190501-9f12-0-0001",
+        "tag": "hq-2610190741-98cd-0-0001",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 554794",
+            "detail": "created as 311077",
             "expected": null,
             "actual": null,
             "reason": null
@@ -332,9 +332,9 @@
     {
       "id": "clean-0-0002",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0002",
-      "message_id": "hq-2610190501-9f12-0-0002@hq.example.test",
-      "payload_sha256": "5afe1ff3e2bd5eab94651a711debb177270bfad33e99536315fa8d5c3e8af34a",
+      "tag": "hq-2610190741-98cd-0-0002",
+      "message_id": "hq-2610190741-98cd-0-0002@hq.example.test",
+      "payload_sha256": "e651884b364b1d86ffb11621cade8255868e615b63b0774c2605d7f24c4e8d14",
       "intended": {
         "sender": "ivan.chen@example.net",
         "subject": "The renewal",
@@ -347,8 +347,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 206.43969997763634,
-        "body_snippet": "417809"
+        "latency_ms": 206.69620000990108,
+        "body_snippet": "357571"
       },
       "assertion": {
         "passed": true,
@@ -357,16 +357,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "417809",
+          "ticket_id": "357571",
           "from_addr": "ivan.chen@example.net",
           "subject": "The renewal",
-          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.</p><p class=\"MsoNormal\">Best regards,<br />Ivan</p></div><p>[testinghq:hq-2610190501-9f12-0-0002]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.</p><p class=\"MsoNormal\">Best regards,<br />Ivan</p></div><p>[testinghq:hq-2610190741-98cd-0-0002]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0002@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0002@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0002",
+          "tag": "hq-2610190741-98cd-0-0002",
           "category": null,
           "priority": null,
           "fields": [
@@ -385,14 +385,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0002",
-        "tag": "hq-2610190501-9f12-0-0002",
+        "tag": "hq-2610190741-98cd-0-0002",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 417809",
+            "detail": "created as 357571",
             "expected": null,
             "actual": null,
             "reason": null
@@ -443,9 +443,9 @@
     {
       "id": "clean-0-0003",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0003",
-      "message_id": "hq-2610190501-9f12-0-0003@hq.example.test",
-      "payload_sha256": "68addee0e6dc4eb99851f67c0f3a682c17584a9d7df0f505d84a8a20b95b89bb",
+      "tag": "hq-2610190741-98cd-0-0003",
+      "message_id": "hq-2610190741-98cd-0-0003@hq.example.test",
+      "payload_sha256": "5cd1d780d98445600e1662dea5bf3a707b0be26f1c7b0520a6b23d046d6783ae",
       "intended": {
         "sender": "heidis24@example.net",
         "subject": "Re: the contract",
@@ -460,8 +460,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 192.71450000815094,
-        "body_snippet": "802668"
+        "latency_ms": 176.8426000198815,
+        "body_snippet": "207415"
       },
       "assertion": {
         "passed": false,
@@ -472,19 +472,19 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "802668",
+          "ticket_id": "207415",
           "from_addr": "heidis24@example.net",
           "subject": "Re: the contract",
-          "body": "<div>Hello Oscar, <div><br /></div><div>This message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.</div><div><br /></div><div>Thanks,<br />Heidi</div></div><p>[testinghq:hq-2610190501-9f12-0-0003]</p> ",
+          "body": "<div>Hello Oscar, <div><br /></div><div>This message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.</div><div><br /></div><div>Thanks,<br />Heidi</div></div><p>[testinghq:hq-2610190741-98cd-0-0003]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0003@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0003@hq.example.test",
           "in_reply_to": "8aab2a118549bc49@widgets.example",
           "references": [
             "3f719529ca9d33ff@example.net",
             "8aab2a118549bc49@widgets.example"
           ],
-          "tag": "hq-2610190501-9f12-0-0003",
+          "tag": "hq-2610190741-98cd-0-0003",
           "category": null,
           "priority": null,
           "fields": [
@@ -503,14 +503,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0003",
-        "tag": "hq-2610190501-9f12-0-0003",
+        "tag": "hq-2610190741-98cd-0-0003",
         "found": true,
         "passed": false,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 802668",
+            "detail": "created as 207415",
             "expected": null,
             "actual": null,
             "reason": null
@@ -563,9 +563,9 @@
     {
       "id": "clean-0-0004",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0004",
-      "message_id": "hq-2610190501-9f12-0-0004@hq.example.test",
-      "payload_sha256": "5492a5b384cb3808fe3def1fd24375836c0b04132062429e837aa2e544f8f044",
+      "tag": "hq-2610190741-98cd-0-0004",
+      "message_id": "hq-2610190741-98cd-0-0004@hq.example.test",
+      "payload_sha256": "df5c3bfc29ee08aae1b299a57f3306396fbd32442de2ce343c0b5826fd2721a9",
       "intended": {
         "sender": "bjones@example.edu",
         "subject": "Quick question about onboarding",
@@ -578,8 +578,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 198.55560001451522,
-        "body_snippet": "897813"
+        "latency_ms": 299.2727999808267,
+        "body_snippet": "556991"
       },
       "assertion": {
         "passed": true,
@@ -588,16 +588,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "897813",
+          "ticket_id": "556991",
           "from_addr": "bjones@example.edu",
           "subject": "Quick question about onboarding",
-          "body": "<div><p class=\"MsoNormal\">Hey Alice,</p><p class=\"MsoNormal\">I am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.</p><p class=\"MsoNormal\">Cheers,<br />Bob</p></div><p>[testinghq:hq-2610190501-9f12-0-0004]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hey Alice,</p><p class=\"MsoNormal\">I am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.</p><p class=\"MsoNormal\">Cheers,<br />Bob</p></div><p>[testinghq:hq-2610190741-98cd-0-0004]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0004@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0004@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0004",
+          "tag": "hq-2610190741-98cd-0-0004",
           "category": null,
           "priority": null,
           "fields": [
@@ -616,14 +616,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0004",
-        "tag": "hq-2610190501-9f12-0-0004",
+        "tag": "hq-2610190741-98cd-0-0004",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 897813",
+            "detail": "created as 556991",
             "expected": null,
             "actual": null,
             "reason": null
@@ -674,9 +674,9 @@
     {
       "id": "clean-0-0005",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0005",
-      "message_id": "hq-2610190501-9f12-0-0005@hq.example.test",
-      "payload_sha256": "2475e7f765544b9682438ef9a853afef94f89b808424d32385b7b7558fd95e74",
+      "tag": "hq-2610190741-98cd-0-0005",
+      "message_id": "hq-2610190741-98cd-0-0005@hq.example.test",
+      "payload_sha256": "8e8f4fe2b83181a695ded945b138014eccbebad217188cae81642d4d929763fe",
       "intended": {
         "sender": "flee@internal.localhost",
         "subject": "Re: the quarterly report",
@@ -692,8 +692,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 206.8862000014633,
-        "body_snippet": "779153"
+        "latency_ms": 224.8433000058867,
+        "body_snippet": "829608"
       },
       "assertion": {
         "passed": true,
@@ -702,22 +702,22 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "779153",
+          "ticket_id": "829608",
           "from_addr": "flee@internal.localhost",
           "subject": "Re: the quarterly report",
-          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the quarterly report. Let me know if the timeline still works for you.</p><p class=\"MsoNormal\">Sincerely,<br />Frank</p></div><p>[testinghq:hq-2610190501-9f12-0-0005]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the quarterly report. Let me know if the timeline still works for you.</p><p class=\"MsoNormal\">Sincerely,<br />Frank</p></div><p>[testinghq:hq-2610190741-98cd-0-0005]</p> ",
           "attachment_names": [
             "report9736.csv",
             "export3305.txt"
           ],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0005@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0005@hq.example.test",
           "in_reply_to": "f4014a3b6cf31ea3@example.com",
           "references": [
             "94c9361ceb6eb211@internal.localhost",
             "f4014a3b6cf31ea3@example.com"
           ],
-          "tag": "hq-2610190501-9f12-0-0005",
+          "tag": "hq-2610190741-98cd-0-0005",
           "category": null,
           "priority": null,
           "fields": [
@@ -736,14 +736,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0005",
-        "tag": "hq-2610190501-9f12-0-0005",
+        "tag": "hq-2610190741-98cd-0-0005",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 779153",
+            "detail": "created as 829608",
             "expected": null,
             "actual": null,
             "reason": null
@@ -794,9 +794,9 @@
     {
       "id": "clean-0-0006",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0006",
-      "message_id": "hq-2610190501-9f12-0-0006@hq.example.test",
-      "payload_sha256": "9ad415bef577408ebf65635b1d57ae02120b045e971ac7157370e9b5176d0a91",
+      "tag": "hq-2610190741-98cd-0-0006",
+      "message_id": "hq-2610190741-98cd-0-0006@hq.example.test",
+      "payload_sha256": "3553313830d60e58f6b5965d8d264cf5032621dc47e7a2f5faea696cd730e452",
       "intended": {
         "sender": "grace.jones@example.org",
         "subject": "Your order",
@@ -809,8 +809,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 214.39709997503087,
-        "body_snippet": "104104"
+        "latency_ms": 211.50660002604127,
+        "body_snippet": "357637"
       },
       "assertion": {
         "passed": true,
@@ -819,16 +819,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "104104",
+          "ticket_id": "357637",
           "from_addr": "grace.jones@example.org",
           "subject": "Your order",
-          "body": "<div><p class=\"MsoNormal\">Hey Oscar,</p><p class=\"MsoNormal\">I am writing about your order. This relates to what we discussed last week.</p><p class=\"MsoNormal\">Best,<br />Grace</p><p class=\"MsoNormal\">--<br />Grace Jones<br />+1 555 0103</p></div><p>[testinghq:hq-2610190501-9f12-0-0006]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hey Oscar,</p><p class=\"MsoNormal\">I am writing about your order. This relates to what we discussed last week.</p><p class=\"MsoNormal\">Best,<br />Grace</p><p class=\"MsoNormal\">--<br />Grace Jones<br />+1 555 0103</p></div><p>[testinghq:hq-2610190741-98cd-0-0006]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0006@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0006@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0006",
+          "tag": "hq-2610190741-98cd-0-0006",
           "category": null,
           "priority": null,
           "fields": [
@@ -847,14 +847,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0006",
-        "tag": "hq-2610190501-9f12-0-0006",
+        "tag": "hq-2610190741-98cd-0-0006",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 104104",
+            "detail": "created as 357637",
             "expected": null,
             "actual": null,
             "reason": null
@@ -905,9 +905,9 @@
     {
       "id": "clean-0-0007",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0007",
-      "message_id": "hq-2610190501-9f12-0-0007@hq.example.test",
-      "payload_sha256": "ce081ede137c7c3013449fbf2d3a1fe690a9f932198456c9bcc7162138dfaf56",
+      "tag": "hq-2610190741-98cd-0-0007",
+      "message_id": "hq-2610190741-98cd-0-0007@hq.example.test",
+      "payload_sha256": "20ffe4e780915981b0553963b48aec65238b0ff359d58f5b4e0345a98cca67bd",
       "intended": {
         "sender": "carol_brown@widgets.example",
         "subject": "Following up on the support ticket",
@@ -923,8 +923,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 223.33520001848228,
-        "body_snippet": "922832"
+        "latency_ms": 270.05479999934323,
+        "body_snippet": "478553"
       },
       "assertion": {
         "passed": false,
@@ -935,16 +935,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "922832",
+          "ticket_id": "478553",
           "from_addr": "carol_brown@widgets.example",
           "subject": "Following up on the support ticket",
-          "body": "<div><p class=\"MsoNormal\">Hi Oscar,</p><p class=\"MsoNormal\">This message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.</p><p class=\"MsoNormal\">Best regards,<br />Carol</p></div><p>[testinghq:hq-2610190501-9f12-0-0007]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hi Oscar,</p><p class=\"MsoNormal\">This message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.</p><p class=\"MsoNormal\">Best regards,<br />Carol</p></div><p>[testinghq:hq-2610190741-98cd-0-0007]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0007@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0007@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0007",
+          "tag": "hq-2610190741-98cd-0-0007",
           "category": null,
           "priority": null,
           "fields": [
@@ -963,14 +963,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0007",
-        "tag": "hq-2610190501-9f12-0-0007",
+        "tag": "hq-2610190741-98cd-0-0007",
         "found": true,
         "passed": false,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 922832",
+            "detail": "created as 478553",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1024,9 +1024,9 @@
     {
       "id": "clean-0-0008",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0008",
-      "message_id": "hq-2610190501-9f12-0-0008@hq.example.test",
-      "payload_sha256": "764d82b3c8d005d76a9e4a170d65e4e817ef00e4b48b1ee81ab186120eafa66a",
+      "tag": "hq-2610190741-98cd-0-0008",
+      "message_id": "hq-2610190741-98cd-0-0008@hq.example.test",
+      "payload_sha256": "c1bbc9485b1d1aee906732987f0084437b9fd75308188fc3715ff6c544440131",
       "intended": {
         "sender": "emuller@example.net",
         "subject": "Quick question about the invoice",
@@ -1039,8 +1039,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 197.98029999947175,
-        "body_snippet": "499167"
+        "latency_ms": 182.43000001530163,
+        "body_snippet": "551232"
       },
       "assertion": {
         "passed": true,
@@ -1049,16 +1049,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "499167",
+          "ticket_id": "551232",
           "from_addr": "emuller@example.net",
           "subject": "Quick question about the invoice",
-          "body": "<div>Hello Alice, <div><br /></div><div>I have a question about the invoice. Let me know if the timeline still works for you.</div><div><br /></div><div>Best regards,<br />Erin</div></div><p>[testinghq:hq-2610190501-9f12-0-0008]</p> ",
+          "body": "<div>Hello Alice, <div><br /></div><div>I have a question about the invoice. Let me know if the timeline still works for you.</div><div><br /></div><div>Best regards,<br />Erin</div></div><p>[testinghq:hq-2610190741-98cd-0-0008]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0008@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0008@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0008",
+          "tag": "hq-2610190741-98cd-0-0008",
           "category": null,
           "priority": null,
           "fields": [
@@ -1077,14 +1077,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0008",
-        "tag": "hq-2610190501-9f12-0-0008",
+        "tag": "hq-2610190741-98cd-0-0008",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 499167",
+            "detail": "created as 551232",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1135,9 +1135,9 @@
     {
       "id": "clean-0-0009",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0009",
-      "message_id": "hq-2610190501-9f12-0-0009@hq.example.test",
-      "payload_sha256": "e70f83008d653156be93b1024521633b13da29d02ebcc68af2a6f6d28830ffe1",
+      "tag": "hq-2610190741-98cd-0-0009",
+      "message_id": "hq-2610190741-98cd-0-0009@hq.example.test",
+      "payload_sha256": "480f7b98244944f656a633667f18131f12109963f90d5a492cc55df71831719c",
       "intended": {
         "sender": "grace_chen@example.org",
         "subject": "The renewal - action needed",
@@ -1150,8 +1150,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 194.823899975745,
-        "body_snippet": "730944"
+        "latency_ms": 170.9848000027705,
+        "body_snippet": "837127"
       },
       "assertion": {
         "passed": true,
@@ -1160,16 +1160,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "730944",
+          "ticket_id": "837127",
           "from_addr": "grace_chen@example.org",
           "subject": "The renewal - action needed",
-          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the renewal. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Best,<br />Grace</p></div><p>[testinghq:hq-2610190501-9f12-0-0009]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the renewal. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Best,<br />Grace</p></div><p>[testinghq:hq-2610190741-98cd-0-0009]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0009@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0009@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0009",
+          "tag": "hq-2610190741-98cd-0-0009",
           "category": null,
           "priority": null,
           "fields": [
@@ -1188,14 +1188,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0009",
-        "tag": "hq-2610190501-9f12-0-0009",
+        "tag": "hq-2610190741-98cd-0-0009",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 730944",
+            "detail": "created as 837127",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1246,9 +1246,9 @@
     {
       "id": "clean-0-0010",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0010",
-      "message_id": "hq-2610190501-9f12-0-0010@hq.example.test",
-      "payload_sha256": "d04b9fba10788e73a4aad59cb6f22d482458cff1edab403a5f16be54b1c9828c",
+      "tag": "hq-2610190741-98cd-0-0010",
+      "message_id": "hq-2610190741-98cd-0-0010@hq.example.test",
+      "payload_sha256": "12198326e80bd42c737340a2d932d68e14202ca822c7ea09f8802a0fb0f81691",
       "intended": {
         "sender": "frank.garcia@example.com",
         "subject": "The shipment - action needed",
@@ -1263,8 +1263,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 194.38909998279996,
-        "body_snippet": "765261"
+        "latency_ms": 178.3092999830842,
+        "body_snippet": "372855"
       },
       "assertion": {
         "passed": false,
@@ -1275,16 +1275,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "765261",
+          "ticket_id": "372855",
           "from_addr": "frank.garcia@example.com",
           "subject": "The shipment - action needed",
-          "body": "<div>Hey Dave, <div><br /></div><div>Following up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.</div><div><br /></div><div>Best,<br />Frank</div></div><p>[testinghq:hq-2610190501-9f12-0-0010]</p> ",
+          "body": "<div>Hey Dave, <div><br /></div><div>Following up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.</div><div><br /></div><div>Best,<br />Frank</div></div><p>[testinghq:hq-2610190741-98cd-0-0010]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0010@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0010@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0010",
+          "tag": "hq-2610190741-98cd-0-0010",
           "category": null,
           "priority": null,
           "fields": [
@@ -1303,14 +1303,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0010",
-        "tag": "hq-2610190501-9f12-0-0010",
+        "tag": "hq-2610190741-98cd-0-0010",
         "found": true,
         "passed": false,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 765261",
+            "detail": "created as 372855",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1363,9 +1363,9 @@
     {
       "id": "clean-0-0011",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0011",
-      "message_id": "hq-2610190501-9f12-0-0011@hq.example.test",
-      "payload_sha256": "b1a2bfa1bb05ab4416509c90a439d6fe9c4399cc20677efd5db569781d2bf80f",
+      "tag": "hq-2610190741-98cd-0-0011",
+      "message_id": "hq-2610190741-98cd-0-0011@hq.example.test",
+      "payload_sha256": "1a38fc5ccc4cfff5fe3c50e876adf37010be96c2153bc2e5624e118cd05c8bc9",
       "intended": {
         "sender": "bob_brown15@corp.example.invalid",
         "subject": "Update on the shipment",
@@ -1378,8 +1378,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 222.48170000966638,
-        "body_snippet": "436866"
+        "latency_ms": 267.00580000760965,
+        "body_snippet": "596504"
       },
       "assertion": {
         "passed": true,
@@ -1388,16 +1388,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "436866",
+          "ticket_id": "596504",
           "from_addr": "bob_brown15@corp.example.invalid",
           "subject": "Update on the shipment",
-          "body": "<div><p class=\"MsoNormal\">Hello Dave,</p><p class=\"MsoNormal\">Quick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.</p><p class=\"MsoNormal\">Thanks,<br />Bob</p></div><p>[testinghq:hq-2610190501-9f12-0-0011]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hello Dave,</p><p class=\"MsoNormal\">Quick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.</p><p class=\"MsoNormal\">Thanks,<br />Bob</p></div><p>[testinghq:hq-2610190741-98cd-0-0011]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0011@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0011@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0011",
+          "tag": "hq-2610190741-98cd-0-0011",
           "category": null,
           "priority": null,
           "fields": [
@@ -1416,14 +1416,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0011",
-        "tag": "hq-2610190501-9f12-0-0011",
+        "tag": "hq-2610190741-98cd-0-0011",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 436866",
+            "detail": "created as 596504",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1474,9 +1474,9 @@
     {
       "id": "clean-0-0012",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0012",
-      "message_id": "hq-2610190501-9f12-0-0012@hq.example.test",
-      "payload_sha256": "389d0861e48aac24f1424224a8377e482f076a9ce7919632bd691841e8a6bccd",
+      "tag": "hq-2610190741-98cd-0-0012",
+      "message_id": "hq-2610190741-98cd-0-0012@hq.example.test",
+      "payload_sha256": "7577bd76c2eb2f65049f45967524eb01a3b571290c87439ad1036f8e4535bdad",
       "intended": {
         "sender": "fmuller@example.com",
         "subject": "Re: the contract",
@@ -1491,8 +1491,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 194.22900001518428,
-        "body_snippet": "599972"
+        "latency_ms": 197.65539999934845,
+        "body_snippet": "906976"
       },
       "assertion": {
         "passed": true,
@@ -1501,21 +1501,21 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "599972",
+          "ticket_id": "906976",
           "from_addr": "fmuller@example.com",
           "subject": "Re: the contract",
-          "body": "<div>Dear team, <div><br /></div><div>I am writing about the contract. Can you confirm receipt of this message?</div><div><br /></div><div>Thanks,<br />Frank</div><div><br /></div><div>--<br />Frank Muller<br />+1 555 0141</div></div><p>[testinghq:hq-2610190501-9f12-0-0012]</p> ",
+          "body": "<div>Dear team, <div><br /></div><div>I am writing about the contract. Can you confirm receipt of this message?</div><div><br /></div><div>Thanks,<br />Frank</div><div><br /></div><div>--<br />Frank Muller<br />+1 555 0141</div></div><p>[testinghq:hq-2610190741-98cd-0-0012]</p> ",
           "attachment_names": [
             "attachment1858.txt"
           ],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0012@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0012@hq.example.test",
           "in_reply_to": "8ac01f2b94e7b5ca@example.org",
           "references": [
             "8fc099f181ec3cbf@example.com",
             "8ac01f2b94e7b5ca@example.org"
           ],
-          "tag": "hq-2610190501-9f12-0-0012",
+          "tag": "hq-2610190741-98cd-0-0012",
           "category": null,
           "priority": null,
           "fields": [
@@ -1534,14 +1534,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0012",
-        "tag": "hq-2610190501-9f12-0-0012",
+        "tag": "hq-2610190741-98cd-0-0012",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 599972",
+            "detail": "created as 906976",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1592,9 +1592,9 @@
     {
       "id": "clean-0-0013",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0013",
-      "message_id": "hq-2610190501-9f12-0-0013@hq.example.test",
-      "payload_sha256": "baee89fef32cd3bf781496430b0c99145266ff14d45a5006dac0711f563bc4c3",
+      "tag": "hq-2610190741-98cd-0-0013",
+      "message_id": "hq-2610190741-98cd-0-0013@hq.example.test",
+      "payload_sha256": "43304f1c01ef2f74ba68c7e6ca63279dfe1b680a19a5620ec389fa8b4aa09308",
       "intended": {
         "sender": "judy@corp.example.invalid",
         "subject": "Re: the quarterly report",
@@ -1607,8 +1607,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 186.6044999915175,
-        "body_snippet": "578579"
+        "latency_ms": 190.80720000783913,
+        "body_snippet": "337633"
       },
       "assertion": {
         "passed": true,
@@ -1617,19 +1617,19 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "578579",
+          "ticket_id": "337633",
           "from_addr": "judy@corp.example.invalid",
           "subject": "Re: the quarterly report",
-          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">I have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.</p><p class=\"MsoNormal\">Best regards,<br />Judy</p></div><p>[testinghq:hq-2610190501-9f12-0-0013]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">I have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.</p><p class=\"MsoNormal\">Best regards,<br />Judy</p></div><p>[testinghq:hq-2610190741-98cd-0-0013]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0013@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0013@hq.example.test",
           "in_reply_to": "70b56bf07785d2e7@example.com",
           "references": [
             "e365e2dc88dba290@corp.example.invalid",
             "70b56bf07785d2e7@example.com"
           ],
-          "tag": "hq-2610190501-9f12-0-0013",
+          "tag": "hq-2610190741-98cd-0-0013",
           "category": null,
           "priority": null,
           "fields": [
@@ -1648,14 +1648,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0013",
-        "tag": "hq-2610190501-9f12-0-0013",
+        "tag": "hq-2610190741-98cd-0-0013",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 578579",
+            "detail": "created as 337633",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1706,9 +1706,9 @@
     {
       "id": "clean-0-0014",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0014",
-      "message_id": "hq-2610190501-9f12-0-0014@hq.example.test",
-      "payload_sha256": "9abded3af147da53b2c6862306d19abfa144eea71d1561527e06ee57d7e55a2f",
+      "tag": "hq-2610190741-98cd-0-0014",
+      "message_id": "hq-2610190741-98cd-0-0014@hq.example.test",
+      "payload_sha256": "305c5f5f398fc73b28cdc62ba6db379938d2a8558bb26566cfc69f79977fba32",
       "intended": {
         "sender": "aliceb@example.org",
         "subject": "Re: your order",
@@ -1724,8 +1724,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 190.0106999964919,
-        "body_snippet": "578174"
+        "latency_ms": 230.0610000093002,
+        "body_snippet": "246015"
       },
       "assertion": {
         "passed": true,
@@ -1734,22 +1734,22 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "578174",
+          "ticket_id": "246015",
           "from_addr": "aliceb@example.org",
           "subject": "Re: your order",
-          "body": "<div>Hello Alice, <div><br /></div><div>I am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.</div><div><br /></div><div>Thanks,<br />Alice</div></div><p>[testinghq:hq-2610190501-9f12-0-0014]</p> ",
+          "body": "<div>Hello Alice, <div><br /></div><div>I am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.</div><div><br /></div><div>Thanks,<br />Alice</div></div><p>[testinghq:hq-2610190741-98cd-0-0014]</p> ",
           "attachment_names": [
             "form8971.csv",
             "report9290.docx"
           ],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0014@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0014@hq.example.test",
           "in_reply_to": "a4f12a023dbeacb3@corp.example.invalid",
           "references": [
             "4a0540a61d19c15b@example.org",
             "a4f12a023dbeacb3@corp.example.invalid"
           ],
-          "tag": "hq-2610190501-9f12-0-0014",
+          "tag": "hq-2610190741-98cd-0-0014",
           "category": null,
           "priority": null,
           "fields": [
@@ -1768,14 +1768,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0014",
-        "tag": "hq-2610190501-9f12-0-0014",
+        "tag": "hq-2610190741-98cd-0-0014",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 578174",
+            "detail": "created as 246015",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1826,9 +1826,9 @@
     {
       "id": "clean-0-0015",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0015",
-      "message_id": "hq-2610190501-9f12-0-0015@hq.example.test",
-      "payload_sha256": "37da8cdbfdcba219d30573fb0cb6ffc7a51ed1231562f56e9c89a8624799448c",
+      "tag": "hq-2610190741-98cd-0-0015",
+      "message_id": "hq-2610190741-98cd-0-0015@hq.example.test",
+      "payload_sha256": "fbf4e0a738330237cdfc58fe4783afd3f968ce9dc01aace134b3a8eb142044c8",
       "intended": {
         "sender": "grace_jones12@example.net",
         "subject": "Update on the quarterly report",
@@ -1843,8 +1843,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 174.88620002404787,
-        "body_snippet": "701408"
+        "latency_ms": 210.95670000067912,
+        "body_snippet": "158472"
       },
       "assertion": {
         "passed": false,
@@ -1855,16 +1855,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "701408",
+          "ticket_id": "158472",
           "from_addr": "grace_jones12@example.net",
           "subject": "Update on the quarterly report",
-          "body": "<div><p class=\"MsoNormal\">Hi Alice,</p><p class=\"MsoNormal\">I am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Best,<br />Grace</p></div><p>[testinghq:hq-2610190501-9f12-0-0015]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hi Alice,</p><p class=\"MsoNormal\">I am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Best,<br />Grace</p></div><p>[testinghq:hq-2610190741-98cd-0-0015]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0015@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0015@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0015",
+          "tag": "hq-2610190741-98cd-0-0015",
           "category": null,
           "priority": null,
           "fields": [
@@ -1883,14 +1883,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0015",
-        "tag": "hq-2610190501-9f12-0-0015",
+        "tag": "hq-2610190741-98cd-0-0015",
         "found": true,
         "passed": false,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 701408",
+            "detail": "created as 158472",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1943,9 +1943,9 @@
     {
       "id": "clean-0-0016",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0016",
-      "message_id": "hq-2610190501-9f12-0-0016@hq.example.test",
-      "payload_sha256": "8ee3120e19ecc3a7f88484be8e80c847b919ea9b53eb34e12a8c39f905b36d17",
+      "tag": "hq-2610190741-98cd-0-0016",
+      "message_id": "hq-2610190741-98cd-0-0016@hq.example.test",
+      "payload_sha256": "62e939be86517c575798ed6b12a20856c426556069c509297078c4a43d8dbfe2",
       "intended": {
         "sender": "jnguyen@example.org",
         "subject": "Update on the quarterly report",
@@ -1960,8 +1960,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 193.98609999916516,
-        "body_snippet": "578516"
+        "latency_ms": 182.54380000871606,
+        "body_snippet": "451676"
       },
       "assertion": {
         "passed": true,
@@ -1970,18 +1970,18 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "578516",
+          "ticket_id": "451676",
           "from_addr": "jnguyen@example.org",
           "subject": "Update on the quarterly report",
-          "body": "<div><p class=\"MsoNormal\">Hey Mallory,</p><p class=\"MsoNormal\">This message is about the quarterly report. This relates to what we discussed last week.</p><p class=\"MsoNormal\">Best regards,<br />Judy</p></div><p>[testinghq:hq-2610190501-9f12-0-0016]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hey Mallory,</p><p class=\"MsoNormal\">This message is about the quarterly report. This relates to what we discussed last week.</p><p class=\"MsoNormal\">Best regards,<br />Judy</p></div><p>[testinghq:hq-2610190741-98cd-0-0016]</p> ",
           "attachment_names": [
             "attachment1231.json"
           ],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0016@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0016@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0016",
+          "tag": "hq-2610190741-98cd-0-0016",
           "category": null,
           "priority": null,
           "fields": [
@@ -2000,14 +2000,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0016",
-        "tag": "hq-2610190501-9f12-0-0016",
+        "tag": "hq-2610190741-98cd-0-0016",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 578516",
+            "detail": "created as 451676",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2058,9 +2058,9 @@
     {
       "id": "clean-0-0017",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0017",
-      "message_id": "hq-2610190501-9f12-0-0017@hq.example.test",
-      "payload_sha256": "ec6a1211d3e34ac6c232d4a36ea53d30b25426bc5d8fa30075058228a7dcea0d",
+      "tag": "hq-2610190741-98cd-0-0017",
+      "message_id": "hq-2610190741-98cd-0-0017@hq.example.test",
+      "payload_sha256": "507f6333ae9be2386a92a8acae55020f6e60e73a2d63f1ae612c0c0acad5b7c1",
       "intended": {
         "sender": "oscar_nguyen@widgets.example",
         "subject": "Update on your order",
@@ -2073,8 +2073,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 202.50350001151673,
-        "body_snippet": "291286"
+        "latency_ms": 202.5683000101708,
+        "body_snippet": "945112"
       },
       "assertion": {
         "passed": true,
@@ -2083,16 +2083,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "291286",
+          "ticket_id": "945112",
           "from_addr": "oscar_nguyen@widgets.example",
           "subject": "Update on your order",
-          "body": "<div>Dear team, <div><br /></div><div>Quick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.</div><div><br /></div><div>Best,<br />Oscar</div><div><br /></div><div>--<br />Oscar Nguyen<br />+1 555 0145</div></div><p>[testinghq:hq-2610190501-9f12-0-0017]</p> ",
+          "body": "<div>Dear team, <div><br /></div><div>Quick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.</div><div><br /></div><div>Best,<br />Oscar</div><div><br /></div><div>--<br />Oscar Nguyen<br />+1 555 0145</div></div><p>[testinghq:hq-2610190741-98cd-0-0017]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0017@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0017@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0017",
+          "tag": "hq-2610190741-98cd-0-0017",
           "category": null,
           "priority": null,
           "fields": [
@@ -2111,14 +2111,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0017",
-        "tag": "hq-2610190501-9f12-0-0017",
+        "tag": "hq-2610190741-98cd-0-0017",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 291286",
+            "detail": "created as 945112",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2169,9 +2169,9 @@
     {
       "id": "clean-0-0018",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0018",
-      "message_id": "hq-2610190501-9f12-0-0018@hq.example.test",
-      "payload_sha256": "64647fc8dc7001a54682e93d669f13f060a00da31bcb3748f1d4c0d419f10945",
+      "tag": "hq-2610190741-98cd-0-0018",
+      "message_id": "hq-2610190741-98cd-0-0018@hq.example.test",
+      "payload_sha256": "950310e529fcb52af3f6aca817256dcc2c5650ff6affdba12c3f0cfac96875e3",
       "intended": {
         "sender": "bobm@mail.example.test",
         "subject": "Quick question about the caf\u00e9 booking",
@@ -2184,8 +2184,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 190.6316000095103,
-        "body_snippet": "386152"
+        "latency_ms": 242.9794000054244,
+        "body_snippet": "106987"
       },
       "assertion": {
         "passed": true,
@@ -2194,16 +2194,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "386152",
+          "ticket_id": "106987",
           "from_addr": "bobm@mail.example.test",
           "subject": "Quick question about the caf\u00e9 booking",
-          "body": "<div><p class=\"MsoNormal\">Hello Mallory,</p><p class=\"MsoNormal\">This message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Thanks,<br />Bob</p></div><p>[testinghq:hq-2610190501-9f12-0-0018]</p> ",
+          "body": "<div><p class=\"MsoNormal\">Hello Mallory,</p><p class=\"MsoNormal\">This message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Thanks,<br />Bob</p></div><p>[testinghq:hq-2610190741-98cd-0-0018]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0018@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0018@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0018",
+          "tag": "hq-2610190741-98cd-0-0018",
           "category": null,
           "priority": null,
           "fields": [
@@ -2222,14 +2222,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0018",
-        "tag": "hq-2610190501-9f12-0-0018",
+        "tag": "hq-2610190741-98cd-0-0018",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 386152",
+            "detail": "created as 106987",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2280,9 +2280,9 @@
     {
       "id": "clean-0-0019",
       "category": "clean",
-      "tag": "hq-2610190501-9f12-0-0019",
-      "message_id": "hq-2610190501-9f12-0-0019@hq.example.test",
-      "payload_sha256": "529334a3d37f1a329397ab8edaa23e08b4197bc09c13ddf09d9adfae3f8fe482",
+      "tag": "hq-2610190741-98cd-0-0019",
+      "message_id": "hq-2610190741-98cd-0-0019@hq.example.test",
+      "payload_sha256": "380796593781f0ec14b5e5a7de5affd13ef85375825a9b7f3dffad1c10d07eab",
       "intended": {
         "sender": "frank.jones@example.edu",
         "subject": "Following up on the schedule",
@@ -2295,8 +2295,8 @@
       },
       "response": {
         "status": 201,
-        "latency_ms": 166.29009999451227,
-        "body_snippet": "271184"
+        "latency_ms": 182.612100004917,
+        "body_snippet": "529384"
       },
       "assertion": {
         "passed": true,
@@ -2305,16 +2305,16 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "271184",
+          "ticket_id": "529384",
           "from_addr": "frank.jones@example.edu",
           "subject": "Following up on the schedule",
-          "body": "<div>Good morning, <div><br /></div><div>I have a question about the schedule. Please let me know if you have any questions.</div><div><br /></div><div>Best,<br />Frank</div></div><p>[testinghq:hq-2610190501-9f12-0-0019]</p> ",
+          "body": "<div>Good morning, <div><br /></div><div>I have a question about the schedule. Please let me know if you have any questions.</div><div><br /></div><div>Best,<br />Frank</div></div><p>[testinghq:hq-2610190741-98cd-0-0019]</p> ",
           "attachment_names": [],
           "route": "Support",
-          "message_id": "hq-2610190501-9f12-0-0019@hq.example.test",
+          "message_id": "hq-2610190741-98cd-0-0019@hq.example.test",
           "in_reply_to": null,
           "references": [],
-          "tag": "hq-2610190501-9f12-0-0019",
+          "tag": "hq-2610190741-98cd-0-0019",
           "category": null,
           "priority": null,
           "fields": [
@@ -2333,14 +2333,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0019",
-        "tag": "hq-2610190501-9f12-0-0019",
+        "tag": "hq-2610190741-98cd-0-0019",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 271184",
+            "detail": "created as 529384",
             "expected": null,
             "actual": null,
             "reason": null
