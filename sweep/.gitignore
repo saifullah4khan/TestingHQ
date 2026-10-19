@@ -4,3 +4,5 @@
 runs/
 # The Zammad corpus clone and the Mailpit download.
 .cache/
+# FreeScout's mail sidecar writes the auto-replies loop reads here.
+.state/

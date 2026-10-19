@@ -21,6 +21,7 @@ recursive-include examples/runs *.json *.html
 graft sweep
 prune sweep/runs
 prune sweep/.cache
+prune sweep/.state
 exclude sweep/.env.*
 global-exclude __pycache__ *.py[cod]
 

@@ -44,7 +44,7 @@ def test_the_changelog_has_a_section_for_the_version():
 def _source_tree(tmp_path) -> Path:
     """A copy of what the build reads, plus what a working checkout of the
     sweep holds but must never ship: a setup script's credentials, a run's
-    artifacts and the download cache."""
+    artifacts, the download cache and a sidecar's state."""
     source = tmp_path / "src"
     source.mkdir()
     for name in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in",
@@ -53,7 +53,8 @@ def _source_tree(tmp_path) -> Path:
     for tree in ("testinghq", "sweep", "docs", "examples"):
         shutil.copytree(
             REPO_ROOT / tree, source / tree,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "runs", ".cache", ".env.*"),
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "runs", ".cache", ".state",
+                                          ".env.*"),
         )
     # examples/runs is published; sweep/runs is not. The ignore above skipped
     # both, so put the published one back.
@@ -66,6 +67,9 @@ def _source_tree(tmp_path) -> Path:
     cache = source / "sweep" / ".cache" / "zammad" / "test" / "data" / "mail"
     cache.mkdir(parents=True)
     (cache / "mail001.box").write_text("From: a@example.com\n\n", encoding="utf-8")
+    state = source / "sweep" / ".state" / "freescout"
+    state.mkdir(parents=True)
+    (state / "outbound.jsonl").write_text("{}\n", encoding="utf-8")
     return source
 
 
@@ -108,6 +112,7 @@ def test_the_wheel_builds_and_contains_the_package_data(tmp_path):
                    "sweep/mailpit_pipeline.py", "sweep/profiles/mailpit.env",
                    "examples/pipeline_demo.py", "examples/readback/mailpit.toml"):
         assert wanted in members, f"{wanted} is missing from the sdist"
-    assert not any(n.startswith(("sweep/runs", "sweep/.cache", "sweep/.env.", "tests/"))
+    assert not any(n.startswith(("sweep/runs", "sweep/.cache", "sweep/.state", "sweep/.env.",
+                                 "tests/"))
                    for n in members), sorted(members)
     assert not any("__pycache__" in n for n in members)
