@@ -30,6 +30,7 @@ from testinghq.core.transport import (
     build_smtp_request,
     send,
     send_smtp,
+    with_envelope_to,
 )
 
 ENDPOINT = SmtpEndpoint(host="127.0.0.1", port=2525)
@@ -207,6 +208,31 @@ def test_send_adds_the_target_headers_to_an_http_request():
     result = send(_email(), destination, client)
     assert result.status == 202
     assert client.requests[0].headers["Authorization"] == "Basic dTpw"
+
+
+def test_an_http_envelope_to_replaces_the_envelope_the_format_sends():
+    email = _email()
+    raw = get_format("sendgrid-raw", DEFAULT_BOUNDARY)
+    client = _RecordingHttp()
+    destination = HttpDestination(url="http://127.0.0.1:9/in", wire_format=raw,
+                                  envelope_to=("desk@inbound.chat.test",))
+    send(email, destination, client)
+    body = client.requests[0].body
+    readdressed = with_envelope_to(email, ("desk@inbound.chat.test",))
+    assert body == raw.encode(readdressed).body
+    assert body != raw.encode(email).body
+    assert b'"to":["desk@inbound.chat.test"]' in body
+    # The message itself still carries the To header it was generated with.
+    assert readdressed.headers == email.headers
+    assert readdressed.envelope.from_addr == email.envelope.from_addr
+
+
+def test_without_envelope_to_the_payload_goes_out_unchanged():
+    email = _email()
+    raw = get_format("sendgrid-raw", DEFAULT_BOUNDARY)
+    client = _RecordingHttp()
+    send(email, HttpDestination(url="http://127.0.0.1:9/in", wire_format=raw), client)
+    assert client.requests[0].body == raw.encode(email).body
 
 
 def test_a_hook_header_replaces_a_target_header_of_the_same_name():

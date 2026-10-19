@@ -12,9 +12,9 @@ and hands the result to `transport.send`. The rules, in order:
    `--allow-public-target` flag). The rule is the same for both transports.
 4. Barrage at a public host additionally needs `public = true` on the target's
    config table. Both are required; the refusal names whichever is missing.
-5. An SMTP target's `envelope_from` and `envelope_to`, when set, must be
-   synthetic addresses, like every address in a payload: they decide who the
-   message is delivered to.
+5. An SMTP target's `envelope_from` and `envelope_to`, and an HTTP target's
+   `envelope_to`, when set, must be synthetic addresses, like every address in
+   a payload: they decide who the message is delivered to.
 6. The `env:` references (`[targets.<name>.headers]`, an SMTP `username` and
    `password`) are read from the environment. One that is not set is refused.
 
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from . import guardrails
 from .config import ConfigError, Target, load_config, resolve_env_references
@@ -54,6 +54,9 @@ class ResolvedTarget:
     headers: Mapping[str, str] = field(default_factory=dict, repr=False, hash=False)
     #: Where and how to deliver, for an SMTP target; None for HTTP.
     smtp: Optional[SmtpEndpoint] = None
+    #: An HTTP target's `envelope_to`: the envelope recipients every payload
+    #: goes out with. () sends each payload's own. SMTP keeps its in `smtp`.
+    envelope_to: Tuple[str, ...] = ()
 
     def artifact_config(self) -> Dict[str, Any]:
         """The keys every artifact's `config` block records about its target.
@@ -106,21 +109,25 @@ def resolve_secrets(
     return {"headers": headers, "smtp": smtp}
 
 
+def _require_synthetic_envelope(target: Target, overrides: Sequence[str]) -> None:
+    """Refuse an envelope override that is not a synthetic address."""
+    overrides = [value for value in overrides if value]
+    if not overrides:
+        return
+    try:
+        guardrails.require_synthetic_content(overrides)
+    except guardrails.GuardrailError as exc:
+        raise guardrails.GuardrailError(
+            f"{exc} (envelope_from / envelope_to in [targets.{target.name}]). "
+            "The envelope decides where a message is delivered, so it is held "
+            "to the same rule as every address in a payload"
+        ) from None
+
+
 def _smtp_endpoint(target: Target, secrets: Mapping[str, str]) -> SmtpEndpoint:
     settings = target.smtp
     assert settings is not None
-    overrides = [
-        value for value in (settings.envelope_from, *settings.envelope_to) if value
-    ]
-    if overrides:
-        try:
-            guardrails.require_synthetic_content(overrides)
-        except guardrails.GuardrailError as exc:
-            raise guardrails.GuardrailError(
-                f"{exc} (envelope_from / envelope_to in [targets.{target.name}]). "
-                "The envelope decides where a message is delivered, so it is held "
-                "to the same rule as every address in a payload"
-            ) from None
+    _require_synthetic_envelope(target, (settings.envelope_from, *settings.envelope_to))
     return SmtpEndpoint(
         host=settings.host,
         port=settings.port,
@@ -184,6 +191,7 @@ def resolve_target(
         _smtp_endpoint(target, secrets["smtp"])
         if target.transport == TRANSPORT_SMTP else None
     )
+    _require_synthetic_envelope(target, target.envelope_to)
     return ResolvedTarget(
         name=target_name,
         url=target.url,
@@ -193,4 +201,5 @@ def resolve_target(
         transport=target.transport,
         headers=secrets["headers"],
         smtp=smtp,
+        envelope_to=tuple(target.envelope_to),
     )

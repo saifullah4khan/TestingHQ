@@ -2,8 +2,9 @@
 
 Targets are declared explicitly in a TOML config file, one `[targets.<name>]`
 table per target. An HTTP target (the default `transport`) has a required
-`url`, an optional wire `format` (default SendGrid Inbound Parse) and an
-optional `[targets.<name>.headers]` table of `env:` references. An SMTP target
+`url`, an optional wire `format` (default SendGrid Inbound Parse), an
+optional `[targets.<name>.headers]` table of `env:` references and an optional
+`envelope_to`. An SMTP target
 (`transport = "smtp"`) has a required `host` and the SMTP keys instead, and
 always sends the `mime` format. Both take an optional `public` flag (default
 false, read only by Barrage). Environment variables may override a declared
@@ -53,6 +54,16 @@ SMTP_FORMAT = "mime"
 SMTP_KEYS = (
     "host", "port", "starttls", "username", "password", "envelope_from", "envelope_to",
 )
+
+#: The one envelope key an HTTP target reads as well: the envelope recipients
+#: a format that carries an envelope puts on the wire. A receiver that routes
+#: on the envelope, as Action Mailbox's SendGrid ingress does, needs it to name
+#: a real mailbox.
+HTTP_ENVELOPE_KEYS = ("envelope_to",)
+
+#: The HTTP formats that carry the envelope (SendGrid's `envelope` field), and
+#: so the only ones an HTTP target's `envelope_to` changes anything in.
+ENVELOPE_FORMATS = ("sendgrid", "sendgrid-raw")
 
 
 try:
@@ -199,6 +210,10 @@ class Target:
     headers: Mapping[str, str] = field(default_factory=dict, hash=False)
     #: The SMTP keys, for `transport = "smtp"` only.
     smtp: Optional[SmtpSettings] = None
+    #: An HTTP target's `envelope_to`: the envelope recipients every payload is
+    #: sent with, in place of its own. () means the payload's own. An SMTP
+    #: target keeps its envelope in `smtp`.
+    envelope_to: Tuple[str, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not self.name:
@@ -259,6 +274,16 @@ class Target:
             raise ConfigError(
                 f"target {self.name!r}: public must be true or false, got "
                 f"{self.public!r}"
+            )
+        if (
+            self.transport == TRANSPORT_HTTP and self.envelope_to
+            and self.wire_format not in ENVELOPE_FORMATS
+        ):
+            raise ConfigError(
+                f"target {self.name!r}: envelope_to on an http target is sent in "
+                f"the format's envelope, and format {self.wire_format!r} carries "
+                f"none (only {', '.join(ENVELOPE_FORMATS)} do), so it would "
+                "change nothing"
             )
 
 
@@ -466,7 +491,7 @@ def _load_target(
             wire_format=wire_format, public=public, transport=transport, smtp=smtp,
         )
 
-    stray = [key for key in SMTP_KEYS if key in entry]
+    stray = [key for key in SMTP_KEYS if key in entry and key not in HTTP_ENVELOPE_KEYS]
     if stray:
         raise ConfigError(
             f"{where}: {', '.join(stray)} {'is an smtp key' if len(stray) == 1 else 'are smtp keys'}"
@@ -485,6 +510,7 @@ def _load_target(
     return Target(
         name=name, url=url, wire_format=wire_format, public=public,
         transport=transport, headers=headers,
+        envelope_to=_load_envelope_to(where, entry),
     )
 
 
@@ -558,11 +584,20 @@ def _load_smtp(where: str, entry: Mapping[str, Any]) -> SmtpSettings:
         raise ConfigError(
             f"{where}.envelope_from must be a string, got {type(envelope_from).__name__}"
         )
+    return SmtpSettings(
+        host=host, port=port, starttls=starttls,
+        username=references["username"], password=references["password"],
+        envelope_from=envelope_from, envelope_to=_load_envelope_to(where, entry),
+    )
+
+
+def _load_envelope_to(where: str, entry: Mapping[str, Any]) -> Tuple[str, ...]:
+    """`envelope_to` as a tuple: one address or a list of them, () when absent."""
     envelope_to_raw = entry.get("envelope_to")
     if envelope_to_raw is None:
-        envelope_to: Tuple[str, ...] = ()
-    elif isinstance(envelope_to_raw, str):
-        envelope_to = (envelope_to_raw,)
+        return ()
+    if isinstance(envelope_to_raw, str):
+        envelope_to: Tuple[str, ...] = (envelope_to_raw,)
     elif isinstance(envelope_to_raw, list) and all(
         isinstance(item, str) for item in envelope_to_raw
     ):
@@ -572,14 +607,9 @@ def _load_smtp(where: str, entry: Mapping[str, Any]) -> SmtpSettings:
             f"{where}.envelope_to must be an address or a list of addresses, "
             f"got {envelope_to_raw!r}"
         )
-    if envelope_to_raw is not None and not all(item.strip() for item in envelope_to):
+    if not all(item.strip() for item in envelope_to):
         raise ConfigError(f"{where}.envelope_to holds an empty address")
-
-    return SmtpSettings(
-        host=host, port=port, starttls=starttls,
-        username=references["username"], password=references["password"],
-        envelope_from=envelope_from, envelope_to=envelope_to,
-    )
+    return envelope_to
 
 
 def load_config(
