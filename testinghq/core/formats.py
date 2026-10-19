@@ -411,9 +411,9 @@ class MimeFormat(WireFormat):
 
     def message(self, payload: InboundEmail) -> EmailMessage:
         message = EmailMessage()
-        message["To"] = payload.to
-        message["From"] = payload.from_addr
-        message["Subject"] = payload.subject
+        message["To"] = _header_value(payload.to)
+        message["From"] = _header_value(payload.from_addr)
+        message["Subject"] = _header_value(payload.subject)
         message.set_content(payload.text or "", charset="utf-8")
         if payload.html:
             message.add_alternative(payload.html, subtype="html", charset="utf-8")
@@ -433,7 +433,7 @@ class MimeFormat(WireFormat):
         for name, value in payload.headers.items():
             if name.casefold() in _NOT_COPIED_HEADERS:
                 continue
-            message[name] = value
+            message[name] = _header_value(value)
 
         # Only real multiparts get a boundary: an embedded message or a
         # delivery report is "multipart" to `is_multipart()` too.
@@ -449,6 +449,19 @@ class MimeFormat(WireFormat):
 
     def encode(self, payload: InboundEmail) -> EncodedBody:
         return EncodedBody(body=self.message_bytes(payload), content_type="message/rfc822")
+
+
+def _header_value(value: str) -> str:
+    """A header value a raw message can carry.
+
+    A line break cannot appear inside a header: the stdlib refuses one, since
+    on the wire it would end the header and start another. A value holding CR
+    or LF, like the catalog's header-injection subject, is sent as an RFC 2047
+    encoded word instead, which keeps it one header and hands a decoding
+    receiver the line break it must not act on."""
+    if "\r" not in value and "\n" not in value:
+        return value
+    return "=?utf-8?b?" + base64.b64encode(value.encode("utf-8")).decode("ascii") + "?="
 
 
 def _message_part(attachment) -> EmailMessage:

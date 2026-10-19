@@ -472,6 +472,24 @@ def test_mime_does_not_duplicate_a_structural_header_the_payload_carried():
     assert len(parsed.get_all("MIME-Version", [])) == 1
 
 
+@pytest.mark.parametrize("name", ["mime", "sendgrid-raw"])
+def test_a_raw_message_carries_a_header_injection_subject_as_one_header(name):
+    """The catalog's header-injection case puts CRLF and a fake header in the
+    subject. A raw message cannot hold a line break in a header, so the
+    stdlib refused it and the whole blast run crashed on that one case. It
+    goes as an encoded word: no extra header on the wire, and the subject
+    a parser decodes still holds the CRLF a receiver must not act on."""
+    subject = "Your order\r\nX-Injected: evil"
+    encoded = get_format(name, DEFAULT_BOUNDARY).encode(_email(subject=subject))
+    raw = encoded.body
+    if name == "sendgrid-raw":
+        raw = _fields(raw)["email"]
+    assert b"\r\nX-Injected:" not in raw
+    parsed = message_from_bytes(raw, policy=default_policy)
+    assert parsed["Subject"] == subject
+    assert parsed.get_all("X-Injected") is None
+
+
 def test_mime_keeps_the_testing_tag_header():
     """The tag is how a pipeline matches a delivered message back to a payload.
     A raw-message format that dropped it would break readback entirely."""
