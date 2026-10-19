@@ -1,9 +1,11 @@
 # Readback recipe: osTicket, read from its MySQL tables
 #
-# STATUS: NOT RUN against a live osTicket. Written from osTicket's published
-# source (setup/inc/streams/core/install-mysql.sql, include/api.tickets.php,
-# include/class.api.php, include/class.mailparse.php) for 1.18. Treat the table
-# and column names as "what the source says", not as "this was seen to work".
+# STATUS: RUN against osTicket 1.18.4 on 2026-10-19
+#
+# Written from osTicket's published source (setup/inc/streams/core/
+# install-mysql.sql, include/api.tickets.php, include/class.api.php,
+# include/class.mailparse.php) for 1.18, then run by sweep/run.sh osticket
+# against osTicket 1.18.4; examples/runs/osticket/ holds that run.
 #
 # Copy to target.toml, point the url at your osTicket, and run from the root of
 # a TestingHQ checkout (the adapter is an example file, not part of the

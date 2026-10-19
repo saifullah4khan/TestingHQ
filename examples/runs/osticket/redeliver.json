@@ -1,0 +1,1217 @@
+{
+  "schema_version": 1,
+  "tool": "redeliver",
+  "seed": 0,
+  "config": {
+    "tool": "redeliver",
+    "seed": 0,
+    "count": 3,
+    "tag_prefix": "hq-2610190502-b7b3",
+    "target": "osticket",
+    "readback": {
+      "kind": "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter",
+      "url": null,
+      "path": null,
+      "tag_param": "tag",
+      "items_key": "items",
+      "timeout": 10.0,
+      "field_map": {
+        "ticket_id": "id",
+        "from_addr": "from",
+        "subject": "subject",
+        "body": "body",
+        "attachment_names": "attachments",
+        "route": "route",
+        "message_id": "message_id",
+        "in_reply_to": "in_reply_to",
+        "references": "references",
+        "tag": "tag",
+        "category": "category",
+        "priority": "priority"
+      },
+      "unmapped_fields": [],
+      "spec": "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter",
+      "list_path": null,
+      "enumerate": true,
+      "headers": [],
+      "query": null,
+      "method": "GET",
+      "body": null,
+      "page_param": null,
+      "page_size_param": null,
+      "next_path": null,
+      "max_pages": 10,
+      "retry_max": 5,
+      "retry_base_seconds": 0.5,
+      "rate": 4.0
+    },
+    "retry_after": 120.0,
+    "scenarios": [
+      "duplicate",
+      "slow-retry",
+      "reply-first",
+      "references"
+    ],
+    "expect_route": "Support",
+    "body_exact": false,
+    "subject_match": "contains",
+    "attachment_match": "exact",
+    "format": "mime",
+    "allow_public_target": false,
+    "transport": "http",
+    "dry_run": false,
+    "readback_poll": {
+      "quiet_window": 10.0,
+      "max_wait": 120.0,
+      "max_wait_source": "given",
+      "poll_interval": 0.5
+    }
+  },
+  "summary": {
+    "scenarios": 4,
+    "passed": 3,
+    "failed": 1,
+    "not_checked": 0,
+    "deliveries": 18,
+    "findings": 2,
+    "strays_searched": true,
+    "unattributed_strays": [],
+    "unattributed_strays_count": 0,
+    "strays_not_searched_reason": null,
+    "other_runs": [
+      {
+        "tag": "hq-2610190501-9f12-0-0000",
+        "ticket": "923398"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0001",
+        "ticket": "554794"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0002",
+        "ticket": "417809"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0003",
+        "ticket": "802668"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0004",
+        "ticket": "897813"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0005",
+        "ticket": "779153"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0006",
+        "ticket": "104104"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0007",
+        "ticket": "922832"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0008",
+        "ticket": "499167"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0009",
+        "ticket": "730944"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0010",
+        "ticket": "765261"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0011",
+        "ticket": "436866"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0012",
+        "ticket": "599972"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0013",
+        "ticket": "578579"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0014",
+        "ticket": "578174"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0015",
+        "ticket": "701408"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0016",
+        "ticket": "578516"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0017",
+        "ticket": "291286"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0018",
+        "ticket": "386152"
+      },
+      {
+        "tag": "hq-2610190501-9f12-0-0019",
+        "ticket": "271184"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0000",
+        "ticket": "825256"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0001",
+        "ticket": "234964"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0002",
+        "ticket": "683176"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0003",
+        "ticket": "603926"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0004",
+        "ticket": "407749"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0005",
+        "ticket": "172667"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0006",
+        "ticket": "506353"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0007",
+        "ticket": "304059"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0008",
+        "ticket": "354671"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0009",
+        "ticket": "963504"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0010",
+        "ticket": "597491"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0011",
+        "ticket": "435502"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0012",
+        "ticket": "132038"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0013",
+        "ticket": "995014"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0014",
+        "ticket": "792586"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0015",
+        "ticket": "119383"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0016",
+        "ticket": "627780"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0017",
+        "ticket": "496752"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0018",
+        "ticket": "420463"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0019",
+        "ticket": "286157"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0020",
+        "ticket": "490300"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0021",
+        "ticket": "678784"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0022",
+        "ticket": "151476"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0023",
+        "ticket": "713300"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0024",
+        "ticket": "817175"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0025",
+        "ticket": "202822"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0026",
+        "ticket": "525923"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0027",
+        "ticket": "393103"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0028",
+        "ticket": "781621"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0029",
+        "ticket": "217775"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0030",
+        "ticket": "900964"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0031",
+        "ticket": "231496"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0032",
+        "ticket": "435902"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0033",
+        "ticket": "430548"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0034",
+        "ticket": "700869"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0035",
+        "ticket": "189905"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0036",
+        "ticket": "634021"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0037",
+        "ticket": "214163"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0038",
+        "ticket": "219252"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0039",
+        "ticket": "206057"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0040",
+        "ticket": "538146"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0041",
+        "ticket": "637279"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0042",
+        "ticket": "485686"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0043",
+        "ticket": "245794"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0044",
+        "ticket": "790164"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0045",
+        "ticket": "682763"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0046",
+        "ticket": "511931"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0047",
+        "ticket": "183162"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0048",
+        "ticket": "331678"
+      },
+      {
+        "tag": "hq-2610190501-fadd-0-0049",
+        "ticket": "242664"
+      }
+    ],
+    "other_runs_count": 70,
+    "untagged_count": 1,
+    "unsettled": false,
+    "verdict": "DELIVERY-BUGS",
+    "verdict_source": "tool",
+    "readback": {
+      "elapsed_s": 10.432,
+      "polls": 20,
+      "stable": true,
+      "unsettled": false,
+      "verdict": null,
+      "budget_exhausted": false,
+      "complete_polls": 20,
+      "cause": null,
+      "missing_tags": [],
+      "partial_tags": [],
+      "all_404": false,
+      "headline": null,
+      "detail": null
+    }
+  },
+  "scenarios": [
+    {
+      "scenario": "duplicate",
+      "question": "the identical message, same Message-ID, delivered twice back to back: a correct pipeline creates one ticket",
+      "deliveries": 6,
+      "unique_messages": 3,
+      "strays_searched": true,
+      "passed": true,
+      "findings": [],
+      "missing": [],
+      "not_checked": [],
+      "strays": [],
+      "messages": [
+        {
+          "tag": "hq-2610190502-b7b3-dup-0-0000",
+          "record_id": "clean-0-0000",
+          "message_id": "hq-2610190502-b7b3-dup-0-0000@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "269679"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 269679",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as grace.brown@internal.localhost",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "passed",
+              "detail": "all 1 attachment(s) present (match: exact)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-dup-0-0001",
+          "record_id": "clean-0-0001",
+          "message_id": "hq-2610190502-b7b3-dup-0-0001@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "319556"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 319556",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as bmuller19@example.com",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-dup-0-0002",
+          "record_id": "clean-0-0002",
+          "message_id": "hq-2610190502-b7b3-dup-0-0002@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "855919"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 855919",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as ivan.chen@example.net",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "slow-retry",
+      "question": "every message re-sent after one 120s wait following a first delivery that succeeded: one ticket each. This is the duplicate half of a provider retry, not a failure-driven one",
+      "deliveries": 6,
+      "unique_messages": 3,
+      "strays_searched": true,
+      "passed": true,
+      "findings": [],
+      "missing": [],
+      "not_checked": [],
+      "strays": [],
+      "messages": [
+        {
+          "tag": "hq-2610190502-b7b3-rty-0-0000",
+          "record_id": "clean-0-0000",
+          "message_id": "hq-2610190502-b7b3-rty-0-0000@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "715002"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 715002",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as grace.brown@internal.localhost",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "passed",
+              "detail": "all 1 attachment(s) present (match: exact)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-rty-0-0001",
+          "record_id": "clean-0-0001",
+          "message_id": "hq-2610190502-b7b3-rty-0-0001@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "486809"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 486809",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as bmuller19@example.com",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-rty-0-0002",
+          "record_id": "clean-0-0002",
+          "message_id": "hq-2610190502-b7b3-rty-0-0002@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "104546"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 104546",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as ivan.chen@example.net",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "reply-first",
+      "question": "both replies delivered before the message they answer, with correct threading headers: one conversation, not three",
+      "deliveries": 3,
+      "unique_messages": 3,
+      "strays_searched": true,
+      "passed": false,
+      "findings": [
+        "hq-2610190502-b7b3-r1st-0-0001: the reply is on ticket 167944 but its original is on 273014",
+        "hq-2610190502-b7b3-r1st-0-0002: the reply is on ticket 527872 but its original is on 273014"
+      ],
+      "missing": [],
+      "not_checked": [],
+      "strays": [],
+      "messages": [
+        {
+          "tag": "hq-2610190502-b7b3-r1st-0-0001",
+          "record_id": "clean-0-0001",
+          "message_id": "hq-2610190502-b7b3-r1st-0-0001@hq.example.test",
+          "replies_to": "hq-2610190502-b7b3-r1st-0-0000",
+          "tickets": [
+            "167944"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 167944",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as bmuller19@example.com",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_link",
+              "status": "passed",
+              "detail": "linked to hq-2610190502-b7b3-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190502-b7b3-r1st-0-0000@hq.example.test",
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_together",
+              "status": "failed",
+              "detail": "the reply is on ticket 167944 but its original is on 273014",
+              "expected": "273014",
+              "actual": "167944",
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-r1st-0-0002",
+          "record_id": "clean-0-0002",
+          "message_id": "hq-2610190502-b7b3-r1st-0-0002@hq.example.test",
+          "replies_to": "hq-2610190502-b7b3-r1st-0-0000",
+          "tickets": [
+            "527872"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 527872",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as ivan.chen@example.net",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_link",
+              "status": "passed",
+              "detail": "linked to hq-2610190502-b7b3-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190502-b7b3-r1st-0-0000@hq.example.test",
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_together",
+              "status": "failed",
+              "detail": "the reply is on ticket 527872 but its original is on 273014",
+              "expected": "273014",
+              "actual": "527872",
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-r1st-0-0000",
+          "record_id": "clean-0-0000",
+          "message_id": "hq-2610190502-b7b3-r1st-0-0000@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "273014"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 273014",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as grace.brown@internal.localhost",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "passed",
+              "detail": "all 1 attachment(s) present (match: exact)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "references",
+      "question": "a three-message thread in order with a growing References chain: one conversation, and the last reply's References carries the full ancestry",
+      "deliveries": 3,
+      "unique_messages": 3,
+      "strays_searched": true,
+      "passed": true,
+      "findings": [],
+      "missing": [],
+      "not_checked": [],
+      "strays": [],
+      "messages": [
+        {
+          "tag": "hq-2610190502-b7b3-ref-0-0000",
+          "record_id": "clean-0-0000",
+          "message_id": "hq-2610190502-b7b3-ref-0-0000@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "296531"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 296531",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as grace.brown@internal.localhost",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "passed",
+              "detail": "all 1 attachment(s) present (match: exact)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-ref-0-0001",
+          "record_id": "clean-0-0001",
+          "message_id": "hq-2610190502-b7b3-ref-0-0001@hq.example.test",
+          "replies_to": "hq-2610190502-b7b3-ref-0-0000",
+          "tickets": [
+            "296531"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 296531",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as bmuller19@example.com",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_link",
+              "status": "passed",
+              "detail": "linked to hq-2610190502-b7b3-ref-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190502-b7b3-ref-0-0000@hq.example.test",
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_together",
+              "status": "passed",
+              "detail": "both on ticket 296531",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190502-b7b3-ref-0-0002",
+          "record_id": "clean-0-0002",
+          "message_id": "hq-2610190502-b7b3-ref-0-0002@hq.example.test",
+          "replies_to": "hq-2610190502-b7b3-ref-0-0001",
+          "tickets": [
+            "296531"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 296531",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as ivan.chen@example.net",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "passed",
+              "detail": "body survived intact (match: contains, after HTML tag stripping)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the payload carried no attachments to check",
+              "expected": null,
+              "actual": null,
+              "reason": "nothing to check"
+            },
+            {
+              "check": "routing",
+              "status": "passed",
+              "detail": "routed to support",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_link",
+              "status": "passed",
+              "detail": "linked to hq-2610190502-b7b3-ref-0-0001@hq.example.test, References carries all 2 ancestor(s)",
+              "expected": "hq-2610190502-b7b3-ref-0-0001@hq.example.test",
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "thread_together",
+              "status": "passed",
+              "detail": "both on ticket 296531",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

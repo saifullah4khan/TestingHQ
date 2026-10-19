@@ -1,0 +1,22 @@
+report: wrote sweep/runs/osticket/20261019T050107Z/blast-corpus.html
+tool:    blast
+verdict: FLAGGED (derived)
+seed:    0
+target:  osticket
+corpus:  sweep/.cache/zammad/test/data/mail
+
+counts:
+  sent        99
+  passed      95
+  failed      4
+  records     100
+
+findings: 6
+  [flag] corpus corpus-0-0015 returned 500
+  [flag] corpus corpus-0-0018 returned 500
+  [flag] corpus corpus-0-0053 returned 500
+  [flag] corpus corpus-0-0054 returned 500
+  [unparseable] mail068.box: no header fields: the file does not start with a message header
+  [ignored] 119 file(s) under sweep/.cache/zammad/test/data/mail are not .eml or .box and were not read
+
+exit code: 3 (derived, not recorded in the artifact)

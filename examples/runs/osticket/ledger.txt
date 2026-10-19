@@ -1,0 +1,22 @@
+report: wrote sweep/runs/osticket/20261019T050107Z/ledger.html
+tool:    ledger
+verdict: MISPARSED
+seed:    0
+target:  osticket
+
+counts:
+  sent        50
+  passed      44
+  produced    50
+  records     50
+
+findings: 7
+  [misparsed] hq-2610190501-fadd-0-0003: attachments: the system stored 0 attachment(s): missing ['scan7138.csv'] (match: exact)
+  [misparsed] hq-2610190501-fadd-0-0007: attachments: the system stored 0 attachment(s): missing ['report2519.png', 'scan790.pdf'] (match: exact)
+  [misparsed] hq-2610190501-fadd-0-0010: attachments: the system stored 0 attachment(s): missing ['receipt7716.png'] (match: exact)
+  [misparsed] hq-2610190501-fadd-0-0015: attachments: the system stored 0 attachment(s): missing ['attachment3783.jpg'] (match: exact)
+  [misparsed] hq-2610190501-fadd-0-0027: attachments: the system stored 0 attachment(s): missing ['report4452.png', 'scan4683.docx'] (match: exact)
+  [misparsed] hq-2610190501-fadd-0-0049: attachments: the system stored 0 attachment(s): missing ['photo9506.json'] (match: exact)
+  [other-runs] 20 record(s) carry another run's tag (informational, not counted as extra)
+
+exit code: 3 (derived, not recorded in the artifact)

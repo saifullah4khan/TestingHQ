@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "helpdesk": "osticket",
+  "started": "2026-10-19T05:01:07Z",
+  "finished": "2026-10-19T05:07:02Z",
+  "testinghq_version": "1.0.0",
+  "config": "sweep/configs/osticket.toml",
+  "target": "osticket",
+  "settings": {
+    "SWEEP_BARRAGE": "1",
+    "SWEEP_CORPUS": "1",
+    "SWEEP_EXPECT_ROUTE": "Support",
+    "SWEEP_HEALTH_URL": "http://127.0.0.1:3200/scp/login.php",
+    "SWEEP_KEEP": "1",
+    "SWEEP_MAX_WAIT": "120",
+    "SWEEP_QUIET_WINDOW": "10"
+  },
+  "completed_exit_codes": [
+    0,
+    3
+  ],
+  "notes": [
+    "readback tools (verify, ledger, redeliver, loop, steady) run first, while the helpdesk holds only their own tagged mail; blast, the corpus and barrage follow, barrage last since ingestion may lag its load; report reads only the artifacts"
+  ],
+  "steps": [
+    {
+      "step": "compose-up",
+      "tool": "docker",
+      "command": "docker compose -f sweep/compose/osticket.yml up -d",
+      "exit_code": 0,
+      "meaning": "completed",
+      "artifact": null,
+      "html": null,
+      "report_exit_code": null,
+      "log": "compose-up.log",
+      "skipped": null
+    },
+    {
+      "step": "setup",
+      "tool": "bash",
+      "command": "bash sweep/setup/osticket.sh",
+      "exit_code": 0,
+      "meaning": "completed",
+      "artifact": null,
+      "html": null,
+      "report_exit_code": null,
+      "log": "setup.log",
+      "skipped": null
+    },
+    {
+      "step": "config-validate",
+      "tool": "config",
+      "command": "testinghq config validate sweep/configs/osticket.toml",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": null,
+      "html": null,
+      "report_exit_code": null,
+      "log": "config-validate.log",
+      "skipped": null
+    },
+    {
+      "step": "verify",
+      "tool": "verify",
+      "command": "testinghq verify fire --config sweep/configs/osticket.toml --target osticket --send --max-wait 120 --quiet-window 10 --expect-route Support --out sweep/runs/osticket/20261019T050107Z/verify.json",
+      "exit_code": 3,
+      "meaning": "ran, answer was no",
+      "artifact": "verify.json",
+      "html": "verify.html",
+      "report_exit_code": 0,
+      "log": "verify.log",
+      "skipped": null
+    },
+    {
+      "step": "ledger",
+      "tool": "ledger",
+      "command": "testinghq ledger fire --config sweep/configs/osticket.toml --target osticket --send --max-wait 120 --quiet-window 10 --expect-route Support --out sweep/runs/osticket/20261019T050107Z/ledger.json",
+      "exit_code": 3,
+      "meaning": "ran, answer was no",
+      "artifact": "ledger.json",
+      "html": "ledger.html",
+      "report_exit_code": 0,
+      "log": "ledger.log",
+      "skipped": null
+    },
+    {
+      "step": "redeliver",
+      "tool": "redeliver",
+      "command": "testinghq redeliver fire --config sweep/configs/osticket.toml --target osticket --send --max-wait 120 --quiet-window 10 --expect-route Support --out sweep/runs/osticket/20261019T050107Z/redeliver.json",
+      "exit_code": 3,
+      "meaning": "ran, answer was no",
+      "artifact": "redeliver.json",
+      "html": "redeliver.html",
+      "report_exit_code": 0,
+      "log": "redeliver.log",
+      "skipped": null
+    },
+    {
+      "step": "loop",
+      "tool": "loop",
+      "command": "testinghq loop fire --config sweep/configs/osticket.toml --target osticket --send --max-wait 120 --quiet-window 10 --out sweep/runs/osticket/20261019T050107Z/loop.json",
+      "exit_code": 3,
+      "meaning": "ran, answer was no",
+      "artifact": "loop.json",
+      "html": "loop.html",
+      "report_exit_code": 0,
+      "log": "loop.log",
+      "skipped": null
+    },
+    {
+      "step": "steady",
+      "tool": "steady",
+      "command": "testinghq steady fire --config sweep/configs/osticket.toml --target osticket --send --max-wait 120 --quiet-window 10 --out sweep/runs/osticket/20261019T050107Z/steady.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "steady.json",
+      "html": "steady.html",
+      "report_exit_code": 0,
+      "log": "steady.log",
+      "skipped": null
+    },
+    {
+      "step": "blast-catalog",
+      "tool": "blast",
+      "command": "testinghq blast fire --config sweep/configs/osticket.toml --target osticket --send --catalog --out sweep/runs/osticket/20261019T050107Z/blast-catalog.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "blast-catalog.json",
+      "html": "blast-catalog.html",
+      "report_exit_code": 0,
+      "log": "blast-catalog.log",
+      "skipped": null
+    },
+    {
+      "step": "corpus-fetch",
+      "tool": "git",
+      "command": "git clone --depth 1 --branch 7.2.2 --filter=blob:none --sparse https://github.com/zammad/zammad.git sweep/.cache/zammad",
+      "exit_code": 0,
+      "meaning": "completed",
+      "artifact": null,
+      "html": null,
+      "report_exit_code": null,
+      "log": "corpus-fetch.log",
+      "skipped": null
+    },
+    {
+      "step": "blast-corpus",
+      "tool": "blast",
+      "command": "testinghq blast fire --config sweep/configs/osticket.toml --target osticket --send --corpus sweep/.cache/zammad/test/data/mail --count 100 --out sweep/runs/osticket/20261019T050107Z/blast-corpus.json",
+      "exit_code": 3,
+      "meaning": "ran, answer was no",
+      "artifact": "blast-corpus.json",
+      "html": "blast-corpus.html",
+      "report_exit_code": 0,
+      "log": "blast-corpus.log",
+      "skipped": null
+    },
+    {
+      "step": "barrage",
+      "tool": "barrage",
+      "command": "testinghq barrage fire --config sweep/configs/osticket.toml --target osticket --send --rate 5 --duration 60 --out sweep/runs/osticket/20261019T050107Z/barrage.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "barrage.json",
+      "html": "barrage.html",
+      "report_exit_code": 0,
+      "log": "barrage.log",
+      "skipped": null
+    }
+  ],
+  "result": "findings",
+  "exit_code": 0
+}

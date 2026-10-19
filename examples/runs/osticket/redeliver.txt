@@ -1,0 +1,18 @@
+report: wrote sweep/runs/osticket/20261019T050107Z/redeliver.html
+tool:    redeliver
+verdict: DELIVERY-BUGS
+seed:    0
+target:  osticket
+
+counts:
+  sent        18
+  passed      3
+  failed      1
+  scenarios   4
+
+findings: 3
+  [scenario:reply-first] hq-2610190502-b7b3-r1st-0-0001: the reply is on ticket 167944 but its original is on 273014
+  [scenario:reply-first] hq-2610190502-b7b3-r1st-0-0002: the reply is on ticket 527872 but its original is on 273014
+  [other-runs] 70 record(s) carry another run's tag (informational)
+
+exit code: 3 (derived, not recorded in the artifact)
