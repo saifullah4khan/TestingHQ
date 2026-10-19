@@ -70,7 +70,7 @@ Worked `[readback]` tables, one per kind of system:
 | --- | --- | --- |
 | `generic-rest.toml` | any JSON API with a tag filter | run by this repository's tests over loopback |
 | `mail-sink.toml` | a JSON Lines mail sink | run by this repository's tests |
-| `mailpit.toml` | Mailpit's search API | written from Mailpit's API documentation |
+| `mailpit.toml` | Mailpit's search API | run against Mailpit v1.31.6; the run is in [runs/mailpit/](runs/mailpit/) |
 | `chatwoot.toml` | Chatwoot conversation search | written from Chatwoot's API documentation |
 | `zendesk.toml` | Zendesk Search API | written from Zendesk's API documentation |
 | `freshdesk.toml` | Freshdesk Search API | written from Freshdesk's API documentation |

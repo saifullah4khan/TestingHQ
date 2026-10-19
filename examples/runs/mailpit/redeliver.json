@@ -1,0 +1,485 @@
+{
+  "schema_version": 1,
+  "tool": "redeliver",
+  "seed": 0,
+  "config": {
+    "tool": "redeliver",
+    "seed": 0,
+    "count": 3,
+    "tag_prefix": "hq-2610190315-4a65",
+    "target": "pipeline",
+    "readback": {
+      "kind": "http",
+      "url": "http://127.0.0.1:8025/api/v1/search",
+      "path": null,
+      "tag_param": "query",
+      "items_key": "messages",
+      "timeout": 10.0,
+      "field_map": {
+        "ticket_id": "ID",
+        "from_addr": "From",
+        "subject": "Subject",
+        "body": "body",
+        "attachment_names": "attachments",
+        "route": "To.0.Address",
+        "message_id": "MessageID",
+        "in_reply_to": "in_reply_to",
+        "references": "references",
+        "tag": "tag",
+        "category": "category",
+        "priority": "priority"
+      },
+      "unmapped_fields": [],
+      "spec": null,
+      "list_path": "/api/v1/messages?limit=5000",
+      "enumerate": true,
+      "headers": [],
+      "query": "\"{tag}\"",
+      "method": "GET",
+      "body": null,
+      "page_param": null,
+      "page_size_param": null,
+      "next_path": null,
+      "max_pages": 10,
+      "retry_max": 5,
+      "retry_base_seconds": 0.5,
+      "rate": 50.0
+    },
+    "retry_after": 5.0,
+    "scenarios": [
+      "duplicate",
+      "slow-retry"
+    ],
+    "expect_route": null,
+    "body_exact": false,
+    "subject_match": "contains",
+    "attachment_match": "exact",
+    "format": "sendgrid",
+    "allow_public_target": false,
+    "transport": "http",
+    "dry_run": false,
+    "readback_poll": {
+      "quiet_window": 3.0,
+      "max_wait": 60.0,
+      "max_wait_source": "given",
+      "poll_interval": 0.5
+    }
+  },
+  "summary": {
+    "scenarios": 2,
+    "passed": 2,
+    "failed": 0,
+    "not_checked": 0,
+    "deliveries": 12,
+    "findings": 0,
+    "strays_searched": true,
+    "unattributed_strays": [],
+    "unattributed_strays_count": 0,
+    "strays_not_searched_reason": null,
+    "other_runs": [],
+    "other_runs_count": 0,
+    "untagged_count": 0,
+    "unsettled": false,
+    "verdict": "DELIVERY-SAFE",
+    "verdict_source": "tool",
+    "readback": {
+      "elapsed_s": 3.115,
+      "polls": 6,
+      "stable": true,
+      "unsettled": false,
+      "verdict": null,
+      "budget_exhausted": false,
+      "complete_polls": 6,
+      "cause": null,
+      "missing_tags": [],
+      "partial_tags": [],
+      "all_404": false,
+      "headline": null,
+      "detail": null
+    }
+  },
+  "scenarios": [
+    {
+      "scenario": "duplicate",
+      "question": "the identical message, same Message-ID, delivered twice back to back: a correct pipeline creates one ticket",
+      "deliveries": 6,
+      "unique_messages": 3,
+      "strays_searched": true,
+      "passed": true,
+      "findings": [],
+      "missing": [],
+      "not_checked": [],
+      "strays": [],
+      "messages": [
+        {
+          "tag": "hq-2610190315-4a65-dup-0-0000",
+          "record_id": "clean-0-0000",
+          "message_id": "hq-2610190315-4a65-dup-0-0000@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "00Sw652ms4YKs9KvcLndKj"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 00Sw652ms4YKs9KvcLndKj",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as grace.brown@internal.localhost",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "skipped",
+              "detail": "the adapter could not see a body on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the adapter could not see attachments on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "routing",
+              "status": "skipped",
+              "detail": "no expected route: declare one with --expect-route to check routing",
+              "expected": null,
+              "actual": null,
+              "reason": "no expected route"
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190315-4a65-dup-0-0001",
+          "record_id": "clean-0-0001",
+          "message_id": "hq-2610190315-4a65-dup-0-0001@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "1RF9hsaCZ2aEpCy3UiqUOh"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 1RF9hsaCZ2aEpCy3UiqUOh",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as bmuller19@example.com",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "skipped",
+              "detail": "the adapter could not see a body on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the adapter could not see attachments on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "routing",
+              "status": "skipped",
+              "detail": "no expected route: declare one with --expect-route to check routing",
+              "expected": null,
+              "actual": null,
+              "reason": "no expected route"
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190315-4a65-dup-0-0002",
+          "record_id": "clean-0-0002",
+          "message_id": "hq-2610190315-4a65-dup-0-0002@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "5gcln7GljuNRigBRdRSYXj"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 5gcln7GljuNRigBRdRSYXj",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as ivan.chen@example.net",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "skipped",
+              "detail": "the adapter could not see a body on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the adapter could not see attachments on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "routing",
+              "status": "skipped",
+              "detail": "no expected route: declare one with --expect-route to check routing",
+              "expected": null,
+              "actual": null,
+              "reason": "no expected route"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "slow-retry",
+      "question": "every message re-sent after one 5s wait following a first delivery that succeeded: one ticket each. This is the duplicate half of a provider retry, not a failure-driven one",
+      "deliveries": 6,
+      "unique_messages": 3,
+      "strays_searched": true,
+      "passed": true,
+      "findings": [],
+      "missing": [],
+      "not_checked": [],
+      "strays": [],
+      "messages": [
+        {
+          "tag": "hq-2610190315-4a65-rty-0-0000",
+          "record_id": "clean-0-0000",
+          "message_id": "hq-2610190315-4a65-rty-0-0000@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "7W69v1GNudb82LYNTUFpKl"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 7W69v1GNudb82LYNTUFpKl",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as grace.brown@internal.localhost",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "skipped",
+              "detail": "the adapter could not see a body on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the adapter could not see attachments on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "routing",
+              "status": "skipped",
+              "detail": "no expected route: declare one with --expect-route to check routing",
+              "expected": null,
+              "actual": null,
+              "reason": "no expected route"
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190315-4a65-rty-0-0001",
+          "record_id": "clean-0-0001",
+          "message_id": "hq-2610190315-4a65-rty-0-0001@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "6zXADrgVEqnvOv6bjuvvtZ"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 6zXADrgVEqnvOv6bjuvvtZ",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as bmuller19@example.com",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "skipped",
+              "detail": "the adapter could not see a body on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the adapter could not see attachments on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "routing",
+              "status": "skipped",
+              "detail": "no expected route: declare one with --expect-route to check routing",
+              "expected": null,
+              "actual": null,
+              "reason": "no expected route"
+            }
+          ]
+        },
+        {
+          "tag": "hq-2610190315-4a65-rty-0-0002",
+          "record_id": "clean-0-0002",
+          "message_id": "hq-2610190315-4a65-rty-0-0002@hq.example.test",
+          "replies_to": null,
+          "tickets": [
+            "4jaAfQ6R17CE6ERMfstFBr"
+          ],
+          "checks": [
+            {
+              "check": "ticket_created",
+              "status": "passed",
+              "detail": "created as 4jaAfQ6R17CE6ERMfstFBr",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "sender",
+              "status": "passed",
+              "detail": "sender parsed as ivan.chen@example.net",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "subject",
+              "status": "passed",
+              "detail": "subject parsed intact (match: contains)",
+              "expected": null,
+              "actual": null,
+              "reason": null
+            },
+            {
+              "check": "body",
+              "status": "skipped",
+              "detail": "the adapter could not see a body on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "attachments",
+              "status": "skipped",
+              "detail": "the adapter could not see attachments on this record",
+              "expected": null,
+              "actual": null,
+              "reason": "adapter cannot see field"
+            },
+            {
+              "check": "routing",
+              "status": "skipped",
+              "detail": "no expected route: declare one with --expect-route to check routing",
+              "expected": null,
+              "actual": null,
+              "reason": "no expected route"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

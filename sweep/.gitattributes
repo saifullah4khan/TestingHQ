@@ -1,0 +1,5 @@
+# Bash reads these under Git Bash on Windows too, where a CRLF checkout breaks
+# every line. Keep them LF whatever core.autocrlf says.
+*.sh text eol=lf
+*.env text eol=lf
+*.yml text eol=lf

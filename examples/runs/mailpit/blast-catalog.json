@@ -1,0 +1,675 @@
+{
+  "schema_version": 1,
+  "tool": "blast",
+  "seed": 0,
+  "config": {
+    "mix": [],
+    "count": 26,
+    "seed": 0,
+    "catalog": [
+      "attachment_only_minimal_body",
+      "declared_charset_mismatch",
+      "degenerate_attachment",
+      "duplicate_form_field",
+      "empty_subject",
+      "extremely_long_subject",
+      "header_injection_attempt",
+      "heavily_quoted_reply_chain",
+      "html_only_no_text",
+      "long_local_part",
+      "malformed_envelope_json",
+      "many_recipients",
+      "missing_boundary_field",
+      "mixed_line_endings",
+      "null_byte_in_body",
+      "oversized_body_1mb",
+      "plus_addressing",
+      "reply_to_mismatch",
+      "rtl_body_text",
+      "rtl_override_in_filename",
+      "single_char_local_part",
+      "text_only_no_html",
+      "unicode_heavy_subject",
+      "whitespace_only_body",
+      "zero_byte_attachment",
+      "zero_length_envelope"
+    ],
+    "dry_run": false,
+    "target": "pipeline",
+    "fail_on_body": null,
+    "format": "sendgrid",
+    "allow_public_target": false,
+    "transport": "http"
+  },
+  "summary": {
+    "by_status_class": {
+      "1xx": 0,
+      "2xx": 25,
+      "3xx": 0,
+      "4xx": 0,
+      "5xx": 0,
+      "other": 0,
+      "no_response": 1
+    },
+    "transport_errors": {
+      "refused": 0,
+      "dns": 0,
+      "timeout": 0,
+      "tls": 0,
+      "other": 1
+    },
+    "by_category": {
+      "clean": 8,
+      "messy-but-valid": 8,
+      "multilingual-gibberish": 0,
+      "structurally-malformed": 8,
+      "degenerate": 2
+    },
+    "flags": [
+      "structurally-malformed structurally-malformed-0-0010 got no response: Remote end closed connection without response"
+    ]
+  },
+  "records": [
+    {
+      "id": "messy-but-valid-0-0000",
+      "category": "messy-but-valid",
+      "payload_sha256": "093bd7f5537c83af940ae02526f315fd0bbf34dcae3ba650434fe0c8433ac444",
+      "intended": {
+        "from": "dave.patel28@corp.example.invalid",
+        "subject": "Following up on the Z\u00fcrich office move",
+        "body_core": "Following up on the Z\u00fcrich office move from earlier. Looking forward to your reply.",
+        "attachments": 1
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 33.20419800002128,
+        "body_snippet": "{\"ticket\": \"T00001\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "attachment_only_minimal_body"
+    },
+    {
+      "id": "structurally-malformed-0-0001",
+      "category": "structurally-malformed",
+      "payload_sha256": "274cb02f7931ab2aaa523673b68ea482c96480f32ac8f74b061743b4a21688a8",
+      "intended": {
+        "from": "bob.patel@example.net",
+        "subject": "Re: the contract",
+        "body_core": "This message is about the contract. Let me know if the timeline still works for you. This relates to what we discussed last week.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.728832999669976,
+        "body_snippet": "{\"ticket\": \"T00002\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "declared_charset_mismatch"
+    },
+    {
+      "id": "structurally-malformed-0-0002",
+      "category": "structurally-malformed",
+      "payload_sha256": "a04c47f5883126d3c1884ea20d90242ca1f9b5dc21a9618a322360766fbaccd1",
+      "intended": {
+        "from": "mallory_kim@example.edu",
+        "subject": "Quick question about the renewal",
+        "body_core": "Quick note regarding the renewal. Attached is what we discussed. I wanted to follow up on this. This relates to what we discussed last week. My order number is 919965-81.",
+        "attachments": 1
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.9364549997553695,
+        "body_snippet": "{\"ticket\": \"T00003\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "degenerate_attachment"
+    },
+    {
+      "id": "structurally-malformed-0-0003",
+      "category": "structurally-malformed",
+      "payload_sha256": "25ac2d06e0b971e76fba2fd1654323b11130233c1e57fe89266b08aa914d6695",
+      "intended": {
+        "from": "carol28@example.org",
+        "subject": "Quick question about account access",
+        "body_core": "Following up on account access from earlier. Can you confirm receipt of this message? Happy to hop on a call if that is easier.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.846351000400318,
+        "body_snippet": "{\"ticket\": \"T00004\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "duplicate_form_field"
+    },
+    {
+      "id": "messy-but-valid-0-0004",
+      "category": "messy-but-valid",
+      "payload_sha256": "2bfe25d81f46fdac26e56f413ab48821a40f40142858bcdc043a61b8eef92264",
+      "intended": {
+        "from": "oscar_kim@widgets.example",
+        "subject": "",
+        "body_core": "I am writing about the caf\u00e9 booking. Please let me know if you have any questions. This relates to what we discussed last week. My order number is 286934-39.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.568677999894135,
+        "body_snippet": "{\"ticket\": \"T00005\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "empty_subject"
+    },
+    {
+      "id": "messy-but-valid-0-0005",
+      "category": "messy-but-valid",
+      "payload_sha256": "49c2ec67e3cbb1f36b1fc90b7e523a8b51eb8b4754ffd20e8abb093e41595cea",
+      "intended": {
+        "from": "frankb@example.org",
+        "subject": "Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ti",
+        "body_core": "I have a question about the support ticket. I wanted to follow up on this. Can you confirm receipt of this message? Attached is what we discussed.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 29.225463999864587,
+        "body_snippet": "{\"ticket\": \"T00006\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "extremely_long_subject"
+    },
+    {
+      "id": "structurally-malformed-0-0006",
+      "category": "structurally-malformed",
+      "payload_sha256": "59ab049c8e89cff577b3de171216b8e1743e392a4bb1ee35398b50c993816b7b",
+      "intended": {
+        "from": "judy.brown@widgets.example",
+        "subject": "Onboarding - action needed",
+        "body_core": "I am writing about onboarding. Happy to hop on a call if that is easier. This relates to what we discussed last week. Please let me know if you have any questions.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 3.7273339999046584,
+        "body_snippet": "{\"ticket\": \"T00007\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "header_injection_attempt"
+    },
+    {
+      "id": "clean-0-0007",
+      "category": "clean",
+      "payload_sha256": "f2833a41c7c57b2cdabc15a71fe3aea6ff9d5011f4675fe2b2e5d38724aaa4f2",
+      "intended": {
+        "from": "grace.chen@mail.example.test",
+        "subject": "Re: Quick question about your order",
+        "body_core": "Quick note regarding your order. Happy to hop on a call if that is easier. Attached is what we discussed. Please let me know if you have any questions.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.560610999666096,
+        "body_snippet": "{\"ticket\": \"T00008\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "heavily_quoted_reply_chain"
+    },
+    {
+      "id": "clean-0-0008",
+      "category": "clean",
+      "payload_sha256": "716184ecc86d1e9821230c718ce33582f15189e34e308df42ddb16a91d0bd03f",
+      "intended": {
+        "from": "dnguyen5@mail.example.test",
+        "subject": "The quarterly report - action needed",
+        "body_core": "Quick note regarding the quarterly report. I wanted to follow up on this.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.915782999840303,
+        "body_snippet": "{\"ticket\": \"T00009\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "html_only_no_text"
+    },
+    {
+      "id": "messy-but-valid-0-0009",
+      "category": "messy-but-valid",
+      "payload_sha256": "a54e3a295599db0754a9f36f19f4fc29b99cf75425595426f53b79c37f9447f0",
+      "intended": {
+        "from": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx@example.net",
+        "subject": "Following up on the Z\u00fcrich office move",
+        "body_core": "This message is about the Z\u00fcrich office move. This relates to what we discussed last week. Let me know if the timeline still works for you. Please let me know if you have any questions.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.86299200015128,
+        "body_snippet": "{\"ticket\": \"T00010\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "long_local_part"
+    },
+    {
+      "id": "structurally-malformed-0-0010",
+      "category": "structurally-malformed",
+      "payload_sha256": "326be2b28e2764b7b3b029943666d54115fe0a4a520e15cfcf95201b167f27b0",
+      "intended": {
+        "from": "dave.nguyen26@example.edu",
+        "subject": "Update on the contract",
+        "body_core": "I have a question about the contract. Let me know if the timeline still works for you. Can you confirm receipt of this message?",
+        "attachments": 0
+      },
+      "response": {
+        "status": null,
+        "latency_ms": 15.482110999982979,
+        "body_snippet": "",
+        "error": "Remote end closed connection without response",
+        "error_kind": "other"
+      },
+      "assertion": {
+        "passed": false,
+        "mismatches": [
+          "structurally-malformed structurally-malformed-0-0010 got no response: Remote end closed connection without response"
+        ]
+      },
+      "case": "malformed_envelope_json"
+    },
+    {
+      "id": "messy-but-valid-0-0011",
+      "category": "messy-but-valid",
+      "payload_sha256": "570a70295116988740d0fe17badb1cae31a613201d573b3d1bc7eb277961a7d5",
+      "intended": {
+        "from": "oscar_muller0@example.com",
+        "subject": "The shipment - action needed",
+        "body_core": "I am writing about the shipment. Attached is what we discussed. I wanted to follow up on this. The details are at https://www.example.com/orders/64772.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 10.024914000041463,
+        "body_snippet": "{\"ticket\": \"T00012\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "many_recipients"
+    },
+    {
+      "id": "structurally-malformed-0-0012",
+      "category": "structurally-malformed",
+      "payload_sha256": "22c4564514359720730146f1d6102ff6689d83701c0e08041ffcd66952a6694e",
+      "intended": {
+        "from": "ivan@example.net",
+        "subject": "Following up on the renewal",
+        "body_core": "This message is about the renewal. Attached is what we discussed. This relates to what we discussed last week. Looking forward to your reply.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.041746999675524,
+        "body_snippet": "{\"ticket\": \"T00013\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "missing_boundary_field"
+    },
+    {
+      "id": "messy-but-valid-0-0013",
+      "category": "messy-but-valid",
+      "payload_sha256": "a87c6380c2acdf497946b5c432d094346cffea3bd90a61ca0150dbc47761e501",
+      "intended": {
+        "from": "malloryn@widgets.example",
+        "subject": "Quick question about your request",
+        "body_core": "I am writing about your request. This relates to what we discussed last week. Attached is what we discussed. I wanted to follow up on this.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.115456999803428,
+        "body_snippet": "{\"ticket\": \"T00014\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "mixed_line_endings"
+    },
+    {
+      "id": "structurally-malformed-0-0014",
+      "category": "structurally-malformed",
+      "payload_sha256": "c78ff13272604b60124c797238a22865111f1f175b7d58564cc4d5d753bf7053",
+      "intended": {
+        "from": "grace24@example.edu",
+        "subject": "Quick question about the renewal",
+        "body_core": "Quick note regarding the renewal. Happy to hop on a call if that is easier. Please let me know if you have any questions.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.248111000080826,
+        "body_snippet": "{\"ticket\": \"T00015\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "null_byte_in_body"
+    },
+    {
+      "id": "messy-but-valid-0-0015",
+      "category": "messy-but-valid",
+      "payload_sha256": "85d3052b8fdfa93435c4f5b25bfd60b7dbf086e0b076a123a350b46bcdc8a1b7",
+      "intended": {
+        "from": "gpatel7@corp.example.invalid",
+        "subject": "Update on the renewal",
+        "body_core": "I have a question about the renewal. This relates to what we discussed last week. Let me know if the timeline still works for you.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 1315.623202000097,
+        "body_snippet": "{\"ticket\": \"T00016\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "oversized_body_1mb"
+    },
+    {
+      "id": "clean-0-0016",
+      "category": "clean",
+      "payload_sha256": "730c369787e31f28c5717bad39be4e6ee7d417280846e789bd0e5e5899beef60",
+      "intended": {
+        "from": "bobl23@example.edu",
+        "subject": "Following up on onboarding",
+        "body_core": "This message is about onboarding. Please let me know if you have any questions.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.008234999626438,
+        "body_snippet": "{\"ticket\": \"T00017\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "plus_addressing"
+    },
+    {
+      "id": "clean-0-0017",
+      "category": "clean",
+      "payload_sha256": "4b08487efed3c3ab3afc5ce06e42ad7d41c6e6b8b0ac1453f28709fd3833b1c8",
+      "intended": {
+        "from": "bob_chen@example.com",
+        "subject": "Following up on onboarding",
+        "body_core": "Quick note regarding onboarding. I wanted to follow up on this. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.797390000225278,
+        "body_snippet": "{\"ticket\": \"T00018\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "reply_to_mismatch"
+    },
+    {
+      "id": "clean-0-0018",
+      "category": "clean",
+      "payload_sha256": "195dc4e478c366ca4816801c04873e981d71e203f29f313e82c82b0adcc61c6b",
+      "intended": {
+        "from": "grace.jones@widgets.example",
+        "subject": "Following up on the shipment",
+        "body_core": "\u0645\u0631\u062d\u0628\u0627\u060c \u0647\u0630\u0647 \u0631\u0633\u0627\u0644\u0629 \u062a\u062c\u0631\u064a\u0628\u064a\u0629 \u0628\u0627\u0644\u0644\u063a\u0629 \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0644\u0627\u062e\u062a\u0628\u0627\u0631 \u0627\u0644\u0646\u0635\u0648\u0635 \u0645\u0646 \u0627\u0644\u064a\u0645\u064a\u0646 \u0625\u0644\u0649 \u0627\u0644\u064a\u0633\u0627\u0631.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.38040599985834,
+        "body_snippet": "{\"ticket\": \"T00019\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "rtl_body_text"
+    },
+    {
+      "id": "structurally-malformed-0-0019",
+      "category": "structurally-malformed",
+      "payload_sha256": "b04bffac38fd8da024353c3e6d456009fd93b103e72585af8d295ac36cb3fa8d",
+      "intended": {
+        "from": "alice16@mail.example.test",
+        "subject": "Update on the shipment",
+        "body_core": "This message is about the shipment. I wanted to follow up on this. Can you confirm receipt of this message?",
+        "attachments": 1
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.155218999741919,
+        "body_snippet": "{\"ticket\": \"T00020\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "rtl_override_in_filename"
+    },
+    {
+      "id": "clean-0-0020",
+      "category": "clean",
+      "payload_sha256": "8b3f747243466e425677ee9549bc00933dc499a5d478b9b8d63e78809a18f8bf",
+      "intended": {
+        "from": "a@example.edu",
+        "subject": "Quick question about the renewal",
+        "body_core": "Quick note regarding the renewal. Looking forward to your reply.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.098789999919973,
+        "body_snippet": "{\"ticket\": \"T00021\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "single_char_local_part"
+    },
+    {
+      "id": "clean-0-0021",
+      "category": "clean",
+      "payload_sha256": "e6058e672623663b5f16f269e8ed6db2d369d52a8aeb1f7e60c75d5f4cf4c719",
+      "intended": {
+        "from": "heidi@mail.example.test",
+        "subject": "Update on the support ticket",
+        "body_core": "I am writing about the support ticket. Let me know if the timeline still works for you.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.862488000024314,
+        "body_snippet": "{\"ticket\": \"T00022\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "text_only_no_html"
+    },
+    {
+      "id": "clean-0-0022",
+      "category": "clean",
+      "payload_sha256": "f93dd00bfec9312969b05208ddca1f33ef5022beada46d29ec9403a759257a9a",
+      "intended": {
+        "from": "daveg@internal.localhost",
+        "subject": "\u8ba2\u5355\u786e\u8ba4 \ud83c\udf89 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u0435 \u0437\u0430\u043a\u0430\u0437\u0430 \u0645\u0624\u0643\u062f",
+        "body_core": "Following up on onboarding from earlier. Can you confirm receipt of this message? Attached is what we discussed. Let me know if the timeline still works for you.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.469057999969664,
+        "body_snippet": "{\"ticket\": \"T00023\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "unicode_heavy_subject"
+    },
+    {
+      "id": "degenerate-0-0023",
+      "category": "degenerate",
+      "payload_sha256": "aae27666d7849da49afb528792d745faa2216f00c97c97da26ded8dd54d51b68",
+      "intended": {
+        "from": "alice@mail.example.test",
+        "subject": "The caf\u00e9 booking - action needed",
+        "body_core": "I am writing about the caf\u00e9 booking. Happy to hop on a call if that is easier.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.364516999838088,
+        "body_snippet": "{\"ticket\": \"T00024\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "whitespace_only_body"
+    },
+    {
+      "id": "messy-but-valid-0-0024",
+      "category": "messy-but-valid",
+      "payload_sha256": "25c31633f65f6b1016a68bcf08136c3261dc79a3d23e2b692b60e2f2a973d83e",
+      "intended": {
+        "from": "frank.chen@mail.example.test",
+        "subject": "Following up on the caf\u00e9 booking",
+        "body_core": "Following up on the caf\u00e9 booking from earlier. Attached is what we discussed. Looking forward to your reply. Let me know if the timeline still works for you.",
+        "attachments": 1
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.451584000136791,
+        "body_snippet": "{\"ticket\": \"T00025\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "zero_byte_attachment"
+    },
+    {
+      "id": "degenerate-0-0025",
+      "category": "degenerate",
+      "payload_sha256": "68c40a0f0f2d4446eaecce98a89f0107738cc12da126bdff372eaeb62d4a8213",
+      "intended": {
+        "from": "grace_lee13@widgets.example",
+        "subject": "Re: the Z\u00fcrich office move",
+        "body_core": "Quick note regarding the Z\u00fcrich office move. Attached is what we discussed.",
+        "attachments": 0
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.628022999801033,
+        "body_snippet": "{\"ticket\": \"T00026\"}",
+        "error": null,
+        "error_kind": null
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "case": "zero_length_envelope"
+    }
+  ],
+  "aborted": false
+}

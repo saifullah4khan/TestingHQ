@@ -33,6 +33,35 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   `Basic <base64 of user:password>`; `--env NAME` names the variable.
 - Every artifact records the target's `transport` under `config`. Records of
   the pipeline tools carry the transport's `error` when there is one.
+- `envelope_to` on an HTTP target in the `sendgrid` or `sendgrid-raw` format
+  replaces the envelope recipients in SendGrid's `envelope` field, for a
+  receiver that routes on the envelope, such as Chatwoot's Action Mailbox
+  ingress. The To header is left as it is; the addresses must be synthetic,
+  and any other HTTP format refuses the key.
+- `blast generate` and `blast fire` take `--corpus <dir>`: every `.eml` and
+  `.box` file under the directory, sorted by name, is parsed, tagged the way
+  the generated corpus is, re-addressed to the synthetic domain and fired in
+  the target's format. Other files are counted and skipped, a file that does
+  not parse is a record with outcome `unparseable` rather than an error, and
+  `--count` caps the files used. Exclusive with `--mix` and `--catalog`. The
+  artifact records `corpus_dir` and each record's source file.
+- Readback recipes for osTicket, Zammad, FreeScout and Frappe Helpdesk in
+  `examples/readback/`, and a headers table in the Chatwoot recipe for Action
+  Mailbox's Basic auth. Zammad, FreeScout and Frappe Helpdesk fetch mail, so
+  their targets are SMTP targets.
+- Custom readback adapter examples for the two helpdesks without a read API:
+  `examples/readback/adapters/osticket_mysql.py` and `freescout_mysql.py` read
+  the helpdesk's MySQL tables. They need PyMySQL, an example dependency and
+  never one of TestingHQ's; the DSN is an `env:` reference.
+- `sweep/`, in the source distribution only: `sweep/run.sh <helpdesk>` starts
+  Chatwoot, osTicket, Zammad, FreeScout or Frappe Helpdesk with Docker
+  Compose, creates its account, inbox and API token, runs every tool against
+  it, renders every report and writes `summary.json` with each step's command
+  and exit code. `sweep/run.sh all` runs the five in turn, and
+  `sweep/run.sh mailpit` runs a pinned, checksum-verified Mailpit binary and
+  the demo pipeline with no Docker at all.
+- `examples/runs/mailpit/`: the Mailpit recipe run against Mailpit v1.31.6
+  and the demo pipeline, every tool's artifact with its HTML report.
 
 ### Changed
 
@@ -42,6 +71,9 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   concept.
 - An SMTP target's `host` is held to the public-host rule, and its
   `envelope_from` and `envelope_to` must be synthetic addresses.
+- The Mailpit recipe says which `redeliver` scenarios a mail sink can answer:
+  the duplicate ones, which count copies, and not the threading ones, which
+  need a ticket store.
 
 ## [1.0.0] - 2026-10-15
 
