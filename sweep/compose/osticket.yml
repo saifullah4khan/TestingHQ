@@ -1,15 +1,23 @@
 # osTicket for the sweep: the helpdesk on 127.0.0.1:3200, its MariaDB on
-# 127.0.0.1:3206 so the readback adapter can read the tables from the host.
+# 127.0.0.1:3206 so the readback adapter can read the tables from the host,
+# and a Mailpit on 127.0.0.1:3286 holding every mail osTicket sends, which is
+# what loop's [loop.outbound] reads to see whether it answered machine mail.
 #
 #   docker compose -f sweep/compose/osticket.yml up -d
 #   bash sweep/setup/osticket.sh
 #
-# The image is tiredofit/osticket: version-tagged, osTicket 1.18 on PHP 8.2
-# and nginx, and it installs osTicket into an empty database on first start
-# from the environment below (no web installer to click through). The
-# osTicket project publishes no image of its own, and osticket/osticket on
-# Docker Hub stopped at 1.14. If 3.6.2 cannot be pulled, devinsolutions/osticket
-# installs the same way from MYSQL_* variables (osTicket 1.17).
+# The image is hlhd/osticket: version-tagged, osTicket 1.18.4 on PHP 8.3 and
+# nginx, running as an unprivileged user on port 8080, and it installs
+# osTicket into an empty database on first start from the environment below
+# (no web installer to click through). The osTicket project publishes no
+# image of its own, osticket/osticket on Docker Hub stopped at 1.14, and
+# tiredofit/osticket, which this file first named, is no longer on Docker
+# Hub. devinsolutions/osticket installs the same way from MYSQL_* variables,
+# but stops at osTicket 1.17.
+#
+# MariaDB is 11.4, not 10.11: the image's mariadb client wants TLS by
+# default and refuses a 10.11 server, which serves none, so the entrypoint
+# waits for the database forever. 11.4 makes its own certificate on start.
 #
 # Every password here is for a throwaway instance reachable from loopback
 # only. The readback reads through a separate SELECT-only user that the setup
@@ -19,7 +27,7 @@ name: thq-osticket
 
 services:
   db:
-    image: mariadb:10.11.10
+    image: mariadb:11.4.8
     environment:
       MARIADB_ROOT_PASSWORD: thq-osticket-root
       MARIADB_DATABASE: osticket
@@ -36,13 +44,12 @@ services:
       retries: 60
 
   osticket:
-    image: tiredofit/osticket:3.6.2
+    image: hlhd/osticket:v1.18.4
     depends_on:
       db:
         condition: service_healthy
     environment:
-      TIMEZONE: UTC
-      CONTAINER_NAME: thq-osticket
+      TZ: UTC
       DB_HOST: db
       DB_PORT: "3306"
       DB_NAME: osticket
@@ -58,14 +65,21 @@ services:
       ADMIN_EMAIL: admin@helpdesk.test
       ADMIN_USER: ostadmin
       ADMIN_PASS: thq-osticket-admin
-      # osTicket sends replies and alerts by mail; there is nowhere for them
-      # to go here, and the sweep reads tickets, not mail.
-      SMTP_HOST: localhost
-      SMTP_PORT: "25"
+      # osTicket's auto-responses and alerts go to the mail-out sidecar,
+      # where loop reads them back.
+      SMTP_HOST: mail-out
+      SMTP_PORT: "1025"
       SMTP_TLS: "0"
-      CRON_INTERVAL: "1"
     ports:
-      - "127.0.0.1:3200:80"
+      - "127.0.0.1:3200:8080"
+
+  mail-out:
+    image: axllent/mailpit:v1.31.4
+    environment:
+      MP_MAX_MESSAGES: "0"
+      MP_LABEL: "osticket outbound"
+    ports:
+      - "127.0.0.1:3286:8025"
 
 volumes:
   db:
