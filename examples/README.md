@@ -74,6 +74,7 @@ Worked `[readback]` tables, one per kind of system:
 | `chatwoot.toml` | Chatwoot conversation search | written from Chatwoot's API documentation |
 | `zendesk.toml` | Zendesk Search API | written from Zendesk's API documentation |
 | `freshdesk.toml` | Freshdesk Search API | written from Freshdesk's API documentation |
+| `osticket.toml` | osTicket's MySQL tables, through `adapters/osticket_mysql.py` | written from osTicket's source |
 | `handlehq.toml` | a HandleHQ deployment | a template; see [docs/DOGFOOD.md](../docs/DOGFOOD.md) |
 
 Each file's first lines say what was verified and what was not. Credentials are

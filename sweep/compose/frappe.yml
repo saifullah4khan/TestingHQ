@@ -1,0 +1,211 @@
+# Frappe Helpdesk for the sweep, on the pull-mail pattern.
+#
+#   docker compose -f sweep/compose/frappe.yml up -d
+#   bash sweep/setup/frappe.sh
+#
+# The helpdesk services follow frappe_docker's pwd.yml (one image, one role
+# per container, a shared sites volume), with the image the frappe/helpdesk
+# repository publishes for each release: frappe, telephony and helpdesk on
+# Frappe version-15. First boot runs `bench new-site` and installs both apps
+# in the create-site container, which takes several minutes; the setup script
+# waits for it.
+#
+# Mail goes in through a Mailpit sidecar. TestingHQ sends over SMTP to
+# 127.0.0.1:3525, Mailpit keeps the message, and the helpdesk's Email Account
+# pulls it over POP3 (mailpit:1110 on the compose network) on the scheduler.
+# Mailpit serves POP3 only when POP3 credentials are set, so MP_POP3_AUTH is
+# required; the setup script configures the Email Account with the same pair.
+#
+# Host ports, all on 127.0.0.1, inside the 3500-3599 range:
+#   3500  helpdesk (nginx in front of gunicorn and socket.io)
+#   3525  Mailpit SMTP
+#   3510  Mailpit POP3, for looking at the queue by hand
+#   3585  Mailpit web UI and API
+#
+# Everything here is a local sandbox: the passwords below guard nothing
+# outside this compose network.
+name: thq-frappe
+
+x-helpdesk-image: &helpdesk-image ghcr.io/frappe/helpdesk:v1.31.0
+
+x-helpdesk-volumes: &helpdesk-volumes
+  - sites:/home/frappe/frappe-bench/sites
+  - logs:/home/frappe/frappe-bench/logs
+
+x-redis-env: &redis-env
+  FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+  FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+
+x-after-configurator: &after-configurator
+  configurator:
+    condition: service_completed_successfully
+
+services:
+  db:
+    image: mariadb:10.6.20
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - db-data:/var/lib/mysql
+    restart: on-failure
+
+  redis-cache:
+    image: redis:6.2.16-alpine
+    restart: on-failure
+
+  redis-queue:
+    image: redis:6.2.16-alpine
+    volumes:
+      - redis-queue-data:/data
+    restart: on-failure
+
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    environment:
+      MP_POP3_AUTH: "helpdesk:helpdesk-pop3"
+      MP_MAX_MESSAGES: "10000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "127.0.0.1:3525:1025"
+      - "127.0.0.1:3510:1110"
+      - "127.0.0.1:3585:8025"
+    restart: on-failure
+
+  configurator:
+    image: *helpdesk-image
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        ls -1 apps > sites/apps.txt
+        bench set-config -g db_host "$$DB_HOST"
+        bench set-config -gp db_port "$$DB_PORT"
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE"
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE"
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE"
+        bench set-config -gp socketio_port "$$SOCKETIO_PORT"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    volumes: *helpdesk-volumes
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  create-site:
+    image: *helpdesk-image
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        wait-for-it -t 120 db:3306
+        wait-for-it -t 120 redis-cache:6379
+        wait-for-it -t 120 redis-queue:6379
+        start=$$(date +%s)
+        until [[ -n "$$(jq -r '.db_host // empty' sites/common_site_config.json 2>/dev/null)" ]] &&
+              [[ -n "$$(jq -r '.redis_queue // empty' sites/common_site_config.json 2>/dev/null)" ]]; do
+          echo "waiting for sites/common_site_config.json"
+          sleep 5
+          if (( $$(date +%s) - start > 120 )); then exit 1; fi
+        done
+        if [ -d sites/helpdesk.localhost ]; then
+          echo "site helpdesk.localhost exists"
+        else
+          bench new-site helpdesk.localhost \
+            --mariadb-user-host-login-scope='%' \
+            --admin-password=admin \
+            --db-root-username=root \
+            --db-root-password=admin \
+            --install-app telephony \
+            --install-app helpdesk \
+            --set-default
+        fi
+        bench --site helpdesk.localhost set-config -p mute_emails 1
+    volumes: *helpdesk-volumes
+    depends_on:
+      <<: *after-configurator
+    restart: "no"
+
+  backend:
+    image: *helpdesk-image
+    volumes: *helpdesk-volumes
+    depends_on:
+      <<: *after-configurator
+    restart: on-failure
+
+  websocket:
+    image: *helpdesk-image
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    environment: *redis-env
+    volumes: *helpdesk-volumes
+    depends_on:
+      <<: *after-configurator
+    restart: on-failure
+
+  queue-short:
+    image: *helpdesk-image
+    command: ["bench", "worker", "--queue", "short,default"]
+    environment: *redis-env
+    volumes: *helpdesk-volumes
+    depends_on:
+      <<: *after-configurator
+    restart: on-failure
+
+  queue-long:
+    image: *helpdesk-image
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    environment: *redis-env
+    volumes: *helpdesk-volumes
+    depends_on:
+      <<: *after-configurator
+    restart: on-failure
+
+  scheduler:
+    image: *helpdesk-image
+    command: ["bench", "schedule"]
+    volumes: *helpdesk-volumes
+    depends_on:
+      <<: *after-configurator
+    restart: on-failure
+
+  frontend:
+    image: *helpdesk-image
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: helpdesk.localhost
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    volumes: *helpdesk-volumes
+    ports:
+      - "127.0.0.1:3500:8080"
+    depends_on:
+      - backend
+      - websocket
+    restart: on-failure
+
+volumes:
+  db-data:
+  redis-queue-data:
+  sites:
+  logs:
