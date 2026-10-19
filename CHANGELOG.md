@@ -81,6 +81,13 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   delivery or disposition report) as a structured part instead of base64, so
   a bounce read by `blast --corpus` builds and is sent rather than being
   recorded as unparseable.
+- `redeliver`'s reply-first and references scenarios date each thread in the
+  order it was written: the root keeps its generated Date and each reply is
+  dated after the message before it, whatever order the scenario delivers
+  them in. Each payload used to keep its own random Date, so a reply could be
+  dated before its original, and a helpdesk that processes a mail fetch in
+  Date order, as FreeScout does, filed it first on a conversation of its own
+  and was reported for a broken thread it did not cause.
 
 ## [1.0.0] - 2026-10-15
 

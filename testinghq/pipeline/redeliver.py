@@ -36,6 +36,13 @@ shared id the slow-retry scenario re-delivered messages the duplicate scenario
 had already sent, and a second run re-delivered the first run's; the pipeline
 correctly recognised them as redeliveries and the scenario reported total loss.
 Every component was correct; the test design was not.
+
+The threaded scenarios also rewrite the replies' Date headers. The generator
+dates every payload independently, so a reply could say it was written before
+its original, and a helpdesk that processes a mail fetch in Date order (as
+FreeScout does) then opened a second conversation for it. That was the tool's
+broken thread, not the helpdesk's. `messages.thread_dates` dates a thread in
+the order it was written, whatever order the scenario delivers it in.
 """
 from __future__ import annotations
 
@@ -276,6 +283,7 @@ def _make(
     in_reply_to: Optional[str] = None,
     references: Optional[str] = None,
     subject: Optional[str] = None,
+    date: Optional[str] = None,
     delay_before: float = 0.0,
     in_reply_to_tag: Optional[str] = None,
 ) -> Delivery:
@@ -290,7 +298,8 @@ def _make(
 
     The ids are given bare and written to the headers in angle brackets, as
     RFC 5322 requires; `references` is a space-separated chain. The Delivery
-    keeps the bare id.
+    keeps the bare id. `date` is the message's place in its thread, from
+    `messages.thread_dates`.
     """
     stamped = messages.stamp(
         email,
@@ -299,6 +308,7 @@ def _make(
         in_reply_to=None if in_reply_to is None else _header_ids(in_reply_to),
         references=None if references is None else _header_ids(*references.split()),
         subject=subject,
+        date=date,
     )
     return Delivery(
         email=stamped,
@@ -413,6 +423,11 @@ def build_reply_first(
     that keys dedup on arrival order rather than on Message-ID files all three
     as separate conversations, and a pipeline that drops a reply whose parent it
     has not seen loses it outright.
+
+    The Dates are in thread order, root first, even though the delivery is
+    not: a reply is written after its original whatever order it arrives in.
+    So a helpdesk that sorts what it fetches by Date threads them, and the
+    scenario catches one that files mail in the order it arrived.
     """
     if len(corpus) < 3:
         raise ScenarioError(
@@ -424,6 +439,9 @@ def build_reply_first(
     reply_two_tag = messages.make_tag(tag_prefix, seed, 2)
     root_id = messages.build_chain_message_id(root_tag)
     subject = reply_subject(root_email.ground_truth.subject)
+    root_date, reply_one_date, reply_two_date = messages.thread_dates(
+        (root_email, reply_one_email, reply_two_email)
+    )
 
     return Scenario(
         name=SCENARIO_REPLY_FIRST,
@@ -438,6 +456,7 @@ def build_reply_first(
                 references=root_id,
                 in_reply_to_tag=root_tag,
                 subject=subject,
+                date=reply_one_date,
             ),
             _make(
                 reply_two_email,
@@ -449,8 +468,9 @@ def build_reply_first(
                 references=root_id,
                 in_reply_to_tag=root_tag,
                 subject=subject,
+                date=reply_two_date,
             ),
-            _make(root_email, root_tag, 0, seed, message_id=root_id),
+            _make(root_email, root_tag, 0, seed, message_id=root_id, date=root_date),
         ),
         question=(
             "both replies delivered before the message they answer, with correct "
@@ -469,7 +489,8 @@ def build_references(
     The chain is the difference from reply-first: a reply answers its immediate
     parent, and its References lists the whole ancestry. A pipeline that only
     reads In-Reply-To threads this correctly by accident; one that only reads
-    the first Reference does not.
+    the first Reference does not. The Dates follow the thread, as in
+    reply-first.
     """
     if len(corpus) < 3:
         raise ScenarioError(
@@ -482,11 +503,14 @@ def build_references(
     root_id = messages.build_chain_message_id(root_tag)
     reply_one_id = messages.build_chain_message_id(reply_one_tag)
     subject = reply_subject(root_email.ground_truth.subject)
+    root_date, reply_one_date, reply_two_date = messages.thread_dates(
+        (root_email, reply_one_email, reply_two_email)
+    )
 
     return Scenario(
         name=SCENARIO_REFERENCES,
         deliveries=(
-            _make(root_email, root_tag, 0, seed, message_id=root_id),
+            _make(root_email, root_tag, 0, seed, message_id=root_id, date=root_date),
             _make(
                 reply_one_email,
                 reply_one_tag,
@@ -497,6 +521,7 @@ def build_references(
                 references=root_id,
                 in_reply_to_tag=root_tag,
                 subject=subject,
+                date=reply_one_date,
             ),
             _make(
                 reply_two_email,
@@ -508,6 +533,7 @@ def build_references(
                 references=f"{root_id} {reply_one_id}",
                 in_reply_to_tag=reply_one_tag,
                 subject=subject,
+                date=reply_two_date,
             ),
         ),
         question=(

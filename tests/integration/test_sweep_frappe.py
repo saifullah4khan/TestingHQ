@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from testinghq.cli.main import main as cli_main
-from testinghq.core.exit_codes import EXIT_OK, EXIT_REFUSED
+from testinghq.core.exit_codes import EXIT_MISMATCH, EXIT_OK, EXIT_REFUSED
 
 pytestmark = pytest.mark.allow_network
 
@@ -216,3 +216,34 @@ def test_the_fake_dedupes_by_message_id_and_threads_replies():
     assert [c["reference_name"] for c in communications] == ["1", "1", "2"]
     assert communications[1]["in_reply_to"] == communications[0]["name"]
     assert len(helpdesk.messages) == 4
+
+
+def test_redeliver_still_catches_a_helpdesk_that_files_mail_in_arrival_order(
+    tmp_path, monkeypatch, capsys
+):
+    """The fake files each message as it arrives, not in Date order, so
+    reply-first's replies reach it before their original and open their own
+    tickets: the arrival-order bug the scenario exists to catch, still caught
+    now that the thread is dated root first. The in-order references thread
+    is filed whole."""
+    with fake.FakeFrappeHelpdesk(email_account="Sweep Support") as helpdesk:
+        monkeypatch.setenv("FRAPPE_API_AUTH", helpdesk.authorization)
+        config, target = _pointed_at(helpdesk, "sweep", tmp_path)
+        out = tmp_path / "redeliver.json"
+        code = cli_main([
+            "redeliver", "fire", "--send", "--target", target, "--config", config,
+            "--seed", "0", "--scenario", "reply-first", "--scenario", "references",
+            "--rate", "200", "--quiet-window", "0.3", "--poll-interval", "0.05",
+            "--out", str(out),
+        ])
+        printed = capsys.readouterr()
+    assert code == EXIT_MISMATCH, printed.out + printed.err
+
+    scenarios = {
+        s["scenario"]: s for s in json.loads(out.read_text(encoding="utf-8"))["scenarios"]
+    }
+    assert scenarios["references"]["passed"] is True
+    assert scenarios["references"]["findings"] == []
+    findings = scenarios["reply-first"]["findings"]
+    assert len(findings) == 2
+    assert all("the reply is on ticket" in str(finding) for finding in findings), findings
