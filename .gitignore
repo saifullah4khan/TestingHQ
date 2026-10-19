@@ -7,6 +7,8 @@ dist/
 venv/
 .pytest_cache/
 corpus/
+# The hand-written sample corpus the blast --corpus tests read is tracked.
+!tests/fixtures/corpus/
 *.run.json
 
 # A real deployment's credentials, loaded from the shell. `.env.example` is
