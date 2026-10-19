@@ -186,3 +186,21 @@ def test_the_fake_runs_as_a_script():
     finally:
         process.terminate()
         process.wait(timeout=10)
+
+
+def test_a_corpus_run_reaches_the_inbox_through_envelope_to(tmp_path, fake, secrets, capsys):
+    """Corpus addresses are rewritten to corpus.example.test, which is no
+    inbox; envelope_to is what files every parseable file under the sweep
+    inbox."""
+    out = tmp_path / "blast.json"
+    code = cli_main([
+        "blast", "fire", "--send", "--target", "chatwoot", "--config", _config(tmp_path, fake),
+        "--corpus", str(REPO / "tests" / "fixtures" / "corpus"), "--rate", "200",
+        "--out", str(out),
+    ])
+    assert code in (EXIT_OK, EXIT_FINDING), capsys.readouterr().err
+    records = json.loads(out.read_text(encoding="utf-8"))["records"]
+    sent = [r for r in records if (r.get("response") or {}).get("status") is not None]
+    assert sent and all(r["response"]["status"] == 204 for r in sent)
+    assert all(i.routed for i in fake.inbound)
+    assert len(fake.conversations) == len(sent)
