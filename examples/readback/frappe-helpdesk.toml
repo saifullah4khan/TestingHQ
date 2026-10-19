@@ -9,8 +9,11 @@
 # = HD Ticket stores each new message as a Communication on a ticket: a new
 # one, or the one the message replies to. So TestingHQ sends over SMTP to the
 # mail server that mailbox lives on, and reads the Communication back through
-# the REST API. Mailpit works as that server: it takes SMTP on 1025 and
-# serves POP3 on 1110 once MP_POP3_AUTH is set.
+# the REST API. The mail server has to list the mailbox in the order mail
+# arrived, because Frappe pulls in list order: Mailpit's POP3 server lists
+# newest first, which files a thread sent together reply before original, so
+# use a real mail server, or a delivery sidecar and Dovecot as
+# sweep/compose/frappe.yml does.
 #
 #   export FRAPPE_API_AUTH="token <api_key>:<api_secret>"
 #   testinghq verify fire --target helpdesk --send --config target.toml \
@@ -33,8 +36,8 @@
 transport = "smtp"
 host = "127.0.0.1"
 port = 1025
-# The address the Email Account collects. Any synthetic address works with
-# Mailpit, which keeps everything it is sent.
+# The address the Email Account collects, on the mail server it pulls from; a
+# synthetic one is all a test should send to.
 envelope_to = "support@helpdesk.test"
 
 # ---------------------------------------------------------------------------

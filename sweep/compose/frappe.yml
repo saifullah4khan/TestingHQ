@@ -10,17 +10,19 @@
 # in the create-site container, which takes several minutes; the setup script
 # waits for it.
 #
-# Mail goes in through a Mailpit sidecar. TestingHQ sends over SMTP to
-# 127.0.0.1:3525, Mailpit keeps the message, and the helpdesk's Email Account
-# pulls it over POP3 (mailpit:1110 on the compose network) on the scheduler.
-# Mailpit serves POP3 only when POP3 credentials are set, so MP_POP3_AUTH is
-# required; the setup script configures the Email Account with the same pair.
+# Mail goes in through two sidecars. TestingHQ sends over SMTP to
+# 127.0.0.1:3525, the deliver sidecar (the FreeScout stack's
+# maildir_smtp.py) writes it into a Maildir, and the helpdesk's Email Account
+# pulls it over POP3 from Dovecot (mail-in:1110 on the compose network) on the
+# scheduler. Dovecot lists the mailbox in arrival order; Mailpit, which this
+# replaces, lists newest first, and a pull took each batch in reverse. The
+# POP3 password in frappe/dovecot.conf is the one the setup script gives the
+# Email Account. The site mutes outgoing mail, so nothing is sent back out.
 #
 # Host ports, all on 127.0.0.1, inside the 3500-3599 range:
 #   3500  helpdesk (nginx in front of gunicorn and socket.io)
-#   3525  Mailpit SMTP
-#   3510  Mailpit POP3, for looking at the queue by hand
-#   3585  Mailpit web UI and API
+#   3525  SMTP into the deliver sidecar
+#   3510  Dovecot POP3, for looking at the queue by hand
 #
 # Everything here is a local sandbox: the passwords below guard nothing
 # outside this compose network.
@@ -70,17 +72,42 @@ services:
       - redis-queue-data:/data
     restart: on-failure
 
-  mailpit:
-    image: axllent/mailpit:v1.31.4
-    environment:
-      MP_POP3_AUTH: "helpdesk:helpdesk-pop3"
-      MP_MAX_MESSAGES: "10000"
-      MP_SMTP_AUTH_ACCEPT_ANY: "true"
-      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+  mail-in:
+    image: docker.io/dovecot/dovecot:2.3.21.1
+    volumes:
+      - ./frappe/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - mail:/srv/mail
     ports:
-      - "127.0.0.1:3525:1025"
       - "127.0.0.1:3510:1110"
-      - "127.0.0.1:3585:8025"
+    restart: on-failure
+
+  # Root, so it can create the Maildir and hand every file to uid 1000, the
+  # user Dovecot reads it as.
+  deliver:
+    image: docker.io/library/python:3.13.16-alpine3.24
+    user: "0:0"
+    command:
+      - python
+      - -u
+      - /app/maildir_smtp.py
+      - --port
+      - "25"
+      - --maildir
+      - /srv/mail/helpdesk/Maildir
+      - --address
+      - support@frappe.test
+      - --uid
+      - "1000"
+      - --gid
+      - "1000"
+      - --sink
+      - /sink/outbound.jsonl
+    volumes:
+      - ./freescout/maildir_smtp.py:/app/maildir_smtp.py:ro
+      - mail:/srv/mail
+      - ../.state/frappe:/sink
+    ports:
+      - "127.0.0.1:3525:25"
     restart: on-failure
 
   configurator:
@@ -209,3 +236,4 @@ volumes:
   redis-queue-data:
   sites:
   logs:
+  mail:
