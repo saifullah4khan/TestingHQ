@@ -105,7 +105,8 @@ api() {
   if [[ -n "$data" ]]; then
     args+=(-H "Content-Type: application/json" --data-binary "$data")
   fi
-  STATUS="$(curl "${args[@]}" "$BASE_URL$path" || echo 000)"
+  STATUS="$(curl "${args[@]}" "$BASE_URL$path" || true)"
+  STATUS="${STATUS:-000}"
   RESPONSE="$(cat "$body")"
   rm -f "$body"
 }
@@ -193,6 +194,11 @@ fi
 # from the hooks, so it is set again on every run of this script.
 api PUT "/api/resource/Scheduled%20Job%20Type/$PULL_JOB" \
   '{"frequency": "Cron", "cron_format": "* * * * *", "stopped": 0}'
+if [[ "$STATUS" == "404" ]]; then
+  # Not synced from the hooks yet: create it with the same schedule.
+  api POST "/api/resource/Scheduled%20Job%20Type" \
+    '{"method": "frappe.email.doctype.email_account.email_account.pull", "frequency": "Cron", "cron_format": "* * * * *", "stopped": 0}'
+fi
 if [[ "$STATUS" != "200" ]]; then
   say "setting the mail pull to every minute failed ($STATUS):"
   printf '%s\n' "$RESPONSE" | head -c 2000 >&2
