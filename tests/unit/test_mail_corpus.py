@@ -378,3 +378,55 @@ def test_a_corpus_build_is_deterministic():
     other = [payload_sha256(e) for e, _ in _plan(seed=5, tag_prefix="hq-other").build()]
     assert first == second
     assert all(a != b for a, b in zip(first, other))
+
+
+# ---------------------------------------------------------------------------
+# Hostile input never raises
+# ---------------------------------------------------------------------------
+
+HOSTILE = {
+    "multipart-without-boundary.eml": (
+        b"From: a@kestrelpoint.co.uk\nTo: b@kestrelpoint.co.uk\n"
+        b"Content-Type: multipart/mixed\n\nno boundary here\n"
+    ),
+    "unknown-charset.eml": (
+        b"From: a@kestrelpoint.co.uk\nContent-Type: text/plain; charset=x-made-up\n\n"
+        b"caf\xe9 a@kestrelpoint.co.uk\n"
+    ),
+    "broken-base64.eml": (
+        b"From: a@kestrelpoint.co.uk\nContent-Type: text/plain\n"
+        b"Content-Transfer-Encoding: base64\n\n!!!not base64!!!\n"
+    ),
+    "broken-encoded-word.eml": (
+        b"From: =?utf-8?B?broken?= <a@kestrelpoint.co.uk>\n"
+        b"Subject: =?x-unknown?Q?caf=E9?= =?utf-8?q?unterminated\n\nbody\n"
+    ),
+    "garbage-addresses.eml": (
+        b"From: <<<@@@>>>, \"unterminated <a@kestrelpoint.co.uk\nTo: ,,,;;;\n"
+        b"Cc: Undisclosed:;\nReply-To: @kestrelpoint.co.uk\n\nbody\n"
+    ),
+    "long-header.eml": b"From: a@kestrelpoint.co.uk\nX-Long: " + b"x" * 20000 + b"\n\nbody\n",
+    "binary-with-colon.box": b"key: value\n\x00\x01\x02\x03\xff" * 50,
+    "deep-nesting.eml": (
+        b"From: a@kestrelpoint.co.uk\nContent-Type: multipart/mixed; boundary=a\n\n"
+        b"--a\nContent-Type: multipart/alternative; boundary=b\n\n"
+        b"--b\nContent-Type: message/rfc822\n\n"
+        b"From: c@kestrelpoint.co.uk\nContent-Type: multipart/mixed; boundary=c\n\n"
+        b"--c\nContent-Type: text/plain\n\nc@kestrelpoint.co.uk\n--c--\n"
+        b"--b--\n--a--\n"
+    ),
+}
+
+
+def test_hostile_files_become_payloads_or_unparseable_entries(tmp_path):
+    for name, data in HOSTILE.items():
+        (tmp_path / name).write_bytes(data)
+    plan = mailcorpus.MailCorpusPlan(str(tmp_path))
+    assert len(plan.entries) == len(HOSTILE)
+    mime = get_format("mime", "corpusboundary")
+    for entry in plan.entries:
+        assert (entry.email is None) != (entry.error is None), entry.source
+        if entry.email is not None:
+            body = mime.encode(entry.email).body
+            assert b"kestrelpoint" not in body, entry.source
+            assert "kestrelpoint" not in _everything_readable(body), entry.source
