@@ -112,6 +112,22 @@ category = false
 priority = false
 
 # ---------------------------------------------------------------------------
+# loop
+# ---------------------------------------------------------------------------
+#
+# The loop bait goes to the Email Account's own address. Frappe Helpdesk drops
+# a delivery report, a null Return-Path, X-Auto-Generated and Auto-Submitted
+# other than auto-replied before they become a ticket, and lets the rest in on
+# purpose (helpdesk/overrides/email_account.py, auto_generated_reason), so a
+# ticket for machine mail is reported, not a finding. The site mutes outgoing
+# mail, so there is no [loop.outbound] and the auto-reply check reads NOT
+# CHECKED.
+
+[loop]
+reply_address = "support@frappe.test"
+ticket_policy = "allowed"
+
+# ---------------------------------------------------------------------------
 # steady
 # ---------------------------------------------------------------------------
 #

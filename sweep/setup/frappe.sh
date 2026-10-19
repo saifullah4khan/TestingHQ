@@ -113,7 +113,7 @@ api() {
 
 existing_auth() {
   [[ -f "$ENV_FILE" ]] || return 0
-  sed -n 's/^FRAPPE_API_AUTH=//p' "$ENV_FILE" | tail -n 1
+  sed -n 's/^FRAPPE_API_AUTH=//p' "$ENV_FILE" | tail -n 1 | sed 's/^"\(.*\)"$/\1/'
 }
 
 AUTH="$(existing_auth)"
@@ -214,7 +214,10 @@ set_env_key() {
   if [[ -f "$ENV_FILE" ]]; then
     grep -v "^$key=" "$ENV_FILE" >"$tmp" || true
   fi
-  printf '%s=%s\n' "$key" "$value" >>"$tmp"
+  # Quoted: the value is "token <key>:<secret>", and unquoted, `set -a; .`
+  # reads it as an assignment of token followed by a command. run.sh's
+  # loader strips the quotes.
+  printf '%s="%s"\n' "$key" "$value" >>"$tmp"
   mv "$tmp" "$ENV_FILE"
 }
 
@@ -223,4 +226,4 @@ say "wrote FRAPPE_API_AUTH to $ENV_FILE"
 
 echo "URL: $BASE_URL/helpdesk"
 echo "Login: Administrator / admin"
-echo "Add to .env: FRAPPE_API_AUTH=$AUTH"
+echo "Add to .env: FRAPPE_API_AUTH=\"$AUTH\""
