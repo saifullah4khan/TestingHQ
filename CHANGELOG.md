@@ -62,6 +62,10 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   the demo pipeline with no Docker at all.
 - `examples/runs/mailpit/`: the Mailpit recipe run against Mailpit v1.31.6
   and the demo pipeline, every tool's artifact with its HTML report.
+- `examples/runs/osticket/`, `chatwoot/`, `zammad/`, `freescout/` and
+  `frappe/`: the sweep run against osTicket 1.18.4, Chatwoot 4.18.0, Zammad
+  7.2.2, FreeScout 1.8.248 and Frappe Helpdesk 1.31.0, every tool's artifact
+  with its HTML report, and the status line of each recipe says so.
 
 ### Changed
 
@@ -74,6 +78,22 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
 - The Mailpit recipe says which `redeliver` scenarios a mail sink can answer:
   the duplicate ones, which count copies, and not the threading ones, which
   need a ticket store.
+
+- The osTicket recipe reads a threaded reply's subject from its stored
+  headers: osTicket keeps no title on a reply, and the ticket's subject is
+  the original's. The Chatwoot recipe looks each message up through
+  Chatwoot's message search, one record per message, instead of the
+  conversation list, which answered every message of a thread with the
+  thread's first sender and latest headers. The Zammad and Frappe Helpdesk
+  recipes no longer suggest Mailpit as the mail server: its POP3 server lists
+  newest first, and both helpdesks import a fetch in list order.
+- `sweep/`: Zammad and Frappe Helpdesk take inbound mail through the delivery
+  sidecar and Dovecot, which keep arrival order, instead of Mailpit.
+  osTicket runs on `hlhd/osticket:v1.18.4` (the `tiredofit/osticket` image is
+  gone) with MariaDB 11.4, and has a Mailpit for its outbound mail. Every
+  config has a `[steady]` label field, and osTicket, Chatwoot, Zammad and
+  Frappe a `[loop]` table; the setup scripts quote the credentials they
+  write and run docker without Git Bash's path rewriting.
 
 ### Fixed
 

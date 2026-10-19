@@ -1,0 +1,18 @@
+report: wrote sweep/runs/frappe/20261019T082602Z/redeliver.html
+tool:    redeliver
+verdict: DELIVERY-BUGS
+seed:    7
+target:  frappe
+
+counts:
+  sent        18
+  passed      3
+  failed      1
+  scenarios   4
+
+findings: 3
+  [scenario:reply-first] hq-2610190833-4b90-r1st-7-0001: the reply is on ticket 0052 but its original is on 0049
+  [scenario:reply-first] hq-2610190833-4b90-r1st-7-0002: the reply is on ticket 0053 but its original is on 0049
+  [other-runs] 66 record(s) carry another run's tag (informational)
+
+exit code: 3 (derived, not recorded in the artifact)

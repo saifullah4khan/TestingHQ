@@ -1,8 +1,11 @@
 # Readback recipe: Frappe Helpdesk
 #
-# STATUS: Written from the Frappe Framework REST API documentation
-# (/api/resource, token auth), the Communication doctype and the
-# frappe/helpdesk HD Ticket doctype.
+# STATUS: RUN against Frappe Helpdesk 1.31.0 on 2026-10-19
+#
+# Written from the Frappe Framework REST API documentation (/api/resource,
+# token auth), the Communication doctype and the frappe/helpdesk HD Ticket
+# doctype, then run by sweep/run.sh frappe against Frappe Helpdesk 1.31.0;
+# examples/runs/frappe/ holds that run.
 #
 # Frappe Helpdesk takes email by pulling it: an Email Account with incoming
 # enabled polls a mailbox over POP3 or IMAP on the scheduler, and with Append To

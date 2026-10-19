@@ -1,0 +1,16 @@
+report: wrote sweep/runs/frappe/20261019T082602Z/steady.html
+tool:    steady
+verdict: STABLE (WARNING: every family read the one label 'Sweep Support')
+seed:    0
+target:  frappe
+
+counts:
+  sent        105
+  found       105
+  passed      105
+  records     105
+
+findings: 1
+  [constant-label] every family read 'Sweep Support'; check the label field
+
+exit code: 0 (derived, not recorded in the artifact)

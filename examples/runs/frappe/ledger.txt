@@ -1,0 +1,19 @@
+report: wrote sweep/runs/frappe/20261019T082602Z/ledger.html
+tool:    ledger
+verdict: UNACCOUNTED
+seed:    0
+target:  frappe
+
+counts:
+  sent        50
+  passed      47
+  missing     3
+  produced    47
+  records     50
+
+findings: 3
+  [missing] hq-2610190829-ca20-0-0000
+  [missing] hq-2610190829-ca20-0-0030
+  [missing] hq-2610190829-ca20-0-0037
+
+exit code: 3 (derived, not recorded in the artifact)
