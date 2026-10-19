@@ -130,10 +130,11 @@ def rewrite_address(address: str) -> str:
     """The synthetic address that stands in for `address`.
 
     A pure function of the address (case-insensitive), so a sender seen in two
-    files maps to one new address. An address already on a reserved domain or
-    TLD comes back unchanged."""
+    files maps to one new address. An ASCII address already on a reserved
+    domain or TLD comes back unchanged; a non-ASCII one is rewritten like any
+    other, because an address header can only carry ASCII addresses."""
     address = address.strip()
-    if guardrails.is_synthetic_address(address):
+    if address.isascii() and guardrails.is_synthetic_address(address):
         return address
     local = address.rpartition("@")[0]
     digest = hashlib.sha256(

@@ -36,6 +36,7 @@ SOURCES = [
     "inbox/003-attachments.eml",
     "inbox/004-encoded-headers.box",
     "inbox/006-reply-thread.eml",
+    "inbox/010-delivery-status-bounce.box",
     "nested/008-html-only.eml",
     "nested/009-degenerate.box",
 ]
