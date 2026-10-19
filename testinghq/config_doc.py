@@ -124,6 +124,8 @@ def _render_target(target: Target) -> Dict[str, Any]:
     }
     if target.headers:
         rendered["headers"] = dict(target.headers)
+    if target.envelope_to:
+        rendered["envelope_to"] = list(target.envelope_to)
     if target.smtp is not None:
         smtp = target.smtp
         rendered.update({"host": smtp.host, "port": smtp.port, "starttls": smtp.starttls})
@@ -254,7 +256,7 @@ def render_effective(
         keys = (
             ("transport", "host", "port", "starttls", "username", "password",
              "envelope_from", "envelope_to", "format", "public")
-            if smtp else ("url", "format", "public")
+            if smtp else ("url", "envelope_to", "format", "public")
         )
         for key in keys:
             if key in target:

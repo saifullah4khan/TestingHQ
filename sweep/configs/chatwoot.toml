@@ -1,0 +1,123 @@
+# The sweep's Chatwoot config: the target and readback every tool in
+# sweep/run.sh uses against the stack in sweep/compose/chatwoot.yml.
+#
+# Both secrets come from sweep/.env.chatwoot, which sweep/setup/chatwoot.sh
+# writes:
+#
+#   CHATWOOT_INGRESS_AUTH  "Basic <base64 of actionmailbox:password>", the
+#                          same value `testinghq config basic-auth
+#                          actionmailbox` prints for the ingress password
+#   CHATWOOT_API_TOKEN     the access token of the admin the setup creates
+#
+#   set -a; . sweep/.env.chatwoot; set +a
+#   testinghq verify fire --send --target chatwoot --config sweep/configs/chatwoot.toml
+
+# ---------------------------------------------------------------------------
+# Target: Action Mailbox's SendGrid ingress
+# ---------------------------------------------------------------------------
+#
+# Chatwoot runs with RAILS_INBOUND_EMAIL_SERVICE=sendgrid, so its Action
+# Mailbox takes SendGrid's raw mode (the whole message in the `email` field)
+# behind HTTP Basic auth, user `actionmailbox`.
+#
+# The ingress prepends each envelope recipient to the message as an
+# X-Original-To header, and Chatwoot files a message under the email inbox
+# whose address or forwarding address is in To, Cc or X-Original-To; anything
+# else is dropped. envelope_to is the forwarding address the setup gives the
+# sweep inbox, so every message reaches it whatever its To header says.
+
+[targets.chatwoot]
+url = "http://127.0.0.1:3100/rails/action_mailbox/sendgrid/inbound_emails"
+format = "sendgrid-raw"
+envelope_to = "desk@inbound.chatwoot.test"
+
+[targets.chatwoot.headers]
+Authorization = "env:CHATWOOT_INGRESS_AUTH"
+
+# ---------------------------------------------------------------------------
+# Readback: the conversation list, searched for the tag marker
+# ---------------------------------------------------------------------------
+#
+#   GET /api/v1/accounts/1/conversations?status=all&q=[testinghq:<tag>]
+#
+# With `q`, Chatwoot returns the conversations holding an incoming or outgoing
+# message whose content contains it, ignoring `status`. The content of an
+# email message is its whole text body, so the [testinghq:<tag>] marker every
+# TestingHQ message carries is in it, and the closing bracket keeps one tag
+# from matching a longer one. Without `q`, `status=all` lists every
+# conversation, which is what lets ledger look for strays.
+#
+# The response is {"data": {"meta": ..., "payload": [...]}}, 25 to a page.
+# Account 1 is the account the setup creates on a fresh stack.
+#
+# The sweep's automation rule labels each new conversation in the inbox
+# `testinghq`. A rule adds a fixed label, never one taken from the message, so
+# the lookup is by the marker and the label marks the sweep's conversations in
+# the dashboard.
+
+[readback]
+kind = "http"
+url = "http://127.0.0.1:3100/api/v1/accounts/1/conversations?status=all"
+method = "GET"
+tag_param = "q"
+query = "[testinghq:{tag}]"
+items_key = "data.payload"
+page_param = "page"
+enumerate = true
+max_pages = 100
+timeout = 15.0
+
+[readback.headers]
+api_access_token = "env:CHATWOOT_API_TOKEN"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A conversation as Chatwoot renders it. The sender is the contact in
+# `meta.sender`, made from Reply-To when there is one and From otherwise. The
+# subject of an email conversation is kept in
+# `additional_attributes.mail_subject`. `messages` holds only the latest
+# message, which is the activity message the label rule leaves, so the email
+# is read from `last_non_activity_message`, whose `content_attributes.email`
+# keeps the threading headers without their angle brackets.
+#
+# A reply Chatwoot threads into an earlier conversation is found as that
+# conversation, so for every message in a thread the sender, body and
+# threading fields read back are the thread's latest message's. Which ticket
+# each message landed on is exact.
+
+[readback.fields]
+ticket_id = "id"
+from_addr = "meta.sender.email"
+subject = "additional_attributes.mail_subject"
+body = "last_non_activity_message.content"
+route = "inbox_id"
+message_id = "last_non_activity_message.content_attributes.email.message_id"
+in_reply_to = "last_non_activity_message.content_attributes.email.in_reply_to"
+references = "last_non_activity_message.content_attributes.email.references"
+
+# NOT MAPPED: attachment_names. An attachment carries a url and a file type,
+# not the original file name.
+
+# ---------------------------------------------------------------------------
+# loop
+# ---------------------------------------------------------------------------
+#
+# The inbox's own address is where an autoresponder would answer. The stack
+# gives Chatwoot no outbound mail server to read back from, so there is no
+# [loop.outbound] and the auto-reply check reads NOT CHECKED.
+
+[loop]
+reply_address = "desk@inbound.chatwoot.test"
+
+# ---------------------------------------------------------------------------
+# steady
+# ---------------------------------------------------------------------------
+#
+# Chatwoot does not classify mail. The one decision it makes about a message
+# is the inbox it lands in, so steady reads that: every variant should land in
+# the sweep inbox, and the report says so when every family reads the same.
+
+[steady]
+label_field = "route"

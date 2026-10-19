@@ -171,6 +171,38 @@ def test_a_malformed_envelope_to_is_refused(tmp_path):
         load_config(_write(tmp_path, SMTP + "envelope_to = 3\n"), env={})
 
 
+ENVELOPE_HTTP = """[targets.chat]
+url = "http://127.0.0.1:3000/rails/action_mailbox/sendgrid/inbound_emails"
+format = "sendgrid-raw"
+"""
+
+
+def test_an_http_target_takes_envelope_to(tmp_path):
+    path = _write(tmp_path, ENVELOPE_HTTP + 'envelope_to = "desk@inbound.chat.test"\n')
+    assert load_config(path, env={}).get("chat").envelope_to == ("desk@inbound.chat.test",)
+    resolved = resolve_target("chat", str(path), env={})
+    assert resolved.envelope_to == ("desk@inbound.chat.test",)
+    assert resolved.smtp is None
+
+
+def test_envelope_to_on_an_http_format_without_an_envelope_is_refused(tmp_path):
+    text = '[targets.a]\nurl = "http://127.0.0.1/"\nformat = "mailgun"\nenvelope_to = "d@x.test"\n'
+    with pytest.raises(ConfigError, match=r"format 'mailgun' carries none"):
+        load_config(_write(tmp_path, text), env={})
+
+
+def test_envelope_from_on_an_http_target_is_still_refused(tmp_path):
+    text = ENVELOPE_HTTP + 'envelope_from = "bounce@sender.test"\n'
+    with pytest.raises(ConfigError, match=r"envelope_from is an smtp key"):
+        load_config(_write(tmp_path, text), env={})
+
+
+def test_a_non_synthetic_http_envelope_to_is_refused_at_resolve(tmp_path):
+    path = _write(tmp_path, ENVELOPE_HTTP + 'envelope_to = "someone@gmail.com"\n')
+    with pytest.raises(guardrails.GuardrailError, match="envelope_from / envelope_to"):
+        resolve_target("chat", str(path), env={})
+
+
 def test_a_url_carrying_credentials_is_refused_pointing_at_the_headers_table(tmp_path):
     text = '[targets.chat]\nurl = "http://actionmailbox:secret@127.0.0.1:3000/in"\n'
     with pytest.raises(ConfigError) as caught:
@@ -343,7 +375,11 @@ def test_validate_never_prints_a_target_header_value(tmp_path, monkeypatch, caps
         assert "env:CHAT_AUTH" in out or "--toml" not in argv
 
 
-@pytest.mark.parametrize("text", [HEADERS, SMTP + 'envelope_to = ["a@helpdesk.test"]\n'])
+@pytest.mark.parametrize("text", [
+    HEADERS,
+    SMTP + 'envelope_to = ["a@helpdesk.test"]\n',
+    ENVELOPE_HTTP + 'envelope_to = ["a@helpdesk.test"]\n',
+])
 def test_the_toml_render_of_new_keys_round_trips_through_the_loader(tmp_path, monkeypatch, text):
     monkeypatch.setenv("CHAT_AUTH", "Basic x")
     original = load_config(_write(tmp_path, text), env={})

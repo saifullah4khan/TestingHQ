@@ -59,7 +59,7 @@ Named firing targets. Only a target declared here may be fired at, so this table
 | `username` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH user. With it, the connection logs in after EHLO (and STARTTLS). A literal is refused. smtp only. |
 | `password` | string | none | no | 'env:<VARIABLE>' holding the SMTP AUTH password. Needs username. A literal is refused. smtp only. |
 | `envelope_from` | string | none | no | MAIL FROM for every message. Absent means each payload's own envelope sender. Must be a synthetic address (a reserved domain or TLD), like every address in a payload. smtp only. |
-| `envelope_to` | string or list | none | no | RCPT TO for every message, one address or a list: the mailbox a helpdesk polls, say. Absent means each payload's own envelope recipients. Must be synthetic addresses. smtp only. |
+| `envelope_to` | string or list | none | no | RCPT TO for every message, one address or a list: the mailbox a helpdesk polls, say. Absent means each payload's own envelope recipients. Must be synthetic addresses. On an http target it replaces the envelope recipients in SendGrid's `envelope` field, for a receiver that routes on the envelope, such as Action Mailbox's SendGrid ingress; the To header is left as it is. Only the sendgrid and sendgrid-raw formats carry an envelope, so any other http format refuses it. |
 
 An smtp target's status is the reply code that ended the transaction: 250 after DATA when the message was accepted, or the first 4xx or 5xx reply (to MAIL, RCPT or DATA), whose text is recorded as the error. No reply at all is a transport error, sorted into the same buckets as an HTTP one: refused, dns, timeout, tls or other. Every artifact records the target's `transport` under `config`.
 

@@ -17,6 +17,7 @@ default client passes it straight to urlopen.
 """
 from __future__ import annotations
 
+import dataclasses
 import io
 import time
 import urllib.error
@@ -24,7 +25,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Protocol
 
-from ..blast.payload import InboundEmail
+from ..blast.payload import Envelope, InboundEmail
 from ..blast.serialize import FormField, FormFile, FormPart, part_value_bytes
 from .formats import WireFormat, get_format
 
@@ -740,6 +741,17 @@ def send_smtp(
 # ---------------------------------------------------------------------------
 
 
+def with_envelope_to(payload: InboundEmail, recipients: Sequence[str]) -> InboundEmail:
+    """`payload` with its envelope recipients replaced by `recipients`, or
+    `payload` itself when `recipients` is empty."""
+    recipients = tuple(recipients or ())
+    if not recipients:
+        return payload
+    return dataclasses.replace(
+        payload, envelope=Envelope(to=recipients, from_addr=payload.envelope.from_addr)
+    )
+
+
 class Destination(Protocol):
     """What `send` needs to know about where a payload goes.
     `core.targets.ResolvedTarget` is the real one; `HttpDestination` is the
@@ -763,6 +775,7 @@ class HttpDestination:
     headers: Mapping[str, str] = field(default_factory=dict, hash=False)
     transport: str = TRANSPORT_HTTP
     smtp: Optional[SmtpEndpoint] = None
+    envelope_to: Tuple[str, ...] = ()
 
 
 def as_destination(target, wire_format: Optional[WireFormat] = None):
@@ -787,12 +800,17 @@ def send(
     this.
 
     `resolved` is a `core.targets.ResolvedTarget` (or anything with its
-    `transport`, `url`, `wire_format`, `headers` and `smtp`). `client` is the
+    `transport`, `url`, `wire_format`, `headers` and `smtp`, and optionally
+    `envelope_to`). `client` is the
     transport's injectable client: an HttpClient for "http", an SmtpClient for
     "smtp"; None means the real one. `wire_format` overrides the target's own,
     for a caller that wraps it (loop's DSN encoder, sigcheck's signed Mailgun
     fields). `extra_headers` is the HTTP header hook (see `build_request`); an
     SMTP target has no request headers, so passing one there is a ValueError.
+
+    An HTTP destination's `envelope_to`, when set, replaces the payload's
+    envelope recipients before the format encodes it, so SendGrid's `envelope`
+    field names that mailbox. The headers, To included, are left as they are.
     """
     fmt = wire_format if wire_format is not None else resolved.wire_format
     if resolved.transport == TRANSPORT_SMTP:
@@ -805,6 +823,7 @@ def send(
         )
     if resolved.transport != TRANSPORT_HTTP:
         raise ValueError(f"unknown transport {resolved.transport!r}")
+    payload = with_envelope_to(payload, getattr(resolved, "envelope_to", ()))
     return post(
         payload, resolved.url, client, timeout=timeout, clock=clock,
         wire_format=fmt, extra_headers=extra_headers, headers=resolved.headers,

@@ -222,7 +222,12 @@ TARGETS = Table(
             meaning=(
                 "RCPT TO for every message, one address or a list: the mailbox "
                 "a helpdesk polls, say. Absent means each payload's own envelope "
-                "recipients. Must be synthetic addresses. smtp only."
+                "recipients. Must be synthetic addresses. On an http target it "
+                "replaces the envelope recipients in SendGrid's `envelope` "
+                "field, for a receiver that routes on the envelope, such as "
+                "Action Mailbox's SendGrid ingress; the To header is left as it "
+                "is. Only the sendgrid and sendgrid-raw formats carry an "
+                "envelope, so any other http format refuses it."
             ),
         ),
     ),
