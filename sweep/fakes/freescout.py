@@ -9,11 +9,13 @@ reads those rows with SQL. This fake keeps every link it can:
     maildir_smtp.py), writing a real Maildir in a temporary directory.
   * The fetch reads `new/`, does what FreeScout's `freescout:fetch-emails`
     does with each message (app/Console/Commands/FetchEmails.php: skip a
-    Message-ID it has stored before, take the sender from Reply-To before
-    From, thread a reply into the conversation it answers, keep the HTML part
-    or else the escaped text with line breaks as `<br />`, keep the raw header
-    block), and moves the file to `cur/` as seen. It runs as soon as a message
-    is delivered rather than once a minute.
+    Message-ID it has stored before unless the headers and the Date both
+    differ, take the sender from Reply-To before From, process one fetch's
+    messages in Date order, thread a reply into the conversation it answers,
+    keep the HTML part or else the escaped text with line breaks as `<br />`,
+    keep the raw header block), and moves the file to `cur/` as seen. A fetch
+    runs whenever the database is read, standing in for the one a minute the
+    scheduler runs, so everything delivered since the last read is one fetch.
   * The database is SQLite with FreeScout's table and column names, behind a
     connection that takes PyMySQL's `%s` placeholders, so the readback adapter
     runs its own SQL against it unchanged.
@@ -45,7 +47,7 @@ import time
 import types
 from email import message_from_bytes
 from email.policy import default as default_policy
-from email.utils import getaddresses
+from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -173,6 +175,8 @@ class FreescoutStore:
             self._db.commit()
         self.mailbox_id = 1
         self.password = secrets.token_hex(8)
+        #: Called before every read, outside the lock: the fetch.
+        self.before_read: Optional[Any] = None
         self.connections = 0
 
     # -- the driver --------------------------------------------------------
@@ -205,6 +209,8 @@ class FreescoutStore:
         return module
 
     def query(self, sql: str, args: Tuple[Any, ...] = ()) -> List[Tuple[Any, ...]]:
+        if self.before_read is not None:
+            self.before_read()
         with self._lock:
             try:
                 return [tuple(row) for row in self._db.execute(sql, args).fetchall()]
@@ -240,7 +246,18 @@ class FreescoutStore:
         ]
         with self._lock:
             db = self._db
-            if db.execute("SELECT 1 FROM threads WHERE message_id = ?", (message_id,)).fetchone():
+            stored = db.execute(
+                "SELECT headers FROM threads WHERE message_id = ?", (message_id,)
+            ).fetchone()
+            if stored and _is_new_email_with_same_message_id(stored[0], headers):
+                # FreeScout keeps it under an artificial Message-ID.
+                message_id = hashlib.md5(
+                    f"{self.mailbox_id}{message_id}".encode("utf-8")
+                ).hexdigest() + "@freescout.fake"
+                stored = db.execute(
+                    "SELECT 1 FROM threads WHERE message_id = ?", (message_id,)
+                ).fetchone()
+            if stored:
                 return None
             previous = None
             for reference in references:
@@ -287,14 +304,15 @@ class FreescoutStore:
     def fetch_maildir(self, maildir: Path) -> int:
         """Take every unseen message in `maildir/new/`, oldest first, and
         mark it seen in `cur/`, as an IMAP fetch through Dovecot leaves it."""
-        taken = 0
         new = Path(maildir) / "new"
-        for path in sorted(new.iterdir()):
-            raw = path.read_bytes()
+        batch = [(path, path.read_bytes()) for path in sorted(new.iterdir())]
+        # FetchEmails::sortMessage: one fetch is processed in Date order,
+        # whatever order the messages arrived in.
+        batch.sort(key=lambda item: _date_key(item[1]))
+        for path, raw in batch:
             self.ingest(raw)
             path.rename(Path(maildir) / "cur" / f"{path.name}:2,S")
-            taken += 1
-        return taken
+        return len(batch)
 
     def delete_conversation(self, number: int) -> None:
         """What deleting a conversation in FreeScout's UI does to the row."""
@@ -305,6 +323,28 @@ class FreescoutStore:
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+
+def _header(headers: str, name: str) -> str:
+    for line in headers.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip().lower() == name.lower():
+            return value.strip()
+    return ""
+
+
+def _is_new_email_with_same_message_id(existing: str, new: str) -> bool:
+    """FetchEmails::isNewEmailWithSameMessageId: a different message that
+    reuses a Message-ID, told apart by its headers and its Date."""
+    return existing != new and _header(existing, "Date") != _header(new, "Date")
+
+
+def _date_key(raw: bytes) -> float:
+    message = message_from_bytes(raw, policy=default_policy)
+    try:
+        return parsedate_to_datetime(str(message.get("Date", ""))).timestamp()
+    except (TypeError, ValueError, IndexError):
+        return 0.0
 
 
 def _first_address(values: Sequence[Any]) -> str:
@@ -352,18 +392,18 @@ class FakeFreescout:
         self._fetch_lock = threading.Lock()
         self.outbound: Optional[Path] = None
 
-    def _fetch(self, maildir: Path) -> None:
+    def fetch(self) -> int:
+        """One fetch of everything delivered since the last."""
         with self._fetch_lock:
-            self.store.fetch_maildir(maildir)
+            return self.store.fetch_maildir(self.maildir)
 
     def __enter__(self) -> "FakeFreescout":
         self._root = Path(tempfile.mkdtemp(prefix="thq-freescout-"))
         self.maildir = self._root / "mail" / "support" / "Maildir"
         self.outbound = self._root / "outbound.jsonl"
-        delivery = maildir_smtp.Delivery(
-            self.maildir, [self.mailbox_email], sink=self.outbound, on_delivered=self._fetch,
-        )
+        delivery = maildir_smtp.Delivery(self.maildir, [self.mailbox_email], sink=self.outbound)
         maildir_smtp.ensure_maildir(self.maildir)
+        self.store.before_read = self.fetch
         self._server = maildir_smtp.MaildirSmtpServer(("127.0.0.1", self._port), delivery)
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         return self

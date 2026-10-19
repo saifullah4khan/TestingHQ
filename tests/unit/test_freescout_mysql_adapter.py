@@ -351,3 +351,36 @@ def test_the_loader_builds_it_from_a_readback_table_with_its_own_keys(store, mon
     store.ingest(_mail("hq-1-0004", attachment="invoice.pdf"))
     [record] = adapter.fetch(_probe("hq-1-0004"))
     assert "attachment_names" not in record.fields
+
+
+# ---------------------------------------------------------------------------
+# What the fake stores, as FreeScout's fetcher would
+# ---------------------------------------------------------------------------
+
+
+def _dated(raw, date):
+    return raw.replace(b"Subject:", f"Date: {date}\nSubject:".encode(), 1)
+
+
+def test_a_message_id_seen_before_is_skipped_unless_the_date_differs_too(store):
+    first = _dated(_mail("hq-10-0000"), "Mon, 19 Oct 2026 09:00:00 +0000")
+    assert store.ingest(first) is not None
+    assert store.ingest(first) is None
+    reused = _dated(_mail("hq-10-0000", subject="Another"), "Mon, 19 Oct 2026 10:00:00 +0000")
+    assert store.ingest(reused) is not None
+    assert len(_adapter(store).fetch(_probe("hq-10-0000"))) == 2
+
+
+def test_one_fetch_is_stored_in_date_order(store, tmp_path):
+    maildir = tmp_path / "Maildir"
+    for sub in ("cur", "new", "tmp"):
+        (maildir / sub).mkdir(parents=True)
+    (maildir / "new" / "1.a").write_bytes(
+        _dated(_mail("hq-11-0001"), "Mon, 19 Oct 2026 11:00:00 +0000"))
+    (maildir / "new" / "2.b").write_bytes(
+        _dated(_mail("hq-11-0000"), "Mon, 19 Oct 2026 10:00:00 +0000"))
+    assert store.fetch_maildir(maildir) == 2
+    assert [(r.ticket_id, r.tag) for r in _adapter(store).list_all()] == [
+        ("1", "hq-11-0000"), ("2", "hq-11-0001"),
+    ]
+    assert sorted(p.name for p in (maildir / "cur").iterdir()) == ["1.a:2,S", "2.b:2,S"]

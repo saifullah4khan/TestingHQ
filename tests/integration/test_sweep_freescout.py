@@ -127,5 +127,6 @@ def test_the_sidecar_unstuffs_dots_and_keeps_the_smtp_order(fake):
             b"From: alice@hq.example.test\r\nSubject: dots\r\n"
             b"Message-ID: <dots@hq.example.test>\r\n\r\n.leading dot\r\n..two\r\n",
         )
+    assert fake.fetch() == 1
     [stored] = list((fake.maildir / "cur").iterdir())
     assert stored.read_bytes().endswith(b"\n\n.leading dot\n..two\n")
