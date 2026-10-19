@@ -188,7 +188,7 @@ def test_a_send_with_a_typo_key_exits_1_and_sends_nothing(tmp_path, capsys, sink
     path = _write(
         tmp_path,
         f'[targets.a]\nurl = "http://127.0.0.1:{port}/intake"\nformt = "mailgun"\n'
-        f'[readback]\nkind = "mailbox"\npath = "{tmp_path / "mail.jsonl"}"\n',
+        f'[readback]\nkind = "mailbox"\npath = "{(tmp_path / "mail.jsonl").as_posix()}"\n',
     )
     code = cli.main([tool, "fire", "--config", str(path), "--target", "a",
                      "--count", "2", "--send"])

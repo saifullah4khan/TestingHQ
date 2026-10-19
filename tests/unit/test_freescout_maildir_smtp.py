@@ -41,7 +41,8 @@ def test_a_delivery_lands_whole_in_new_under_a_maildir_name(tmp_path):
     assert path.name.endswith(".deliver")
     assert list((maildir / "tmp").iterdir()) == []
     assert (maildir / "cur").is_dir()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name == "posix":  # Windows keeps no POSIX mode bits to check
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     stored = path.read_bytes()
     assert b"\r\n" not in stored
@@ -70,7 +71,10 @@ def test_a_host_name_is_escaped_the_way_maildir_names_need():
 
 def test_the_maildir_is_handed_to_the_mail_user(tmp_path, monkeypatch):
     owned = {}
-    monkeypatch.setattr(os, "chown", lambda path, uid, gid: owned.__setitem__(Path(path), (uid, gid)))
+    # raising=False: Windows has no os.chown to replace, and the sidecar
+    # runs on Linux, so the test supplies one.
+    monkeypatch.setattr(os, "chown", lambda path, uid, gid: owned.__setitem__(Path(path), (uid, gid)),
+                        raising=False)
     maildir = tmp_path / "support" / "Maildir"
     path = maildir_smtp.maildir_deliver(
         maildir, MESSAGE, envelope_from="a@hq.example.test",
