@@ -21,7 +21,9 @@ import hashlib
 import json
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.parser import BytesParser
 from email.policy import SMTP
+from email.policy import default as default_policy
 from typing import Dict, List, Optional
 
 from ..blast.payload import InboundEmail
@@ -417,6 +419,11 @@ class MimeFormat(WireFormat):
             message.add_alternative(payload.html, subtype="html", charset="utf-8")
         for attachment in payload.attachments:
             maintype, _, subtype = attachment.content_type.partition("/")
+            if maintype.casefold() == "message" and subtype:
+                if message.get_content_type() != "multipart/mixed":
+                    message.make_mixed()
+                message.attach(_message_part(attachment))
+                continue
             message.add_attachment(
                 attachment.content,
                 maintype=maintype or "application",
@@ -428,7 +435,11 @@ class MimeFormat(WireFormat):
                 continue
             message[name] = value
 
-        multiparts = [part for part in message.walk() if part.is_multipart()]
+        # Only real multiparts get a boundary: an embedded message or a
+        # delivery report is "multipart" to `is_multipart()` too.
+        multiparts = [
+            part for part in message.walk() if part.get_content_maintype() == "multipart"
+        ]
         for depth, part in enumerate(multiparts):
             part.set_boundary(self._boundary if depth == 0 else f"{self._boundary}-{depth}")
         return message
@@ -438,6 +449,25 @@ class MimeFormat(WireFormat):
 
     def encode(self, payload: InboundEmail) -> EncodedBody:
         return EncodedBody(body=self.message_bytes(payload), content_type="message/rfc822")
+
+
+def _message_part(attachment) -> EmailMessage:
+    """A `message/*` attachment as a parsed part.
+
+    `add_attachment` would store the bytes as an opaque base64 payload, which
+    RFC 2046 forbids for `message/*` and which the stdlib generator cannot
+    write at all for `message/delivery-status`, whose payload must be the list
+    of per-message and per-recipient field blocks. Parsing the bytes under the
+    part's own content type gives the generator the structure it expects: the
+    embedded message for `message/rfc822`, the field blocks for a delivery
+    report, and the field block for a disposition or feedback report."""
+    head = f"Content-Type: {attachment.content_type}\r\n\r\n".encode("ascii", "replace")
+    part = BytesParser(policy=default_policy).parsebytes(head + bytes(attachment.content))
+    if attachment.filename:
+        part.add_header("Content-Disposition", "attachment", filename=attachment.filename)
+    else:
+        part.add_header("Content-Disposition", "attachment")
+    return part
 
 
 #: Headers the MIME format sets from the payload's own fields, plus the ones

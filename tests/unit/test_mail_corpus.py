@@ -37,6 +37,7 @@ MAIL_FILES = [
     "inbox/003-attachments.eml",
     "inbox/004-encoded-headers.box",
     "inbox/006-reply-thread.eml",
+    "inbox/010-delivery-status-bounce.box",
     "nested/008-html-only.eml",
     "nested/009-degenerate.box",
 ]
@@ -197,6 +198,17 @@ def test_an_address_maps_to_one_synthetic_address_whatever_its_case():
 
 def test_an_already_synthetic_address_is_left_alone():
     assert mailcorpus.rewrite_address("desk@helpdesk.test") == "desk@helpdesk.test"
+
+
+def test_a_non_ascii_address_on_a_reserved_domain_is_still_rewritten(tmp_path):
+    rewritten = mailcorpus.rewrite_address("jos\ufffd@example.com")
+    assert rewritten.isascii() and rewritten.endswith("@corpus.example.test")
+    (tmp_path / "x.eml").write_bytes(
+        b"From: Jos\xe9 <jos\xe9@example.com>\nTo: desk@kestrelpoint.co.uk\n\nbody\n"
+    )
+    entry = mailcorpus.MailCorpusPlan(str(tmp_path)).entries[0]
+    assert entry.error is None
+    assert entry.email.headers["From"].isascii()
 
 
 @pytest.mark.parametrize("text", [
@@ -430,3 +442,84 @@ def test_hostile_files_become_payloads_or_unparseable_entries(tmp_path):
             body = mime.encode(entry.email).body
             assert b"kestrelpoint" not in body, entry.source
             assert "kestrelpoint" not in _everything_readable(body), entry.source
+
+
+# ---------------------------------------------------------------------------
+# Bounces and other message/* parts
+# ---------------------------------------------------------------------------
+
+
+def _wire_part(email, content_type):
+    body = get_format("mime", "corpusboundary").encode(email).body
+    parsed = message_from_bytes(body, policy=policy.default)
+    parts = [p for p in parsed.walk() if p.get_content_type() == content_type]
+    assert len(parts) == 1, [p.get_content_type() for p in parsed.walk()]
+    return parts[0]
+
+
+def test_a_delivery_status_bounce_is_sent_with_its_report_intact():
+    email = _entry(_plan(), "inbox/010-delivery-status-bounce.box").email
+    assert email is not None
+    assert [a.content_type for a in email.attachments] == [
+        "message/delivery-status", "text/rfc822-headers",
+    ]
+    assert email.headers["Return-Path"] == "<>"
+    assert email.headers["Auto-Submitted"] == "auto-replied"
+
+    report = _wire_part(email, "message/delivery-status")
+    per_message, per_recipient = report.get_payload()
+    assert per_message["Reporting-MTA"] == "dns; mx.orchardlane-supplies.com"
+    assert per_message["X-Postfix-Sender"] == (
+        "rfc822; " + mailcorpus.rewrite_address("support@orchardlane-supplies.com")
+    )
+    recipient = mailcorpus.rewrite_address("w.achterberg@lindenbrook-freight.com")
+    assert per_recipient["Final-Recipient"] == f"rfc822; {recipient}"
+    assert per_recipient["Original-Recipient"] == f"rfc822;{recipient}"
+    assert per_recipient["Action"] == "failed"
+    assert per_recipient["Status"] == "5.1.1"
+    assert f"<{recipient}>" in per_recipient["Diagnostic-Code"]
+
+    headers = _wire_part(email, "text/rfc822-headers").get_content()
+    assert f"To: {recipient}" in headers
+
+
+@pytest.mark.parametrize("subtype, body", [
+    ("delivery-status",
+     b"Reporting-MTA: dns; mx.kestrelpoint.co.uk\n\n"
+     b"Final-Recipient: rfc822; jane@kestrelpoint.co.uk\nAction: failed\nStatus: 5.0.0\n"),
+    ("global-delivery-status",
+     b"Reporting-MTA: dns; mx.kestrelpoint.co.uk\n\n"
+     b"Final-Recipient: rfc822; jane@kestrelpoint.co.uk\nAction: delayed\nStatus: 4.0.0\n"),
+    ("disposition-notification",
+     b"Reporting-UA: mail.kestrelpoint.co.uk\n"
+     b"Final-Recipient: rfc822; jane@kestrelpoint.co.uk\n"
+     b"Original-Message-ID: <x@kestrelpoint.co.uk>\n"
+     b"Disposition: manual-action/MDN-sent-manually; displayed\n"),
+    ("feedback-report",
+     b"Feedback-Type: abuse\nUser-Agent: Example/1.0\nVersion: 1\n"
+     b"Original-Mail-From: <jane@kestrelpoint.co.uk>\n"
+     b"Original-Rcpt-To: <ravi@kestrelpoint.co.uk>\n"),
+    ("rfc822",
+     b"From: jane@kestrelpoint.co.uk\nTo: ravi@kestrelpoint.co.uk\nSubject: inner\n\n"
+     b"write to jane@kestrelpoint.co.uk\n"),
+])
+def test_a_message_subpart_round_trips_with_its_addresses_rewritten(tmp_path, subtype, body):
+    (tmp_path / "report.eml").write_bytes(
+        b"From: postmaster@kestrelpoint.co.uk\nTo: desk@kestrelpoint.co.uk\n"
+        b"Subject: report\nMIME-Version: 1.0\n"
+        b"Content-Type: multipart/report; boundary=r\n\n"
+        b"--r\nContent-Type: text/plain\n\nsee the report\n"
+        b"--r\nContent-Type: message/" + subtype.encode() + b"\n\n" + body
+        + b"\n--r--\n"
+    )
+    entry = mailcorpus.MailCorpusPlan(str(tmp_path)).entries[0]
+    assert entry.error is None
+    part = _wire_part(entry.email, f"message/{subtype}")
+    assert part.get("Content-Transfer-Encoding", "7bit") in ("7bit", "8bit")
+    flattened = part.as_string()
+    # Host names (Reporting-MTA, Reporting-UA) are not addresses and stay.
+    assert "@kestrelpoint" not in flattened
+    assert "@corpus.example.test" in flattened
+    if subtype == "rfc822":
+        (inner,) = part.get_payload()
+        assert inner["Subject"] == "inner"

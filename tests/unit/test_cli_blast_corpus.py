@@ -28,6 +28,7 @@ SOURCES = [
     "inbox/003-attachments.eml",
     "inbox/004-encoded-headers.box",
     "inbox/006-reply-thread.eml",
+    "inbox/010-delivery-status-bounce.box",
     "nested/008-html-only.eml",
     "nested/009-degenerate.box",
 ]
@@ -217,7 +218,7 @@ def test_a_dry_run_lists_the_corpus_and_writes_its_plan(tmp_path, capsys):
     captured = capsys.readouterr().out
     assert code == EXIT_DRY_RUN
     assert f"dry-run preview: {len(SOURCES)} file(s) from {CORPUS}" in captured
-    assert "  parsed: 8" in captured and "  unparseable: 1" in captured
+    assert "  parsed: 9" in captured and "  unparseable: 1" in captured
     artifact = json.loads(out.read_text(encoding="utf-8"))
     assert [r["source"] for r in artifact["records"]] == SOURCES
     assert artifact["config"]["dry_run"] is True

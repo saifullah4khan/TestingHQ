@@ -33,7 +33,9 @@ or the `mime` bytes over SMTP for a `transport = "smtp"` target.
    `From ` line is dropped. Encoded-word headers are decoded and raw UTF-8
    headers are read as UTF-8. The text and HTML bodies are the inline
    `text/plain` and `text/html` parts; every other part, an embedded message
-   included, is an attachment.
+   included, is an attachment. A bounce keeps its report: `message/rfc822`,
+   `message/delivery-status`, `message/disposition-notification` and the
+   other `message/*` parts are sent as structured parts, not opaque bytes.
 2. **Rewrite every address.** Each address becomes
    `<stem>-<hash>@corpus.example.test`: the stem is the old local part reduced
    to `[a-z0-9-]`, and the hash is the first ten hex digits of the sha256 of
@@ -43,7 +45,8 @@ or the `mime` bytes over SMTP for a `transport = "smtp"` target.
    Resent and receipt headers, and others) are parsed and rebuilt, and what in
    them is not an address is dropped. Every other header, the subject, both
    bodies, attachment file names and textual attachments (`text/*`,
-   `message/*`, JSON, XML) have anything shaped like an address rewritten. An
+   `message/*`, JSON, XML, so a bounce's Final-Recipient and
+   Original-Recipient too) have anything shaped like an address rewritten. An
    address already on a reserved domain or TLD is kept. Binary attachments
    are sent as they are.
 3. **Envelope.** The sender is the rewritten Return-Path, else the first From
