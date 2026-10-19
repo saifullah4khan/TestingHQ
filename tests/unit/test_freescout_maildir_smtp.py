@@ -64,6 +64,16 @@ def test_two_deliveries_in_the_same_microsecond_get_different_names(tmp_path):
     assert len(names) == 3
 
 
+def test_names_within_one_second_sort_in_delivery_order():
+    """A helpdesk imports a fetch in the order the mailbox lists it, so the
+    names have to sort the way the mail arrived. Unpadded, 5.034706 was
+    'M34706', which sorts after 'M250000' from earlier in the same second."""
+    early = maildir_smtp.unique_name(clock=lambda: 5.25, hostname="h")
+    late = maildir_smtp.unique_name(clock=lambda: 5.034706 + 0.5, hostname="h")
+    earlier_still = maildir_smtp.unique_name(clock=lambda: 5.034706, hostname="h")
+    assert sorted([late, early, earlier_still]) == [earlier_still, early, late]
+
+
 def test_a_host_name_is_escaped_the_way_maildir_names_need():
     name = maildir_smtp.unique_name(clock=lambda: 5.0, hostname="a/b:c")
     assert name.endswith(".a\\057b\\072c")

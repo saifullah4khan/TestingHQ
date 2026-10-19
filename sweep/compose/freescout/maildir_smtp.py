@@ -70,14 +70,16 @@ def unique_name(
 ) -> str:
     """`<seconds>.M<microseconds>P<pid>Q<counter>.<host>`, the Maildir name
     Dovecot itself writes. Unique per delivery within one process, and across
-    processes and hosts by the pid and the host name."""
+    processes and hosts by the pid and the host name. The microseconds are
+    six digits, so names from one second sort in the order they were made,
+    which is the order a helpdesk importing a fetch in list order sees."""
     now = clock()
     seconds = int(now)
     micros = int((now - seconds) * 1_000_000)
     with _COUNTER_LOCK:
         count = next(_COUNTER)
     host = _safe_hostname(hostname if hostname is not None else socket.gethostname())
-    return f"{seconds}.M{micros}P{os.getpid()}Q{count}.{host}"
+    return f"{seconds}.M{micros:06d}P{os.getpid()}Q{count}.{host}"
 
 
 def _chown(path: Path, uid: Optional[int], gid: Optional[int]) -> None:
