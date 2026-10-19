@@ -6,7 +6,7 @@
     "tool": "ledger",
     "seed": 0,
     "count": 50,
-    "tag_prefix": "hq-2610190602-749e",
+    "tag_prefix": "hq-2610190757-18ac",
     "target": "zammad",
     "readback": {
       "kind": "http",
@@ -85,7 +85,7 @@
     "verdict": "UNVERIFIED STRAYS",
     "verdict_source": "tool",
     "readback": {
-      "elapsed_s": 89.043,
+      "elapsed_s": 89.038,
       "polls": 7,
       "stable": true,
       "unsettled": false,
@@ -104,9 +104,9 @@
     {
       "id": "clean-0-0000",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0000",
-      "message_id": "hq-2610190602-749e-0-0000@hq.example.test",
-      "payload_sha256": "44e1482775ad9e1e8842ed77edd23a45f2c1a10575a4ca1fd8022ad704a6f89b",
+      "tag": "hq-2610190757-18ac-0-0000",
+      "message_id": "hq-2610190757-18ac-0-0000@hq.example.test",
+      "payload_sha256": "8df6951dc24d774fa298cba996f8920940b7822161c76fc9d6eb604d7932cf03",
       "intended": {
         "sender": "grace.brown@internal.localhost",
         "subject": "Onboarding - action needed",
@@ -121,8 +121,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 70.68619999336079,
-        "body_snippet": "2.0.0 Ok: queued as 1792389750.M773550P1Q21.a3905361ff67"
+        "latency_ms": 68.7358999857679,
+        "body_snippet": "2.0.0 Ok: queued as 1792396665.M848987P1Q21.9aa0843bd876"
       },
       "tickets": [
         "22"
@@ -132,9 +132,9 @@
     {
       "id": "clean-0-0001",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0001",
-      "message_id": "hq-2610190602-749e-0-0001@hq.example.test",
-      "payload_sha256": "7cc650882de503af641ac245528af4955561c6b27fc9d6d65e4f7a88b3b37be2",
+      "tag": "hq-2610190757-18ac-0-0001",
+      "message_id": "hq-2610190757-18ac-0-0001@hq.example.test",
+      "payload_sha256": "4cc1164413b098d27172b9728cda9d72aa8c28c4d6b04a32b5f5b0f17431de40",
       "intended": {
         "sender": "bmuller19@example.com",
         "subject": "Update on the Z\u00fcrich office move",
@@ -147,8 +147,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 73.66269998601638,
-        "body_snippet": "2.0.0 Ok: queued as 1792389750.M849814P1Q22.a3905361ff67"
+        "latency_ms": 53.5727999813389,
+        "body_snippet": "2.0.0 Ok: queued as 1792396665.M904439P1Q22.9aa0843bd876"
       },
       "tickets": [
         "23"
@@ -158,9 +158,9 @@
     {
       "id": "clean-0-0002",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0002",
-      "message_id": "hq-2610190602-749e-0-0002@hq.example.test",
-      "payload_sha256": "98d39809a34220ed3f49ae998549be83cf7ed7a962d8e53071189338972de250",
+      "tag": "hq-2610190757-18ac-0-0002",
+      "message_id": "hq-2610190757-18ac-0-0002@hq.example.test",
+      "payload_sha256": "eb603a340b9c2c7a0f1c83ac9f689919acbabf34ec9cc6de0222f3cf8226cdb9",
       "intended": {
         "sender": "ivan.chen@example.net",
         "subject": "The renewal",
@@ -173,8 +173,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 63.14300000667572,
-        "body_snippet": "2.0.0 Ok: queued as 1792389750.M913391P1Q23.a3905361ff67"
+        "latency_ms": 67.58639999316074,
+        "body_snippet": "2.0.0 Ok: queued as 1792396665.M972449P1Q23.9aa0843bd876"
       },
       "tickets": [
         "24"
@@ -184,9 +184,9 @@
     {
       "id": "clean-0-0003",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0003",
-      "message_id": "hq-2610190602-749e-0-0003@hq.example.test",
-      "payload_sha256": "105e00a569d6f30f9cc433596721c8c7a55242491db7b57077c9f79492b90a90",
+      "tag": "hq-2610190757-18ac-0-0003",
+      "message_id": "hq-2610190757-18ac-0-0003@hq.example.test",
+      "payload_sha256": "49a1831ffe73a261bef321230534a9e94473c65e7dcce38547b58f4c97a10fed",
       "intended": {
         "sender": "heidis24@example.net",
         "subject": "Re: the contract",
@@ -201,8 +201,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 74.60120000177994,
-        "body_snippet": "2.0.0 Ok: queued as 1792389750.M989688P1Q24.a3905361ff67"
+        "latency_ms": 74.3296000000555,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M049039P1Q24.9aa0843bd876"
       },
       "tickets": [
         "25"
@@ -212,9 +212,9 @@
     {
       "id": "clean-0-0004",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0004",
-      "message_id": "hq-2610190602-749e-0-0004@hq.example.test",
-      "payload_sha256": "7b29750d5e53a9b7de2d3577914df76a0f42070be95d876c79f338c7cd3b9f85",
+      "tag": "hq-2610190757-18ac-0-0004",
+      "message_id": "hq-2610190757-18ac-0-0004@hq.example.test",
+      "payload_sha256": "c7916e5eeeef8383ec5bdc32de1047d41933144fc1a11eeabe666b9263c4a218",
       "intended": {
         "sender": "bjones@example.edu",
         "subject": "Quick question about onboarding",
@@ -227,8 +227,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 75.1276999944821,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M065857P1Q25.a3905361ff67"
+        "latency_ms": 78.97510001203045,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M128740P1Q25.9aa0843bd876"
       },
       "tickets": [
         "26"
@@ -238,9 +238,9 @@
     {
       "id": "clean-0-0005",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0005",
-      "message_id": "hq-2610190602-749e-0-0005@hq.example.test",
-      "payload_sha256": "ac02543af013307bc2c840e3b4d004f222fed50e7d115ddba8139faea2724a64",
+      "tag": "hq-2610190757-18ac-0-0005",
+      "message_id": "hq-2610190757-18ac-0-0005@hq.example.test",
+      "payload_sha256": "deb4e513c0285874b47122a793cdcc29315726fc908f54e15b0bb4fda2516df7",
       "intended": {
         "sender": "flee@internal.localhost",
         "subject": "Re: the quarterly report",
@@ -256,8 +256,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 77.99799999338575,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M146419P1Q26.a3905361ff67"
+        "latency_ms": 73.2008000195492,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M204592P1Q26.9aa0843bd876"
       },
       "tickets": [
         "27"
@@ -267,9 +267,9 @@
     {
       "id": "clean-0-0006",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0006",
-      "message_id": "hq-2610190602-749e-0-0006@hq.example.test",
-      "payload_sha256": "2e1a3143627b96a45f84057c07a07440c8c8e16d8bfce16a077d560e960b5807",
+      "tag": "hq-2610190757-18ac-0-0006",
+      "message_id": "hq-2610190757-18ac-0-0006@hq.example.test",
+      "payload_sha256": "9921a8ddd85206685c4ea3ea18e4a2aada62b296cfc73bf67273893f1d7068bb",
       "intended": {
         "sender": "grace.jones@example.org",
         "subject": "Your order",
@@ -282,8 +282,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 74.70219998504035,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M222004P1Q27.a3905361ff67"
+        "latency_ms": 74.81669998378493,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M280419P1Q27.9aa0843bd876"
       },
       "tickets": [
         "28"
@@ -293,9 +293,9 @@
     {
       "id": "clean-0-0007",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0007",
-      "message_id": "hq-2610190602-749e-0-0007@hq.example.test",
-      "payload_sha256": "3d5fff5a047bf8b4a9fa66b9c23fab2c73f7d2ab4a3364d551efe3da3532e7be",
+      "tag": "hq-2610190757-18ac-0-0007",
+      "message_id": "hq-2610190757-18ac-0-0007@hq.example.test",
+      "payload_sha256": "7700486b723bcfce678991aa1d4edebc2d0ca1aa4fb9fd79e8640f4b9f4669b1",
       "intended": {
         "sender": "carol_brown@widgets.example",
         "subject": "Following up on the support ticket",
@@ -311,8 +311,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 69.88619998446666,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M373655P1Q28.a3905361ff67"
+        "latency_ms": 52.3168999934569,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M432601P1Q28.9aa0843bd876"
       },
       "tickets": [
         "29"
@@ -322,9 +322,9 @@
     {
       "id": "clean-0-0008",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0008",
-      "message_id": "hq-2610190602-749e-0-0008@hq.example.test",
-      "payload_sha256": "3d7ff4e7a132751ac40344168667eef6e17f815ba37b3a8bb5cc4a9edb05cd7f",
+      "tag": "hq-2610190757-18ac-0-0008",
+      "message_id": "hq-2610190757-18ac-0-0008@hq.example.test",
+      "payload_sha256": "2b7434d3664d40e7e60c0b5382bea4a18e42a283ab0884274953c28c71ce88a3",
       "intended": {
         "sender": "emuller@example.net",
         "subject": "Quick question about the invoice",
@@ -337,8 +337,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.12490000505932,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M557290P1Q29.a3905361ff67"
+        "latency_ms": 71.12119998782873,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M652342P1Q29.9aa0843bd876"
       },
       "tickets": [
         "30"
@@ -348,9 +348,9 @@
     {
       "id": "clean-0-0009",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0009",
-      "message_id": "hq-2610190602-749e-0-0009@hq.example.test",
-      "payload_sha256": "dcdd078f18a896e30116ee02085d05036db23d5e7dfd58384556faf252fde8f5",
+      "tag": "hq-2610190757-18ac-0-0009",
+      "message_id": "hq-2610190757-18ac-0-0009@hq.example.test",
+      "payload_sha256": "d436c6c3f0f91985c2f49c58d7bf67ba8ebc68808a133f4bd18bf46c8d21c45c",
       "intended": {
         "sender": "grace_chen@example.org",
         "subject": "The renewal - action needed",
@@ -363,8 +363,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 69.26740001654252,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M773293P1Q30.a3905361ff67"
+        "latency_ms": 73.00539998686872,
+        "body_snippet": "2.0.0 Ok: queued as 1792396666.M853140P1Q30.9aa0843bd876"
       },
       "tickets": [
         "31"
@@ -374,9 +374,9 @@
     {
       "id": "clean-0-0010",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0010",
-      "message_id": "hq-2610190602-749e-0-0010@hq.example.test",
-      "payload_sha256": "a768fc37ce720223e780547e3e70f386ffcffb523297ac2c8eb38475176473b2",
+      "tag": "hq-2610190757-18ac-0-0010",
+      "message_id": "hq-2610190757-18ac-0-0010@hq.example.test",
+      "payload_sha256": "0aebc922430557db3fba0cbd6ad1d47570b45476556daa3f64c0a0f8ba838628",
       "intended": {
         "sender": "frank.garcia@example.com",
         "subject": "The shipment - action needed",
@@ -391,8 +391,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.01740000140853,
-        "body_snippet": "2.0.0 Ok: queued as 1792389751.M957543P1Q31.a3905361ff67"
+        "latency_ms": 55.90189999202266,
+        "body_snippet": "2.0.0 Ok: queued as 1792396667.M036713P1Q31.9aa0843bd876"
       },
       "tickets": [
         "32"
@@ -402,9 +402,9 @@
     {
       "id": "clean-0-0011",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0011",
-      "message_id": "hq-2610190602-749e-0-0011@hq.example.test",
-      "payload_sha256": "987b3186f8c6b7c6abc3add7dc326b525284b3106dcf20a8d107b8ad0a231ce7",
+      "tag": "hq-2610190757-18ac-0-0011",
+      "message_id": "hq-2610190757-18ac-0-0011@hq.example.test",
+      "payload_sha256": "ae1da7467914d63851f87695a18a5bdee718921255832202eb706555ce9a544b",
       "intended": {
         "sender": "bob_brown15@corp.example.invalid",
         "subject": "Update on the shipment",
@@ -417,8 +417,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.421499993419275,
-        "body_snippet": "2.0.0 Ok: queued as 1792389752.M157304P1Q32.a3905361ff67"
+        "latency_ms": 71.830000000773,
+        "body_snippet": "2.0.0 Ok: queued as 1792396667.M252663P1Q32.9aa0843bd876"
       },
       "tickets": [
         "33"
@@ -428,9 +428,9 @@
     {
       "id": "clean-0-0012",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0012",
-      "message_id": "hq-2610190602-749e-0-0012@hq.example.test",
-      "payload_sha256": "1dc4a3247a7b23a39d52ea1e72cc4a1171fa6ba67b9312137f0038f6d3943d5b",
+      "tag": "hq-2610190757-18ac-0-0012",
+      "message_id": "hq-2610190757-18ac-0-0012@hq.example.test",
+      "payload_sha256": "4f52a35b5e3a9d79248d5dd756b143445bf168cbd7e6b5a0670345d75167ed03",
       "intended": {
         "sender": "fmuller@example.com",
         "subject": "Re: the contract",
@@ -445,8 +445,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 68.5998999979347,
-        "body_snippet": "2.0.0 Ok: queued as 1792389752.M373603P1Q33.a3905361ff67"
+        "latency_ms": 53.5671999969054,
+        "body_snippet": "2.0.0 Ok: queued as 1792396667.M436809P1Q33.9aa0843bd876"
       },
       "tickets": [
         "34"
@@ -456,9 +456,9 @@
     {
       "id": "clean-0-0013",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0013",
-      "message_id": "hq-2610190602-749e-0-0013@hq.example.test",
-      "payload_sha256": "77cc84917eef8fcdd00829747fdcbb568c451f7644b767bf8ad7cec58b301669",
+      "tag": "hq-2610190757-18ac-0-0013",
+      "message_id": "hq-2610190757-18ac-0-0013@hq.example.test",
+      "payload_sha256": "9289194c0a22e43e41e94bb86345eaf7b779d00f15b6adc8795e34d40e22154e",
       "intended": {
         "sender": "judy@corp.example.invalid",
         "subject": "Re: the quarterly report",
@@ -471,8 +471,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 69.91970000672154,
-        "body_snippet": "2.0.0 Ok: queued as 1792389752.M573335P1Q34.a3905361ff67"
+        "latency_ms": 52.97009999048896,
+        "body_snippet": "2.0.0 Ok: queued as 1792396667.M632806P1Q34.9aa0843bd876"
       },
       "tickets": [
         "35"
@@ -482,9 +482,9 @@
     {
       "id": "clean-0-0014",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0014",
-      "message_id": "hq-2610190602-749e-0-0014@hq.example.test",
-      "payload_sha256": "7e10c05e2010d7b40e871eec2412749c1874035d8987029067ad23cfc937f674",
+      "tag": "hq-2610190757-18ac-0-0014",
+      "message_id": "hq-2610190757-18ac-0-0014@hq.example.test",
+      "payload_sha256": "4006ae6140f1b78bbda009de615db4a869ab80955e19410b2811e0cc2791fd7b",
       "intended": {
         "sender": "aliceb@example.org",
         "subject": "Re: your order",
@@ -500,8 +500,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 69.52520000049844,
-        "body_snippet": "2.0.0 Ok: queued as 1792389752.M773470P1Q35.a3905361ff67"
+        "latency_ms": 55.99580000853166,
+        "body_snippet": "2.0.0 Ok: queued as 1792396667.M836968P1Q35.9aa0843bd876"
       },
       "tickets": [
         "36"
@@ -511,9 +511,9 @@
     {
       "id": "clean-0-0015",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0015",
-      "message_id": "hq-2610190602-749e-0-0015@hq.example.test",
-      "payload_sha256": "40ce849ee01dc122441362ed8e874222d6e3712e7b83c178b370a535c785f77d",
+      "tag": "hq-2610190757-18ac-0-0015",
+      "message_id": "hq-2610190757-18ac-0-0015@hq.example.test",
+      "payload_sha256": "189df9623afb4f193e94ff130bba6014bba742d9377a3da03cb4ddce4bf73826",
       "intended": {
         "sender": "grace_jones12@example.net",
         "subject": "Update on the quarterly report",
@@ -528,8 +528,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.280599997378886,
-        "body_snippet": "2.0.0 Ok: queued as 1792389752.M957704P1Q36.a3905361ff67"
+        "latency_ms": 65.51360001321882,
+        "body_snippet": "2.0.0 Ok: queued as 1792396668.M044994P1Q36.9aa0843bd876"
       },
       "tickets": [
         "37"
@@ -539,9 +539,9 @@
     {
       "id": "clean-0-0016",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0016",
-      "message_id": "hq-2610190602-749e-0-0016@hq.example.test",
-      "payload_sha256": "ecc9e422d17abc038244fc28545422a3b573ec29f96eed4ad097ae7e24ebb89c",
+      "tag": "hq-2610190757-18ac-0-0016",
+      "message_id": "hq-2610190757-18ac-0-0016@hq.example.test",
+      "payload_sha256": "778a787e13122903b0d185a283691a182a71e3eba2999f46041c06045ae4593c",
       "intended": {
         "sender": "jnguyen@example.org",
         "subject": "Update on the quarterly report",
@@ -556,8 +556,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.29880001954734,
-        "body_snippet": "2.0.0 Ok: queued as 1792389753.M157398P1Q37.a3905361ff67"
+        "latency_ms": 52.49589998857118,
+        "body_snippet": "2.0.0 Ok: queued as 1792396668.M232879P1Q37.9aa0843bd876"
       },
       "tickets": [
         "38"
@@ -567,9 +567,9 @@
     {
       "id": "clean-0-0017",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0017",
-      "message_id": "hq-2610190602-749e-0-0017@hq.example.test",
-      "payload_sha256": "137c55ce458d9f462f8266c25d96786107f40c1eaf6743211f291b1a205d4565",
+      "tag": "hq-2610190757-18ac-0-0017",
+      "message_id": "hq-2610190757-18ac-0-0017@hq.example.test",
+      "payload_sha256": "2ad71b28eeda6cec17b12f85711eb0cc039c2b8164fa1e79b88139bb71166d46",
       "intended": {
         "sender": "oscar_nguyen@widgets.example",
         "subject": "Update on your order",
@@ -582,8 +582,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.58509998768568,
-        "body_snippet": "2.0.0 Ok: queued as 1792389753.M357391P1Q38.a3905361ff67"
+        "latency_ms": 52.5521999807097,
+        "body_snippet": "2.0.0 Ok: queued as 1792396668.M433026P1Q38.9aa0843bd876"
       },
       "tickets": [
         "39"
@@ -593,9 +593,9 @@
     {
       "id": "clean-0-0018",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0018",
-      "message_id": "hq-2610190602-749e-0-0018@hq.example.test",
-      "payload_sha256": "c509ab241b71ff0c437488edf0aa34190c4b25ff17b4429a11fe1a2580ae5622",
+      "tag": "hq-2610190757-18ac-0-0018",
+      "message_id": "hq-2610190757-18ac-0-0018@hq.example.test",
+      "payload_sha256": "c9e4b7e439063c31c74da6f6bc505fe409ba9b4e88d3d636aba9dd6fc6f5424d",
       "intended": {
         "sender": "bobm@mail.example.test",
         "subject": "Quick question about the caf\u00e9 booking",
@@ -608,8 +608,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.360699996119365,
-        "body_snippet": "2.0.0 Ok: queued as 1792389753.M557600P1Q39.a3905361ff67"
+        "latency_ms": 52.554699999745935,
+        "body_snippet": "2.0.0 Ok: queued as 1792396668.M632814P1Q39.9aa0843bd876"
       },
       "tickets": [
         "40"
@@ -619,9 +619,9 @@
     {
       "id": "clean-0-0019",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0019",
-      "message_id": "hq-2610190602-749e-0-0019@hq.example.test",
-      "payload_sha256": "15fbad6a7d1f9cd5de4a633f7eced28aac3149af0c1a6c4a296d5b0f05819452",
+      "tag": "hq-2610190757-18ac-0-0019",
+      "message_id": "hq-2610190757-18ac-0-0019@hq.example.test",
+      "payload_sha256": "aa9a44b80b75a15c3c152bbf8fd0a9ea3531e3ed6b2de7acdca32dc71328cdf6",
       "intended": {
         "sender": "frank.jones@example.edu",
         "subject": "Following up on the schedule",
@@ -634,8 +634,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.02920002234168,
-        "body_snippet": "2.0.0 Ok: queued as 1792389753.M757438P1Q40.a3905361ff67"
+        "latency_ms": 68.6301999958232,
+        "body_snippet": "2.0.0 Ok: queued as 1792396668.M848937P1Q40.9aa0843bd876"
       },
       "tickets": [
         "41"
@@ -645,9 +645,9 @@
     {
       "id": "clean-0-0020",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0020",
-      "message_id": "hq-2610190602-749e-0-0020@hq.example.test",
-      "payload_sha256": "1175514dc55668d54693e6306072a2fb1739d6d44aabecd5c94d9e28df0ab688",
+      "tag": "hq-2610190757-18ac-0-0020",
+      "message_id": "hq-2610190757-18ac-0-0020@hq.example.test",
+      "payload_sha256": "8639a0d62b7fc6b64f4c2dc428285c4aecd33e086b20b033cf43820fad0fdd56",
       "intended": {
         "sender": "judys11@mail.example.test",
         "subject": "Update on our meeting",
@@ -660,8 +660,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 70.16010000370443,
-        "body_snippet": "2.0.0 Ok: queued as 1792389753.M973687P1Q41.a3905361ff67"
+        "latency_ms": 69.28629998583347,
+        "body_snippet": "2.0.0 Ok: queued as 1792396669.M049255P1Q41.9aa0843bd876"
       },
       "tickets": [
         "42"
@@ -671,9 +671,9 @@
     {
       "id": "clean-0-0021",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0021",
-      "message_id": "hq-2610190602-749e-0-0021@hq.example.test",
-      "payload_sha256": "e24c117ed755775fea14bb6e41e53e560ce6fb0b74b818ada9dd33e5e02ea4f7",
+      "tag": "hq-2610190757-18ac-0-0021",
+      "message_id": "hq-2610190757-18ac-0-0021@hq.example.test",
+      "payload_sha256": "c42001796dd888fa91598dc9b1d041e30df4dbb90ce2d4db4935e2520db21dee",
       "intended": {
         "sender": "grace@corp.example.invalid",
         "subject": "The caf\u00e9 booking",
@@ -686,8 +686,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.77590001444332,
-        "body_snippet": "2.0.0 Ok: queued as 1792389754.M157412P1Q42.a3905361ff67"
+        "latency_ms": 71.97760001872666,
+        "body_snippet": "2.0.0 Ok: queued as 1792396669.M253143P1Q42.9aa0843bd876"
       },
       "tickets": [
         "43"
@@ -697,9 +697,9 @@
     {
       "id": "clean-0-0022",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0022",
-      "message_id": "hq-2610190602-749e-0-0022@hq.example.test",
-      "payload_sha256": "b4a3a62b373ed11499f7c90a12efc2b25eaeddf53b5ac2941537939c9f4f04e8",
+      "tag": "hq-2610190757-18ac-0-0022",
+      "message_id": "hq-2610190757-18ac-0-0022@hq.example.test",
+      "payload_sha256": "ca5b0ec416e7918a496df3d4d11348638473bd7e8f53866ec26de402b62067c4",
       "intended": {
         "sender": "carol@internal.localhost",
         "subject": "Our meeting - action needed",
@@ -712,8 +712,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.289799998514354,
-        "body_snippet": "2.0.0 Ok: queued as 1792389754.M357639P1Q43.a3905361ff67"
+        "latency_ms": 72.84179999260232,
+        "body_snippet": "2.0.0 Ok: queued as 1792396669.M453283P1Q43.9aa0843bd876"
       },
       "tickets": [
         "44"
@@ -723,9 +723,9 @@
     {
       "id": "clean-0-0023",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0023",
-      "message_id": "hq-2610190602-749e-0-0023@hq.example.test",
-      "payload_sha256": "340fdc3e427e2a8e9e843e12c79be2eea82ca91c155972f1a92b3b0c9e08afa8",
+      "tag": "hq-2610190757-18ac-0-0023",
+      "message_id": "hq-2610190757-18ac-0-0023@hq.example.test",
+      "payload_sha256": "f230be0ef69978311815ae38e08eb84649ce4d2f79a14a339859f7b890e1e59b",
       "intended": {
         "sender": "bobr@example.com",
         "subject": "Following up on the contract",
@@ -738,8 +738,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.58629998611286,
-        "body_snippet": "2.0.0 Ok: queued as 1792389754.M557960P1Q44.a3905361ff67"
+        "latency_ms": 51.6500000085216,
+        "body_snippet": "2.0.0 Ok: queued as 1792396669.M632917P1Q44.9aa0843bd876"
       },
       "tickets": [
         "45"
@@ -749,9 +749,9 @@
     {
       "id": "clean-0-0024",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0024",
-      "message_id": "hq-2610190602-749e-0-0024@hq.example.test",
-      "payload_sha256": "460627cc726be213e40cb5ab0336c2f7fd859b555c7972b2bbc79d2576a9898b",
+      "tag": "hq-2610190757-18ac-0-0024",
+      "message_id": "hq-2610190757-18ac-0-0024@hq.example.test",
+      "payload_sha256": "eec786ea4c0c354f0ae572b34616143fdfbb99d925aa0b6b3898e7ae86f98646",
       "intended": {
         "sender": "bob@corp.example.invalid",
         "subject": "Update on the support ticket",
@@ -767,8 +767,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 69.42030001664534,
-        "body_snippet": "2.0.0 Ok: queued as 1792389754.M773469P1Q45.a3905361ff67"
+        "latency_ms": 76.73989998875186,
+        "body_snippet": "2.0.0 Ok: queued as 1792396669.M857102P1Q45.9aa0843bd876"
       },
       "tickets": [
         "46"
@@ -778,9 +778,9 @@
     {
       "id": "clean-0-0025",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0025",
-      "message_id": "hq-2610190602-749e-0-0025@hq.example.test",
-      "payload_sha256": "8ddc95a1f21a4ad9f3d11d47b16ff9f3d758a15099d70790e360f1f0f248eac7",
+      "tag": "hq-2610190757-18ac-0-0025",
+      "message_id": "hq-2610190757-18ac-0-0025@hq.example.test",
+      "payload_sha256": "6949cb4c0c7bc5a4211bea25ea59e76f21e45a23f747dc1889a9784822a71e5c",
       "intended": {
         "sender": "ivan3@example.org",
         "subject": "Quick question about the shipment",
@@ -793,8 +793,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.643599996576086,
-        "body_snippet": "2.0.0 Ok: queued as 1792389754.M957459P1Q46.a3905361ff67"
+        "latency_ms": 52.54070000955835,
+        "body_snippet": "2.0.0 Ok: queued as 1792396670.M032793P1Q46.9aa0843bd876"
       },
       "tickets": [
         "47"
@@ -804,9 +804,9 @@
     {
       "id": "clean-0-0026",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0026",
-      "message_id": "hq-2610190602-749e-0-0026@hq.example.test",
-      "payload_sha256": "d03777748d39cdd433b153d26e725a2a18035e3b36344f15163f4bd7335efdfb",
+      "tag": "hq-2610190757-18ac-0-0026",
+      "message_id": "hq-2610190757-18ac-0-0026@hq.example.test",
+      "payload_sha256": "146a1e4856e155f2a016f229ce9fea0120b7ea22f13be32269048b87d015b000",
       "intended": {
         "sender": "erin_rossi@widgets.example",
         "subject": "Quick question about the support ticket",
@@ -821,8 +821,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 74.1478999843821,
-        "body_snippet": "2.0.0 Ok: queued as 1792389755.M177633P1Q47.a3905361ff67"
+        "latency_ms": 52.07380000501871,
+        "body_snippet": "2.0.0 Ok: queued as 1792396670.M233068P1Q47.9aa0843bd876"
       },
       "tickets": [
         "48"
@@ -832,9 +832,9 @@
     {
       "id": "clean-0-0027",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0027",
-      "message_id": "hq-2610190602-749e-0-0027@hq.example.test",
-      "payload_sha256": "46e3425d6b26afe1a17c79c2d0f415069267f58345658bb82ddb9cf86843edfc",
+      "tag": "hq-2610190757-18ac-0-0027",
+      "message_id": "hq-2610190757-18ac-0-0027@hq.example.test",
+      "payload_sha256": "2a359131b4fe09ffe19b33e2c6031973616f3c4f80e0c20f04c007ecd6ea4760",
       "intended": {
         "sender": "ivanj@corp.example.invalid",
         "subject": "The contract - action needed",
@@ -850,8 +850,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 74.4200000190176,
-        "body_snippet": "2.0.0 Ok: queued as 1792389755.M377491P1Q48.a3905361ff67"
+        "latency_ms": 64.16619999799877,
+        "body_snippet": "2.0.0 Ok: queued as 1792396670.M444787P1Q48.9aa0843bd876"
       },
       "tickets": [
         "49"
@@ -861,9 +861,9 @@
     {
       "id": "clean-0-0028",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0028",
-      "message_id": "hq-2610190602-749e-0-0028@hq.example.test",
-      "payload_sha256": "90522f475ef73ff631576dace279a3dd387b451f8b4eb2659e45b122957eb2b6",
+      "tag": "hq-2610190757-18ac-0-0028",
+      "message_id": "hq-2610190757-18ac-0-0028@hq.example.test",
+      "payload_sha256": "b34adb02e13cdcad49db73c059b96458ba4c8f866d916ea3ad18cfcdd599a4ad",
       "intended": {
         "sender": "judy_chen@mail.example.test",
         "subject": "Re: onboarding",
@@ -876,8 +876,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.58520000684075,
-        "body_snippet": "2.0.0 Ok: queued as 1792389755.M557848P1Q49.a3905361ff67"
+        "latency_ms": 69.05769999139011,
+        "body_snippet": "2.0.0 Ok: queued as 1792396670.M649415P1Q49.9aa0843bd876"
       },
       "tickets": [
         "50"
@@ -887,9 +887,9 @@
     {
       "id": "clean-0-0029",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0029",
-      "message_id": "hq-2610190602-749e-0-0029@hq.example.test",
-      "payload_sha256": "23d60252de00fdc30d197d827b4cb52d00a3c299399eaa1d93dc501525615a35",
+      "tag": "hq-2610190757-18ac-0-0029",
+      "message_id": "hq-2610190757-18ac-0-0029@hq.example.test",
+      "payload_sha256": "f1d786c7a89b65714e4849452f2d2a49f03946f9b8abf5ba0e628b1f6b7c13c5",
       "intended": {
         "sender": "ivanb@corp.example.invalid",
         "subject": "Quick question about the shipment",
@@ -902,8 +902,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 73.81600001826882,
-        "body_snippet": "2.0.0 Ok: queued as 1792389755.M777543P1Q50.a3905361ff67"
+        "latency_ms": 67.46109999949113,
+        "body_snippet": "2.0.0 Ok: queued as 1792396670.M848451P1Q50.9aa0843bd876"
       },
       "tickets": [
         "51"
@@ -913,9 +913,9 @@
     {
       "id": "clean-0-0030",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0030",
-      "message_id": "hq-2610190602-749e-0-0030@hq.example.test",
-      "payload_sha256": "79dd0d23ced9b6c249f3b08d92d8852495bf286d8ab444ff025298b64e1d49e2",
+      "tag": "hq-2610190757-18ac-0-0030",
+      "message_id": "hq-2610190757-18ac-0-0030@hq.example.test",
+      "payload_sha256": "f0d62552a01064685d7e0d089b99b13a373df85e4a99d73afc524c392f79c11b",
       "intended": {
         "sender": "judy.patel5@example.net",
         "subject": "The renewal - action needed",
@@ -931,8 +931,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 52.80389997642487,
-        "body_snippet": "2.0.0 Ok: queued as 1792389755.M957757P1Q51.a3905361ff67"
+        "latency_ms": 68.66509999963455,
+        "body_snippet": "2.0.0 Ok: queued as 1792396671.M049147P1Q51.9aa0843bd876"
       },
       "tickets": [
         "52"
@@ -942,9 +942,9 @@
     {
       "id": "clean-0-0031",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0031",
-      "message_id": "hq-2610190602-749e-0-0031@hq.example.test",
-      "payload_sha256": "0996d035277a970d60985e048528cabf1eeb7e2aa423b3eec77794ce15cccb1a",
+      "tag": "hq-2610190757-18ac-0-0031",
+      "message_id": "hq-2610190757-18ac-0-0031@hq.example.test",
+      "payload_sha256": "77c417dbe2b11f3d893a1e9331dde41ac675b0d3390b0c569b49cf269dafe1bb",
       "intended": {
         "sender": "ochen@mail.example.test",
         "subject": "Re: the renewal",
@@ -957,8 +957,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.96339998696931,
-        "body_snippet": "2.0.0 Ok: queued as 1792389756.M157655P1Q52.a3905361ff67"
+        "latency_ms": 67.77340002008714,
+        "body_snippet": "2.0.0 Ok: queued as 1792396671.M248626P1Q52.9aa0843bd876"
       },
       "tickets": [
         "53"
@@ -968,9 +968,9 @@
     {
       "id": "clean-0-0032",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0032",
-      "message_id": "hq-2610190602-749e-0-0032@hq.example.test",
-      "payload_sha256": "f7d69d72023bb5e7a1e56e8e278d4313b67051cdb5c54ab7d9d5c85b91641484",
+      "tag": "hq-2610190757-18ac-0-0032",
+      "message_id": "hq-2610190757-18ac-0-0032@hq.example.test",
+      "payload_sha256": "2780dd82b7146ef1ddb33d06c7e6c6a7c74d8ac5661f6d6c07c26b4315d03825",
       "intended": {
         "sender": "gsmith@example.net",
         "subject": "Quick question about the Z\u00fcrich office move",
@@ -983,8 +983,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.48189998767339,
-        "body_snippet": "2.0.0 Ok: queued as 1792389756.M357536P1Q53.a3905361ff67"
+        "latency_ms": 71.59880001563579,
+        "body_snippet": "2.0.0 Ok: queued as 1792396671.M452325P1Q53.9aa0843bd876"
       },
       "tickets": [
         "54"
@@ -994,9 +994,9 @@
     {
       "id": "clean-0-0033",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0033",
-      "message_id": "hq-2610190602-749e-0-0033@hq.example.test",
-      "payload_sha256": "4aeec4f5943e9359b8a79a6a62dc5a7ea6bd9d61efcb6ce5bb41256be39265b6",
+      "tag": "hq-2610190757-18ac-0-0033",
+      "message_id": "hq-2610190757-18ac-0-0033@hq.example.test",
+      "payload_sha256": "43bc4270d467b44e7a7bf4b5e7b2a60eb78cd79bf94424ea0ac5de816c12ebd3",
       "intended": {
         "sender": "emuller27@example.net",
         "subject": "Following up on the schedule",
@@ -1012,8 +1012,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 73.77700001234189,
-        "body_snippet": "2.0.0 Ok: queued as 1792389756.M577933P1Q54.a3905361ff67"
+        "latency_ms": 70.91340000624768,
+        "body_snippet": "2.0.0 Ok: queued as 1792396671.M652621P1Q54.9aa0843bd876"
       },
       "tickets": [
         "55"
@@ -1023,9 +1023,9 @@
     {
       "id": "clean-0-0034",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0034",
-      "message_id": "hq-2610190602-749e-0-0034@hq.example.test",
-      "payload_sha256": "1d36a121c388b9d9a5d779007367c36e538d59f57fa21af9e3150624849cf2e5",
+      "tag": "hq-2610190757-18ac-0-0034",
+      "message_id": "hq-2610190757-18ac-0-0034@hq.example.test",
+      "payload_sha256": "2aa1a2de9c772ca687d33431acbf74729d7c3d7754bd8b825053332e8c2b937e",
       "intended": {
         "sender": "malloryk@widgets.example",
         "subject": "Re: our meeting",
@@ -1041,8 +1041,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 73.2690000149887,
-        "body_snippet": "2.0.0 Ok: queued as 1792389756.M777825P1Q55.a3905361ff67"
+        "latency_ms": 71.41830000909977,
+        "body_snippet": "2.0.0 Ok: queued as 1792396671.M852851P1Q55.9aa0843bd876"
       },
       "tickets": [
         "56"
@@ -1052,9 +1052,9 @@
     {
       "id": "clean-0-0035",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0035",
-      "message_id": "hq-2610190602-749e-0-0035@hq.example.test",
-      "payload_sha256": "dfba87c7b10e22397c1ae502ddc98be1dc72263003369601a381c7e454a15998",
+      "tag": "hq-2610190757-18ac-0-0035",
+      "message_id": "hq-2610190757-18ac-0-0035@hq.example.test",
+      "payload_sha256": "f74a2a4a5f95071a82c6864a56df5694bf1f7011d97f12f00d029eeacca0d86f",
       "intended": {
         "sender": "odiaz25@widgets.example",
         "subject": "Your order",
@@ -1067,8 +1067,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 74.01509999181144,
-        "body_snippet": "2.0.0 Ok: queued as 1792389756.M977586P1Q56.a3905361ff67"
+        "latency_ms": 71.94689998868853,
+        "body_snippet": "2.0.0 Ok: queued as 1792396672.M052437P1Q56.9aa0843bd876"
       },
       "tickets": [
         "57"
@@ -1078,9 +1078,9 @@
     {
       "id": "clean-0-0036",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0036",
-      "message_id": "hq-2610190602-749e-0-0036@hq.example.test",
-      "payload_sha256": "25090efbcd384b56cc78985c68174564621e4377545ae775ddd43339e903f6b3",
+      "tag": "hq-2610190757-18ac-0-0036",
+      "message_id": "hq-2610190757-18ac-0-0036@hq.example.test",
+      "payload_sha256": "683e02921137dca0f80613891b9c59d054d6e6b682c4ce43d3314fcfaf6e69d6",
       "intended": {
         "sender": "dave.brown@corp.example.invalid",
         "subject": "Quick question about our meeting",
@@ -1093,8 +1093,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.78539999946952,
-        "body_snippet": "2.0.0 Ok: queued as 1792389757.M157894P1Q57.a3905361ff67"
+        "latency_ms": 75.07489999989048,
+        "body_snippet": "2.0.0 Ok: queued as 1792396672.M256440P1Q57.9aa0843bd876"
       },
       "tickets": [
         "58"
@@ -1104,9 +1104,9 @@
     {
       "id": "clean-0-0037",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0037",
-      "message_id": "hq-2610190602-749e-0-0037@hq.example.test",
-      "payload_sha256": "f1557e1733dd0169a065f317079d70cc833dea59d533a1fcc7af0ecc47fd8b90",
+      "tag": "hq-2610190757-18ac-0-0037",
+      "message_id": "hq-2610190757-18ac-0-0037@hq.example.test",
+      "payload_sha256": "1605c1f580c681cacd7493770b496ad0bf726053fc5a86f8e22695b6cd0976fb",
       "intended": {
         "sender": "heidi.brown14@internal.localhost",
         "subject": "Re: onboarding",
@@ -1122,8 +1122,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.9303999976255,
-        "body_snippet": "2.0.0 Ok: queued as 1792389757.M357697P1Q58.a3905361ff67"
+        "latency_ms": 75.34739997936413,
+        "body_snippet": "2.0.0 Ok: queued as 1792396672.M456998P1Q58.9aa0843bd876"
       },
       "tickets": [
         "59"
@@ -1133,9 +1133,9 @@
     {
       "id": "clean-0-0038",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0038",
-      "message_id": "hq-2610190602-749e-0-0038@hq.example.test",
-      "payload_sha256": "cde48d525c22b9f9a1f27b4869010ebbd0ba55b04dab9c58168a89d9aa915646",
+      "tag": "hq-2610190757-18ac-0-0038",
+      "message_id": "hq-2610190757-18ac-0-0038@hq.example.test",
+      "payload_sha256": "2cceee9c61c47a36e10f44a3aff4529ff0419bd7571bc7bc470f10033c764385",
       "intended": {
         "sender": "dave25@example.com",
         "subject": "Quick question about the quarterly report",
@@ -1148,8 +1148,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.793500002939254,
-        "body_snippet": "2.0.0 Ok: queued as 1792389757.M557657P1Q59.a3905361ff67"
+        "latency_ms": 75.97219999297522,
+        "body_snippet": "2.0.0 Ok: queued as 1792396672.M656577P1Q59.9aa0843bd876"
       },
       "tickets": [
         "60"
@@ -1159,9 +1159,9 @@
     {
       "id": "clean-0-0039",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0039",
-      "message_id": "hq-2610190602-749e-0-0039@hq.example.test",
-      "payload_sha256": "295a2db857461e5559bb592eab5e5aed1d3d460be5b1ed56d7d97332a09c6e36",
+      "tag": "hq-2610190757-18ac-0-0039",
+      "message_id": "hq-2610190757-18ac-0-0039@hq.example.test",
+      "payload_sha256": "fe7c137894b4a2bdbd988ba44a8a153c0477e6cada64076854d06477517b0866",
       "intended": {
         "sender": "alicec@corp.example.invalid",
         "subject": "The quarterly report - action needed",
@@ -1177,8 +1177,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.67799999658018,
-        "body_snippet": "2.0.0 Ok: queued as 1792389757.M757913P1Q60.a3905361ff67"
+        "latency_ms": 55.19170002662577,
+        "body_snippet": "2.0.0 Ok: queued as 1792396672.M836951P1Q60.9aa0843bd876"
       },
       "tickets": [
         "61"
@@ -1188,9 +1188,9 @@
     {
       "id": "clean-0-0040",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0040",
-      "message_id": "hq-2610190602-749e-0-0040@hq.example.test",
-      "payload_sha256": "8f9bed88c12683f53a75f7bcf7e789d125272b47f81af2898ec68fb461c821c5",
+      "tag": "hq-2610190757-18ac-0-0040",
+      "message_id": "hq-2610190757-18ac-0-0040@hq.example.test",
+      "payload_sha256": "f68702b93d9d99e796ed6cf819cd18dca811e805a4fbf3ba7a5e8149b39c2945",
       "intended": {
         "sender": "erinc@internal.localhost",
         "subject": "The support ticket - action needed",
@@ -1203,8 +1203,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.181599989533424,
-        "body_snippet": "2.0.0 Ok: queued as 1792389757.M957737P1Q61.a3905361ff67"
+        "latency_ms": 64.01329999789596,
+        "body_snippet": "2.0.0 Ok: queued as 1792396673.M044458P1Q61.9aa0843bd876"
       },
       "tickets": [
         "62"
@@ -1214,9 +1214,9 @@
     {
       "id": "clean-0-0041",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0041",
-      "message_id": "hq-2610190602-749e-0-0041@hq.example.test",
-      "payload_sha256": "03a10880e025baa5f33317a2dc6d73c5787942fb6295fdb6bd25f920b4f5761a",
+      "tag": "hq-2610190757-18ac-0-0041",
+      "message_id": "hq-2610190757-18ac-0-0041@hq.example.test",
+      "payload_sha256": "cd9633dad77d9978b3062e14bb2bbbe8ec210c82476da4afb9d60f258b011df8",
       "intended": {
         "sender": "oscarg22@internal.localhost",
         "subject": "The support ticket",
@@ -1229,8 +1229,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.01150000398047,
-        "body_snippet": "2.0.0 Ok: queued as 1792389758.M157637P1Q62.a3905361ff67"
+        "latency_ms": 63.00029999692924,
+        "body_snippet": "2.0.0 Ok: queued as 1792396673.M244365P1Q62.9aa0843bd876"
       },
       "tickets": [
         "63"
@@ -1240,9 +1240,9 @@
     {
       "id": "clean-0-0042",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0042",
-      "message_id": "hq-2610190602-749e-0-0042@hq.example.test",
-      "payload_sha256": "8b5e16beac526417a6b4017a2d5e7006a5fcc7fd9bae579eab8b546aa008d019",
+      "tag": "hq-2610190757-18ac-0-0042",
+      "message_id": "hq-2610190757-18ac-0-0042@hq.example.test",
+      "payload_sha256": "0c6ce53d1e415f22e0843d74d89df95040df49ae8b1f5aa3545a48270ff05a3d",
       "intended": {
         "sender": "carol.smith@example.com",
         "subject": "The support ticket - action needed",
@@ -1257,8 +1257,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.59860000316985,
-        "body_snippet": "2.0.0 Ok: queued as 1792389758.M357686P1Q63.a3905361ff67"
+        "latency_ms": 55.34729998908006,
+        "body_snippet": "2.0.0 Ok: queued as 1792396673.M436795P1Q63.9aa0843bd876"
       },
       "tickets": [
         "64"
@@ -1268,9 +1268,9 @@
     {
       "id": "clean-0-0043",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0043",
-      "message_id": "hq-2610190602-749e-0-0043@hq.example.test",
-      "payload_sha256": "1d92734d2a56fb5179a01b502ae9cb55515c8eae441e55cd988b52f5bd7c7b14",
+      "tag": "hq-2610190757-18ac-0-0043",
+      "message_id": "hq-2610190757-18ac-0-0043@hq.example.test",
+      "payload_sha256": "3e83a7ecca85f4e4c588b8bad03b923506c6861f9de167401e1f78ea83bcbaf2",
       "intended": {
         "sender": "ivan.smith@example.net",
         "subject": "Following up on the support ticket",
@@ -1285,8 +1285,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.96990000735968,
-        "body_snippet": "2.0.0 Ok: queued as 1792389758.M557661P1Q64.a3905361ff67"
+        "latency_ms": 63.613500009523705,
+        "body_snippet": "2.0.0 Ok: queued as 1792396673.M644789P1Q64.9aa0843bd876"
       },
       "tickets": [
         "65"
@@ -1296,9 +1296,9 @@
     {
       "id": "clean-0-0044",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0044",
-      "message_id": "hq-2610190602-749e-0-0044@hq.example.test",
-      "payload_sha256": "53198f634229c150e55977a62611e2f3f5f68388b7c74684aafc6d7d1c13c405",
+      "tag": "hq-2610190757-18ac-0-0044",
+      "message_id": "hq-2610190757-18ac-0-0044@hq.example.test",
+      "payload_sha256": "eca65c68fcc98387694a07f09541ad6dbb452872a84336e22120b9c8317f3047",
       "intended": {
         "sender": "graces14@example.org",
         "subject": "The schedule",
@@ -1311,8 +1311,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.53390002367087,
-        "body_snippet": "2.0.0 Ok: queued as 1792389758.M757759P1Q65.a3905361ff67"
+        "latency_ms": 55.52590001025237,
+        "body_snippet": "2.0.0 Ok: queued as 1792396673.M836985P1Q65.9aa0843bd876"
       },
       "tickets": [
         "66"
@@ -1322,9 +1322,9 @@
     {
       "id": "clean-0-0045",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0045",
-      "message_id": "hq-2610190602-749e-0-0045@hq.example.test",
-      "payload_sha256": "df1aa5b6025bcc83f9e8aaddedd9e036884b66bff505f128d6b0eed2709f7d26",
+      "tag": "hq-2610190757-18ac-0-0045",
+      "message_id": "hq-2610190757-18ac-0-0045@hq.example.test",
+      "payload_sha256": "3ee84dc5e838af00bdba414049950d81e59a84d76d73389ee0c7816a9988f231",
       "intended": {
         "sender": "grace.jones@example.edu",
         "subject": "Update on onboarding",
@@ -1337,8 +1337,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 52.84689998370595,
-        "body_snippet": "2.0.0 Ok: queued as 1792389758.M957520P1Q66.a3905361ff67"
+        "latency_ms": 68.0405999883078,
+        "body_snippet": "2.0.0 Ok: queued as 1792396674.M048955P1Q66.9aa0843bd876"
       },
       "tickets": [
         "67"
@@ -1348,9 +1348,9 @@
     {
       "id": "clean-0-0046",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0046",
-      "message_id": "hq-2610190602-749e-0-0046@hq.example.test",
-      "payload_sha256": "d0055c8d9b7947bf76a6720cfc72085f39d569aee129e74b062c6fc546d9afc7",
+      "tag": "hq-2610190757-18ac-0-0046",
+      "message_id": "hq-2610190757-18ac-0-0046@hq.example.test",
+      "payload_sha256": "eae73eab8a0d58f57ab3eb4f1f38b6cac2b7048971262c6148d52e1cd9b64f73",
       "intended": {
         "sender": "aliceb@example.org",
         "subject": "Onboarding - action needed",
@@ -1363,8 +1363,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.31089999526739,
-        "body_snippet": "2.0.0 Ok: queued as 1792389759.M157596P1Q67.a3905361ff67"
+        "latency_ms": 55.89600000530481,
+        "body_snippet": "2.0.0 Ok: queued as 1792396674.M235501P1Q67.9aa0843bd876"
       },
       "tickets": [
         "68"
@@ -1374,9 +1374,9 @@
     {
       "id": "clean-0-0047",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0047",
-      "message_id": "hq-2610190602-749e-0-0047@hq.example.test",
-      "payload_sha256": "b66d0862b9cbbf8a3f9dcbb58dd5b555b5893eaa8d3f19475a77a607e8fe2813",
+      "tag": "hq-2610190757-18ac-0-0047",
+      "message_id": "hq-2610190757-18ac-0-0047@hq.example.test",
+      "payload_sha256": "7ee1a366a9100256a65fa8d525eb924cf9be8082620f2a68a1324f9fe6a59edd",
       "intended": {
         "sender": "gsmith@mail.example.test",
         "subject": "Following up on the schedule",
@@ -1389,8 +1389,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 54.06090000178665,
-        "body_snippet": "2.0.0 Ok: queued as 1792389759.M357858P1Q68.a3905361ff67"
+        "latency_ms": 68.69620000361465,
+        "body_snippet": "2.0.0 Ok: queued as 1792396674.M447648P1Q68.9aa0843bd876"
       },
       "tickets": [
         "69"
@@ -1400,9 +1400,9 @@
     {
       "id": "clean-0-0048",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0048",
-      "message_id": "hq-2610190602-749e-0-0048@hq.example.test",
-      "payload_sha256": "e44d392343ce5658cca26c7c8f449b4509ac6def6311a0eb42a9fe9a0e840a31",
+      "tag": "hq-2610190757-18ac-0-0048",
+      "message_id": "hq-2610190757-18ac-0-0048@hq.example.test",
+      "payload_sha256": "3543e2eab54040071a6f4834d8458bb40ce6b929ca76d40095d1601f0e4d70ff",
       "intended": {
         "sender": "oscarj@example.org",
         "subject": "Re: the support ticket",
@@ -1418,8 +1418,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.7317999987863,
-        "body_snippet": "2.0.0 Ok: queued as 1792389759.M557786P1Q69.a3905361ff67"
+        "latency_ms": 73.33350001135841,
+        "body_snippet": "2.0.0 Ok: queued as 1792396674.M652387P1Q69.9aa0843bd876"
       },
       "tickets": [
         "70"
@@ -1429,9 +1429,9 @@
     {
       "id": "clean-0-0049",
       "category": "clean",
-      "tag": "hq-2610190602-749e-0-0049",
-      "message_id": "hq-2610190602-749e-0-0049@hq.example.test",
-      "payload_sha256": "fb117f085858f7a3f35de7d7d57d96d0bc49c72ea86a7ac3aac6a4faa94d3159",
+      "tag": "hq-2610190757-18ac-0-0049",
+      "message_id": "hq-2610190757-18ac-0-0049@hq.example.test",
+      "payload_sha256": "ef64f09e1e87684548bcce0205f0168f7d7b6433b6bbf8a5891a496645733bc9",
       "intended": {
         "sender": "oscar.chen20@example.com",
         "subject": "Re: the caf\u00e9 booking",
@@ -1446,8 +1446,8 @@
       },
       "response": {
         "status": 250,
-        "latency_ms": 53.265999973518774,
-        "body_snippet": "2.0.0 Ok: queued as 1792389759.M757737P1Q70.a3905361ff67"
+        "latency_ms": 72.23190000513569,
+        "body_snippet": "2.0.0 Ok: queued as 1792396674.M851460P1Q70.9aa0843bd876"
       },
       "tickets": [
         "71"

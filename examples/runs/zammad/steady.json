@@ -7,7 +7,7 @@
     "tool": "steady",
     "seed": 0,
     "count": 6,
-    "tag_prefix": "hq-2610190610-69dc",
+    "tag_prefix": "hq-2610190805-031a",
     "target": "zammad",
     "readback": {
       "kind": "http",
@@ -241,7 +241,7 @@
     "sent": 105,
     "unsettled": false,
     "readback": {
-      "elapsed_s": 105.759,
+      "elapsed_s": 105.772,
       "polls": 4,
       "stable": true,
       "unsettled": false,

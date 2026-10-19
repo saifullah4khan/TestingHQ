@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "helpdesk": "zammad",
-  "started": "2026-10-19T05:59:56Z",
-  "finished": "2026-10-19T06:13:40Z",
+  "started": "2026-10-19T07:55:10Z",
+  "finished": "2026-10-19T08:08:55Z",
   "testinghq_version": "1.0.0",
   "config": "sweep/configs/zammad.toml",
   "target": "zammad",
@@ -62,7 +62,7 @@
     {
       "step": "verify",
       "tool": "verify",
-      "command": "testinghq verify fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --expect-route Users --out sweep/runs/zammad/20261019T055956Z/verify.json",
+      "command": "testinghq verify fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --expect-route Users --out sweep/runs/zammad/20261019T075510Z/verify.json",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": "verify.json",
@@ -74,7 +74,7 @@
     {
       "step": "ledger",
       "tool": "ledger",
-      "command": "testinghq ledger fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --expect-route Users --out sweep/runs/zammad/20261019T055956Z/ledger.json",
+      "command": "testinghq ledger fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --expect-route Users --out sweep/runs/zammad/20261019T075510Z/ledger.json",
       "exit_code": 3,
       "meaning": "ran, answer was no",
       "artifact": "ledger.json",
@@ -86,7 +86,7 @@
     {
       "step": "redeliver",
       "tool": "redeliver",
-      "command": "testinghq redeliver fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --expect-route Users --out sweep/runs/zammad/20261019T055956Z/redeliver.json",
+      "command": "testinghq redeliver fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --expect-route Users --out sweep/runs/zammad/20261019T075510Z/redeliver.json",
       "exit_code": 3,
       "meaning": "ran, answer was no",
       "artifact": "redeliver.json",
@@ -98,7 +98,7 @@
     {
       "step": "loop",
       "tool": "loop",
-      "command": "testinghq loop fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --out sweep/runs/zammad/20261019T055956Z/loop.json",
+      "command": "testinghq loop fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --out sweep/runs/zammad/20261019T075510Z/loop.json",
       "exit_code": 3,
       "meaning": "ran, answer was no",
       "artifact": "loop.json",
@@ -110,7 +110,7 @@
     {
       "step": "steady",
       "tool": "steady",
-      "command": "testinghq steady fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --out sweep/runs/zammad/20261019T055956Z/steady.json",
+      "command": "testinghq steady fire --config sweep/configs/zammad.toml --target zammad --send --max-wait 240 --quiet-window 60 --out sweep/runs/zammad/20261019T075510Z/steady.json",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": "steady.json",
@@ -122,7 +122,7 @@
     {
       "step": "blast-catalog",
       "tool": "blast",
-      "command": "testinghq blast fire --config sweep/configs/zammad.toml --target zammad --send --catalog --out sweep/runs/zammad/20261019T055956Z/blast-catalog.json",
+      "command": "testinghq blast fire --config sweep/configs/zammad.toml --target zammad --send --catalog --out sweep/runs/zammad/20261019T075510Z/blast-catalog.json",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": "blast-catalog.json",
@@ -146,7 +146,7 @@
     {
       "step": "blast-corpus",
       "tool": "blast",
-      "command": "testinghq blast fire --config sweep/configs/zammad.toml --target zammad --send --corpus sweep/.cache/zammad/test/data/mail --count 100 --out sweep/runs/zammad/20261019T055956Z/blast-corpus.json",
+      "command": "testinghq blast fire --config sweep/configs/zammad.toml --target zammad --send --corpus sweep/.cache/zammad/test/data/mail --count 100 --out sweep/runs/zammad/20261019T075510Z/blast-corpus.json",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": "blast-corpus.json",
@@ -158,7 +158,7 @@
     {
       "step": "barrage",
       "tool": "barrage",
-      "command": "testinghq barrage fire --config sweep/configs/zammad.toml --target zammad --send --rate 5 --duration 60 --out sweep/runs/zammad/20261019T055956Z/barrage.json",
+      "command": "testinghq barrage fire --config sweep/configs/zammad.toml --target zammad --send --rate 5 --duration 60 --out sweep/runs/zammad/20261019T075510Z/barrage.json",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": "barrage.json",

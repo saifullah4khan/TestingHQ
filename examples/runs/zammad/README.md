@@ -29,7 +29,7 @@ search; loop reads Zammad's outbound mail from a Mailpit.
 | [steady](steady.html) | STABLE | 0 | 105 variants, every one in Users: Zammad makes no other decision about a message |
 | [blast --catalog](blast-catalog.html) | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
 | [blast --corpus](blast-corpus.html) | CLEAN | 0 | 99 of Zammad's own test mails accepted over SMTP |
-| [barrage](barrage.html) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 20ms, no errors, no knee |
+| [barrage](barrage.html) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 25ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
@@ -46,4 +46,4 @@ barrage verdicts are about the SMTP hand-off only; whether each message became
 a ticket is what the readback tools check.
 
 Paths in the artifacts are relative to the repository root and point at the
-run directory the sweep wrote, `sweep/runs/zammad/20261019T055956Z/`.
+run directory the sweep wrote, `sweep/runs/zammad/20261019T075510Z/`.

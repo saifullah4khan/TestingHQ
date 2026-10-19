@@ -6,7 +6,7 @@
     "tool": "redeliver",
     "seed": 0,
     "count": 3,
-    "tag_prefix": "hq-2610190604-5901",
+    "tag_prefix": "hq-2610190759-2f23",
     "target": "zammad",
     "readback": {
       "kind": "http",
@@ -88,7 +88,7 @@
     "verdict": "DELIVERY-BUGS",
     "verdict_source": "tool",
     "readback": {
-      "elapsed_s": 84.846,
+      "elapsed_s": 84.838,
       "polls": 26,
       "stable": true,
       "unsettled": false,
@@ -112,11 +112,11 @@
       "strays_searched": false,
       "passed": false,
       "findings": [
-        "hq-2610190604-5901-dup-0-0000: 2 tickets for one message (['73', '72']); a redelivery created a duplicate",
+        "hq-2610190759-2f23-dup-0-0000: 2 tickets for one message (['73', '72']); a redelivery created a duplicate",
         "ticket_created: the system holds 2 records for one message (tickets ['73', '72']); a duplicated message is a real intake bug, not a rounding difference",
-        "hq-2610190604-5901-dup-0-0001: 2 tickets for one message (['75', '74']); a redelivery created a duplicate",
+        "hq-2610190759-2f23-dup-0-0001: 2 tickets for one message (['75', '74']); a redelivery created a duplicate",
         "ticket_created: the system holds 2 records for one message (tickets ['75', '74']); a duplicated message is a real intake bug, not a rounding difference",
-        "hq-2610190604-5901-dup-0-0002: 2 tickets for one message (['77', '76']); a redelivery created a duplicate",
+        "hq-2610190759-2f23-dup-0-0002: 2 tickets for one message (['77', '76']); a redelivery created a duplicate",
         "ticket_created: the system holds 2 records for one message (tickets ['77', '76']); a duplicated message is a real intake bug, not a rounding difference"
       ],
       "missing": [],
@@ -124,9 +124,9 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190604-5901-dup-0-0000",
+          "tag": "hq-2610190759-2f23-dup-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190604-5901-dup-0-0000@hq.example.test",
+          "message_id": "hq-2610190759-2f23-dup-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "73",
@@ -184,9 +184,9 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-dup-0-0001",
+          "tag": "hq-2610190759-2f23-dup-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190604-5901-dup-0-0001@hq.example.test",
+          "message_id": "hq-2610190759-2f23-dup-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
             "75",
@@ -244,9 +244,9 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-dup-0-0002",
+          "tag": "hq-2610190759-2f23-dup-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190604-5901-dup-0-0002@hq.example.test",
+          "message_id": "hq-2610190759-2f23-dup-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
             "77",
@@ -313,11 +313,11 @@
       "strays_searched": false,
       "passed": false,
       "findings": [
-        "hq-2610190604-5901-rty-0-0000: 2 tickets for one message (['81', '78']); a redelivery created a duplicate",
+        "hq-2610190759-2f23-rty-0-0000: 2 tickets for one message (['81', '78']); a redelivery created a duplicate",
         "ticket_created: the system holds 2 records for one message (tickets ['81', '78']); a duplicated message is a real intake bug, not a rounding difference",
-        "hq-2610190604-5901-rty-0-0001: 2 tickets for one message (['82', '79']); a redelivery created a duplicate",
+        "hq-2610190759-2f23-rty-0-0001: 2 tickets for one message (['82', '79']); a redelivery created a duplicate",
         "ticket_created: the system holds 2 records for one message (tickets ['82', '79']); a duplicated message is a real intake bug, not a rounding difference",
-        "hq-2610190604-5901-rty-0-0002: 2 tickets for one message (['83', '80']); a redelivery created a duplicate",
+        "hq-2610190759-2f23-rty-0-0002: 2 tickets for one message (['83', '80']); a redelivery created a duplicate",
         "ticket_created: the system holds 2 records for one message (tickets ['83', '80']); a duplicated message is a real intake bug, not a rounding difference"
       ],
       "missing": [],
@@ -325,9 +325,9 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190604-5901-rty-0-0000",
+          "tag": "hq-2610190759-2f23-rty-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190604-5901-rty-0-0000@hq.example.test",
+          "message_id": "hq-2610190759-2f23-rty-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "81",
@@ -385,9 +385,9 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-rty-0-0001",
+          "tag": "hq-2610190759-2f23-rty-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190604-5901-rty-0-0001@hq.example.test",
+          "message_id": "hq-2610190759-2f23-rty-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
             "82",
@@ -445,9 +445,9 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-rty-0-0002",
+          "tag": "hq-2610190759-2f23-rty-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190604-5901-rty-0-0002@hq.example.test",
+          "message_id": "hq-2610190759-2f23-rty-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
             "83",
@@ -514,18 +514,18 @@
       "strays_searched": false,
       "passed": false,
       "findings": [
-        "hq-2610190604-5901-r1st-0-0001: the reply is on ticket 84 but its original is on 86",
-        "hq-2610190604-5901-r1st-0-0002: the reply is on ticket 85 but its original is on 86"
+        "hq-2610190759-2f23-r1st-0-0001: the reply is on ticket 84 but its original is on 86",
+        "hq-2610190759-2f23-r1st-0-0002: the reply is on ticket 85 but its original is on 86"
       ],
       "missing": [],
       "not_checked": [],
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190604-5901-r1st-0-0001",
+          "tag": "hq-2610190759-2f23-r1st-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190604-5901-r1st-0-0001@hq.example.test",
-          "replies_to": "hq-2610190604-5901-r1st-0-0000",
+          "message_id": "hq-2610190759-2f23-r1st-0-0001@hq.example.test",
+          "replies_to": "hq-2610190759-2f23-r1st-0-0000",
           "tickets": [
             "84"
           ],
@@ -597,10 +597,10 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-r1st-0-0002",
+          "tag": "hq-2610190759-2f23-r1st-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190604-5901-r1st-0-0002@hq.example.test",
-          "replies_to": "hq-2610190604-5901-r1st-0-0000",
+          "message_id": "hq-2610190759-2f23-r1st-0-0002@hq.example.test",
+          "replies_to": "hq-2610190759-2f23-r1st-0-0000",
           "tickets": [
             "85"
           ],
@@ -672,9 +672,9 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-r1st-0-0000",
+          "tag": "hq-2610190759-2f23-r1st-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190604-5901-r1st-0-0000@hq.example.test",
+          "message_id": "hq-2610190759-2f23-r1st-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "86"
@@ -750,9 +750,9 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190604-5901-ref-0-0000",
+          "tag": "hq-2610190759-2f23-ref-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190604-5901-ref-0-0000@hq.example.test",
+          "message_id": "hq-2610190759-2f23-ref-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "87"
@@ -809,10 +809,10 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-ref-0-0001",
+          "tag": "hq-2610190759-2f23-ref-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190604-5901-ref-0-0001@hq.example.test",
-          "replies_to": "hq-2610190604-5901-ref-0-0000",
+          "message_id": "hq-2610190759-2f23-ref-0-0001@hq.example.test",
+          "replies_to": "hq-2610190759-2f23-ref-0-0000",
           "tickets": [
             "87"
           ],
@@ -884,10 +884,10 @@
           ]
         },
         {
-          "tag": "hq-2610190604-5901-ref-0-0002",
+          "tag": "hq-2610190759-2f23-ref-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190604-5901-ref-0-0002@hq.example.test",
-          "replies_to": "hq-2610190604-5901-ref-0-0001",
+          "message_id": "hq-2610190759-2f23-ref-0-0002@hq.example.test",
+          "replies_to": "hq-2610190759-2f23-ref-0-0001",
           "tickets": [
             "87"
           ],
