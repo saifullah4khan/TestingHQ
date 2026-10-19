@@ -33,12 +33,13 @@ each Communication through Frappe's REST API. The site mutes outgoing mail.
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
 
-The two Frappe findings and one observation, with what was sent, what was
+The three Frappe findings and one observation, with what was sent, what was
 stored and how to reproduce each, are in
 [handoffs/SWEEP_FINDINGS_frappe.md](../../../handoffs/SWEEP_FINDINGS_frappe.md):
-a JPEG Pillow cannot read loses the whole email, a reply that arrives before
-its original is never threaded, and new mail with an open ticket's subject and
-sender joins that ticket.
+an attachment Pillow or pypdf cannot read loses the whole email, a reply that
+arrives before its original is never threaded, a sender with a quoted local
+part loses the whole email (traced from the corpus run's error log), and new
+mail with an open ticket's subject and sender joins that ticket.
 
 redeliver runs at `--seed 7` (`SWEEP_ARGS_REDELIVER` in
 `sweep/profiles/frappe.env`): at seed 0 every scenario's original carries a

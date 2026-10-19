@@ -15,7 +15,10 @@ bash sweep/setup/frappe.sh
 set -a; . sweep/.env.frappe; set +a
 ```
 
-Two findings are Frappe's, and one behaviour is recorded as an observation.
+Three findings are Frappe's, and one behaviour is recorded as an observation:
+findings 1 and 2 below come from the published run, and finding 3 from the
+corpus errors traced afterwards (section A at the end). Section B there is
+finding 1 again, with pypdf in place of Pillow.
 The receive errors the published run left untraced were traced afterwards on
 a fresh stack; they are in the section after the observation.
 
@@ -44,6 +47,9 @@ a fresh stack; they are in the section after the observation.
   are ordinary in real mail (a broken client, a size limit somewhere on the
   way); here the image is synthetic, which is the trigger, and the loss of the
   message is the bug.
+- The same happens with a PDF that pypdf cannot read (section B at the end):
+  any content check Frappe runs on an attachment takes the message down with
+  it when its parser raises.
 
 ## 2. A reply that arrives before its original is never threaded
 
@@ -117,7 +123,7 @@ Communication. The errors carry no tag or Message-ID, so they were matched to
 their files by the address in the message, by the attachment, and by pull
 order (Frappe files a pull in arrival order). Both causes are Frappe's.
 
-### A. A sender address Frappe will not accept loses the whole email
+### A. Finding 3: a sender address Frappe will not accept loses the whole email
 
 - Sent, with the error each left:
 
