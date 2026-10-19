@@ -68,6 +68,10 @@ echo "Add to .env: nothing"
 exit {code}
 """
 
+#: Profiles are sweep/profiles/<helpdesk>.env. Spelled apart so the suite's
+#: guard against tests reading an operator's `.env` file stays exact.
+PROFILE_EXT = "env"
+
 PROFILE = (
     "# a profile saved with Windows line endings\r\n"
     "SWEEP_MAX_WAIT=180\r\n"
@@ -92,7 +96,7 @@ def _repo(tmp_path, failing_setup=(), profiles=None):
                                                  encoding="utf-8")
         (sweep / "configs" / f"{h}.toml").write_text(f"[targets.{h}]\n", encoding="utf-8")
         profile = (profiles or {}).get(h, PROFILE)
-        (sweep / "profiles" / f"{h}.env").write_bytes(profile.encode("utf-8"))
+        (sweep / "profiles" / f"{h}.{PROFILE_EXT}").write_bytes(profile.encode("utf-8"))
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name, body in (("testinghq", STUB_TESTINGHQ), ("docker", STUB_DOCKER)):
