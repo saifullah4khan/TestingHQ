@@ -7,7 +7,7 @@
     "tool": "steady",
     "seed": 0,
     "count": 6,
-    "tag_prefix": "hq-2610190302-f3f0",
+    "tag_prefix": "hq-2610190315-30c5",
     "target": "pipeline",
     "readback": {
       "kind": "http",
@@ -238,7 +238,7 @@
     "sent": 105,
     "unsettled": false,
     "readback": {
-      "elapsed_s": 4.722,
+      "elapsed_s": 4.7,
       "polls": 2,
       "stable": true,
       "unsettled": false,

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "helpdesk": "mailpit",
-  "started": "2026-10-19T03:01:28Z",
-  "finished": "2026-10-19T03:03:39Z",
+  "started": "2026-10-19T03:15:16Z",
+  "finished": "2026-10-19T03:17:27Z",
   "testinghq_version": "1.0.0",
-  "config": "sweep/runs/mailpit/20261019T030128Z/config.toml",
+  "config": "sweep/runs/mailpit/20261019T031516Z/config.toml",
   "target": "pipeline",
   "settings": {
     "SWEEP_ARGS_REDELIVER": "--scenario duplicate --scenario slow-retry --retry-after 5",
@@ -18,6 +18,9 @@
   "completed_exit_codes": [
     0,
     3
+  ],
+  "notes": [
+    "readback tools (verify, ledger, redeliver, loop, steady) run first, while the helpdesk holds only their own tagged mail; blast, the corpus and barrage follow, barrage last since ingestion may lag its load; report reads only the artifacts"
   ],
   "steps": [
     {
@@ -47,7 +50,7 @@
     {
       "step": "pipeline-start",
       "tool": "harness",
-      "command": "python sweep/mailpit_pipeline.py --port 8000 --smtp-port 1025 --outbound sweep/runs/mailpit/20261019T030128Z/outbound.jsonl",
+      "command": "python sweep/mailpit_pipeline.py --port 8000 --smtp-port 1025 --outbound sweep/runs/mailpit/20261019T031516Z/outbound.jsonl",
       "exit_code": 0,
       "meaning": "completed",
       "artifact": null,
@@ -59,7 +62,7 @@
     {
       "step": "config-validate",
       "tool": "config",
-      "command": "testinghq config validate sweep/runs/mailpit/20261019T030128Z/config.toml",
+      "command": "testinghq config validate sweep/runs/mailpit/20261019T031516Z/config.toml",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": null,
@@ -69,9 +72,69 @@
       "skipped": null
     },
     {
+      "step": "verify",
+      "tool": "verify",
+      "command": "testinghq verify fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T031516Z/verify.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "verify.json",
+      "html": "verify.html",
+      "report_exit_code": 0,
+      "log": "verify.log",
+      "skipped": null
+    },
+    {
+      "step": "ledger",
+      "tool": "ledger",
+      "command": "testinghq ledger fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T031516Z/ledger.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "ledger.json",
+      "html": "ledger.html",
+      "report_exit_code": 0,
+      "log": "ledger.log",
+      "skipped": null
+    },
+    {
+      "step": "redeliver",
+      "tool": "redeliver",
+      "command": "testinghq redeliver fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T031516Z/redeliver.json --scenario duplicate --scenario slow-retry --retry-after 5",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "redeliver.json",
+      "html": "redeliver.html",
+      "report_exit_code": 0,
+      "log": "redeliver.log",
+      "skipped": null
+    },
+    {
+      "step": "loop",
+      "tool": "loop",
+      "command": "testinghq loop fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T031516Z/loop.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "loop.json",
+      "html": "loop.html",
+      "report_exit_code": 0,
+      "log": "loop.log",
+      "skipped": null
+    },
+    {
+      "step": "steady",
+      "tool": "steady",
+      "command": "testinghq steady fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T031516Z/steady.json",
+      "exit_code": 0,
+      "meaning": "ran, answer was yes",
+      "artifact": "steady.json",
+      "html": "steady.html",
+      "report_exit_code": 0,
+      "log": "steady.log",
+      "skipped": null
+    },
+    {
       "step": "blast-catalog",
       "tool": "blast",
-      "command": "testinghq blast fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --catalog --out sweep/runs/mailpit/20261019T030128Z/blast-catalog.json",
+      "command": "testinghq blast fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --catalog --out sweep/runs/mailpit/20261019T031516Z/blast-catalog.json",
       "exit_code": 3,
       "meaning": "ran, answer was no",
       "artifact": "blast-catalog.json",
@@ -93,69 +156,9 @@
       "skipped": "SWEEP_CORPUS=0"
     },
     {
-      "step": "verify",
-      "tool": "verify",
-      "command": "testinghq verify fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T030128Z/verify.json",
-      "exit_code": 0,
-      "meaning": "ran, answer was yes",
-      "artifact": "verify.json",
-      "html": "verify.html",
-      "report_exit_code": 0,
-      "log": "verify.log",
-      "skipped": null
-    },
-    {
-      "step": "ledger",
-      "tool": "ledger",
-      "command": "testinghq ledger fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T030128Z/ledger.json",
-      "exit_code": 0,
-      "meaning": "ran, answer was yes",
-      "artifact": "ledger.json",
-      "html": "ledger.html",
-      "report_exit_code": 0,
-      "log": "ledger.log",
-      "skipped": null
-    },
-    {
-      "step": "redeliver",
-      "tool": "redeliver",
-      "command": "testinghq redeliver fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T030128Z/redeliver.json --scenario duplicate --scenario slow-retry --retry-after 5",
-      "exit_code": 0,
-      "meaning": "ran, answer was yes",
-      "artifact": "redeliver.json",
-      "html": "redeliver.html",
-      "report_exit_code": 0,
-      "log": "redeliver.log",
-      "skipped": null
-    },
-    {
-      "step": "loop",
-      "tool": "loop",
-      "command": "testinghq loop fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T030128Z/loop.json",
-      "exit_code": 0,
-      "meaning": "ran, answer was yes",
-      "artifact": "loop.json",
-      "html": "loop.html",
-      "report_exit_code": 0,
-      "log": "loop.log",
-      "skipped": null
-    },
-    {
-      "step": "steady",
-      "tool": "steady",
-      "command": "testinghq steady fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --max-wait 60 --quiet-window 3 --readback-rate 50 --out sweep/runs/mailpit/20261019T030128Z/steady.json",
-      "exit_code": 0,
-      "meaning": "ran, answer was yes",
-      "artifact": "steady.json",
-      "html": "steady.html",
-      "report_exit_code": 0,
-      "log": "steady.log",
-      "skipped": null
-    },
-    {
       "step": "barrage",
       "tool": "barrage",
-      "command": "testinghq barrage fire --config sweep/runs/mailpit/20261019T030128Z/config.toml --target pipeline --send --rate 5 --duration 60 --out sweep/runs/mailpit/20261019T030128Z/barrage.json",
+      "command": "testinghq barrage fire --config sweep/runs/mailpit/20261019T031516Z/config.toml --target pipeline --send --rate 5 --duration 60 --out sweep/runs/mailpit/20261019T031516Z/barrage.json",
       "exit_code": 0,
       "meaning": "ran, answer was yes",
       "artifact": "barrage.json",
