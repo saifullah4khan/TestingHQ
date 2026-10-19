@@ -4,7 +4,8 @@ Fuzz, load-test and verify your inbound email webhook. Catches lost, duplicated,
 mis-threaded and looped mail that a 200 OK hides.
 
 TestingHQ posts provider-shaped inbound email (SendGrid, Mailgun, Postmark or raw
-MIME) at a webhook you run, then asks your system what it actually made of each
+MIME) at a webhook you run, or hands it over SMTP to the mail server your
+pipeline fetches from, then asks your system what it actually made of each
 message.
 
 ## What it catches
@@ -65,6 +66,8 @@ testinghq report ledger.json --html report.html
 Every command is a dry run until you pass `--send`. Records are read with the
 field names in [docs/CONFIG.md](docs/CONFIG.md) unless `[readback.fields]` maps them; an unknown config key is refused (exit 1) with the closest known one.
 A target's `format` picks the wire format: `sendgrid` (default), `sendgrid-raw`, `mailgun`, `postmark` or `mime`; see [docs/FORMATS.md](docs/FORMATS.md).
+A target with `transport = "smtp"` and a `host` is a mail server instead, for a pipeline that fetches mail (Zammad, FreeScout, a POP3 or IMAP poller): every tool hands it the `mime` bytes in one SMTP transaction.
+`[targets.<name>.headers]` adds headers to every send, such as Basic auth for an endpoint behind it; values are `env:` references, and `testinghq config basic-auth <user>` prints the line for `.env`.
 
 ## What a finding looks like
 
@@ -107,7 +110,7 @@ Every tool uses the same four codes. `report` exits 0 whenever it could read the
 ## The tools
 
 **Blast.** Fires a seeded corpus (clean, messy, multilingual, malformed, degenerate) with one to three clean attachments on about a third of payloads (`--attachments none|seeded|adversarial`).
-`--mix clean=20,messy=40,...` sets the category percentages; `--catalog` fires the named edge cases instead, all of them or a comma-separated list.
+`--mix clean=20,messy=40,...` sets the category percentages; `--catalog` fires the named edge cases instead, all of them or a comma-separated list; `--corpus <dir>` fires a directory of real `.eml` or `.box` messages, tagged the same way and re-addressed to synthetic domains, with `--count` capping the files used.
 A 5xx or no response is flagged in every category, and a missing response says why (refused, DNS, timeout, TLS, other). `--fail-on-body REGEX` flags a 2xx whose body reports failure.
 The same seed and options rebuild a byte-identical corpus, and `blast replay` re-fires it.
 
@@ -219,17 +222,28 @@ every lookup was a 404 is READBACK FAILED (exit 3): the url is almost certainly 
 reported as lost. For a slow or async pipeline, raise `--quiet-window` above its worst processing
 latency. Lookups retry 429, 5xx and timeouts with backoff, honour `Retry-After`, and are paced to
 `--readback-rate` (default 4 per second). A public readback host needs `--allow-public-readback`.
-Recipes for Zendesk, Freshdesk, Mailpit, Chatwoot, a generic REST API and a mail sink are in
-[examples/readback/](examples/readback/).
+Recipes for Zendesk, Freshdesk, Mailpit, Chatwoot, osTicket, Zammad, FreeScout, Frappe Helpdesk,
+a generic REST API and a mail sink are in [examples/readback/](examples/readback/). The Mailpit
+recipe's run, every tool's artifact and HTML report against Mailpit and the demo pipeline, is in
+[examples/runs/mailpit/](examples/runs/mailpit/).
+
+## The helpdesk sweep
+
+[sweep/](sweep/README.md) runs every tool against Chatwoot, osTicket, Zammad, FreeScout and Frappe
+Helpdesk in Docker, one command each: `sweep/run.sh zammad` starts the helpdesk, creates its
+account, inbox and API token, fires every tool at it, renders every report and writes a
+`summary.json` of each step's exit code. `sweep/run.sh mailpit` needs no Docker. The sweep ships
+in the source distribution, not the wheel.
 
 ## Responsible use
 
-TestingHQ is for endpoints you own or are authorised to test. It never sends
-email: it POSTs webhook payloads, and every address in them is on a reserved
-example domain.
+TestingHQ is for endpoints you own or are authorised to test. It never
+delivers mail to a real inbox: it POSTs webhook payloads, or hands messages to
+the mail server a `transport = "smtp"` target names, and every address in them
+is on a reserved example domain.
 
 - Dry run is the default; every run that sends needs `--send`. Only a target declared in `[targets.<name>]` can be fired at.
-- A public host needs `--allow-public-target`; Barrage at a public host also needs `public = true` on the target.
+- A public host, HTTP or SMTP, needs `--allow-public-target`; Barrage at a public host also needs `public = true` on the target.
 - Every send is rate limited, and Barrage has hard ceilings.
 
 See [docs/SECURITY.md](docs/SECURITY.md) for the full model and how to report a vulnerability.
@@ -243,6 +257,8 @@ See [docs/SECURITY.md](docs/SECURITY.md) for the full model and how to report a 
 - [docs/DOGFOOD.md](docs/DOGFOOD.md): running against a real staging deployment
 - [docs/ROADMAP.md](docs/ROADMAP.md): goals, timeline and what comes after 1.0
 - [examples/README.md](examples/README.md): the demo scripts and sample configs
+- [examples/runs/mailpit/](examples/runs/mailpit/): a published run of every tool against Mailpit
+- [sweep/README.md](sweep/README.md): the helpdesk sweep, one command per helpdesk
 - [CHANGELOG.md](CHANGELOG.md) and [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
