@@ -214,6 +214,20 @@ def test_like_wildcards_in_a_tag_match_only_that_tag(store):
     assert [record.tag for record in found] == ["hq-a_b-7-0000"]
 
 
+def test_a_threaded_reply_reads_back_its_own_subject_from_its_headers(store):
+    """osTicket keeps no title on a reply it threads onto a ticket. The
+    reply's Subject is in its stored headers, and the ticket's subject is the
+    original's, which the reply was never sent with."""
+    original, _ = _send(store, index=0)
+    reply, reply_email = _send(
+        store, index=1, tag=make_tag("hq-test", 7, 1),
+        in_reply_to=f"<{original.message_id}>", references=f"<{original.message_id}>",
+    )
+    [record] = _adapter(store).fetch(reply)
+    assert record.subject == reply_email.subject
+    assert record.subject != CORPUS[0].subject
+
+
 def test_the_ticket_subject_is_used_when_the_entry_has_no_title(store):
     probe, email = _send(store, index=0)
     _sql(store, "UPDATE ost_thread_entry SET title = NULL")
