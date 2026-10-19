@@ -75,6 +75,13 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   the duplicate ones, which count copies, and not the threading ones, which
   need a ticket store.
 
+### Fixed
+
+- The `mime` format writes a `message/*` attachment (an embedded message, a
+  delivery or disposition report) as a structured part instead of base64, so
+  a bounce read by `blast --corpus` builds and is sent rather than being
+  recorded as unparseable.
+
 ## [1.0.0] - 2026-10-15
 
 The first published release.
