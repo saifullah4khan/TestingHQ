@@ -1,0 +1,2317 @@
+{
+  "schema_version": 1,
+  "tool": "verify",
+  "seed": 0,
+  "config": {
+    "tool": "verify",
+    "seed": 0,
+    "count": 20,
+    "tag_prefix": "hq-2610190809-3076",
+    "target": "freescout",
+    "readback": {
+      "kind": "examples.readback.adapters.freescout_mysql:FreescoutMysqlAdapter",
+      "url": null,
+      "path": null,
+      "tag_param": "tag",
+      "items_key": "items",
+      "timeout": 10.0,
+      "field_map": {
+        "ticket_id": "id",
+        "from_addr": "from",
+        "subject": "subject",
+        "body": "body",
+        "attachment_names": "attachments",
+        "route": "route",
+        "message_id": "message_id",
+        "in_reply_to": "in_reply_to",
+        "references": "references",
+        "tag": "tag",
+        "category": "category",
+        "priority": "priority"
+      },
+      "unmapped_fields": [],
+      "spec": "examples.readback.adapters.freescout_mysql:FreescoutMysqlAdapter",
+      "list_path": null,
+      "enumerate": true,
+      "headers": [],
+      "query": null,
+      "method": "GET",
+      "body": null,
+      "page_param": null,
+      "page_size_param": null,
+      "next_path": null,
+      "max_pages": 10,
+      "retry_max": 5,
+      "retry_base_seconds": 0.5,
+      "rate": 4.0
+    },
+    "expect_route": "support@freescout.test",
+    "body_exact": false,
+    "subject_match": "contains",
+    "attachment_match": "exact",
+    "readback_poll": {
+      "quiet_window": 90.0,
+      "max_wait": 300.0,
+      "max_wait_source": "given",
+      "poll_interval": 0.5
+    },
+    "format": "mime",
+    "allow_public_target": false,
+    "transport": "smtp",
+    "dry_run": false
+  },
+  "summary": {
+    "sent": 20,
+    "found": 20,
+    "verified": 16,
+    "failed": 4,
+    "transport_unanswered": 0,
+    "transport_non_2xx": 0,
+    "checks_passed_by_name": {
+      "ticket_created": 20,
+      "sender": 20,
+      "subject": 20,
+      "body": 20,
+      "attachments": 5,
+      "routing": 20
+    },
+    "checks_skipped_by_reason": {
+      "no record found": {},
+      "adapter cannot see field": {},
+      "nothing to check": {
+        "attachments": 11
+      },
+      "no expected route": {}
+    },
+    "unsettled": false,
+    "readback": {
+      "elapsed_s": 103.193,
+      "polls": 196,
+      "stable": true,
+      "unsettled": false,
+      "verdict": null,
+      "budget_exhausted": false,
+      "complete_polls": 196,
+      "cause": null,
+      "missing_tags": [],
+      "partial_tags": [],
+      "all_404": false,
+      "headline": null,
+      "detail": null
+    },
+    "verdict": "MISMATCHED",
+    "verdict_source": "tool"
+  },
+  "records": [
+    {
+      "id": "clean-0-0000",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0000",
+      "message_id": "hq-2610190809-3076-0-0000@hq.example.test",
+      "payload_sha256": "55e566b8c0bd0d1123cc47916b85492aa79ee9a8f5cc94e702123ea1aac57611",
+      "intended": {
+        "sender": "grace.brown@internal.localhost",
+        "subject": "Onboarding - action needed",
+        "body_core": "This message is about onboarding. Looking forward to your reply.",
+        "attachments": [
+          "invoice4.jpg"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.59079999150708,
+        "body_snippet": "2.0.0 Ok: queued as 1792397387.M555952P1Q1.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "10",
+          "from_addr": "grace.brown@internal.localhost",
+          "subject": "Onboarding - action needed",
+          "body": "<div dir=\"ltr\"><div>Hey Grace,</div><div><br></div><div>This message is about onboarding. Looking forward to your reply.</div><div><br></div><div>Best regards,<br>Grace</div></div>",
+          "attachment_names": [
+            "invoice4.jpg"
+          ],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0000@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0000",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0000",
+        "tag": "hq-2610190809-3076-0-0000",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 10",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace.brown@internal.localhost",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "passed",
+            "detail": "all 1 attachment(s) present (match: exact)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0001",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0001",
+      "message_id": "hq-2610190809-3076-0-0001@hq.example.test",
+      "payload_sha256": "251cdc6e6dca3d4bf1e5db7ba2a2bb15cf650d042f7585c07570fd78b36f37df",
+      "intended": {
+        "sender": "bmuller19@example.com",
+        "subject": "Update on the Z\u00fcrich office move",
+        "body_core": "This message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.91769999614917,
+        "body_snippet": "2.0.0 Ok: queued as 1792397387.M631686P1Q2.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "14",
+          "from_addr": "bmuller19@example.com",
+          "subject": "Update on the Z\u00fcrich office move",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">This message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.</p><p class=\"MsoNormal\">Best,<br>Bob</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0001@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0001",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0001",
+        "tag": "hq-2610190809-3076-0-0001",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 14",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bmuller19@example.com",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0002",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0002",
+      "message_id": "hq-2610190809-3076-0-0002@hq.example.test",
+      "payload_sha256": "31b0550cf2cffde468575f80dc8b5fde73e015d618ef565ebcbfab3d7d46ddee",
+      "intended": {
+        "sender": "ivan.chen@example.net",
+        "subject": "The renewal",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 62.3077999916859,
+        "body_snippet": "2.0.0 Ok: queued as 1792397387.M695393P1Q3.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "9",
+          "from_addr": "ivan.chen@example.net",
+          "subject": "The renewal",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.</p><p class=\"MsoNormal\">Best regards,<br>Ivan</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0002@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0002",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0002",
+        "tag": "hq-2610190809-3076-0-0002",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 9",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as ivan.chen@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0003",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0003",
+      "message_id": "hq-2610190809-3076-0-0003@hq.example.test",
+      "payload_sha256": "617396c5fc13621a3019a0bd1ca78c044cb2677c55755d7c09eebcf06e87593e",
+      "intended": {
+        "sender": "heidis24@example.net",
+        "subject": "Re: the contract",
+        "body_core": "This message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.",
+        "attachments": [
+          "scan7138.csv"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.05530001758598,
+        "body_snippet": "2.0.0 Ok: queued as 1792397387.M771838P1Q4.08dda54f4972"
+      },
+      "assertion": {
+        "passed": false,
+        "mismatches": [
+          "attachments: the system stored 0 attachment(s): missing ['scan7138.csv'] (match: exact)"
+        ]
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "5",
+          "from_addr": "heidis24@example.net",
+          "subject": "Re: the contract",
+          "body": "<div dir=\"ltr\"><div>Hello Oscar,</div><div><br></div><div>This message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.</div><div><br></div><div>Thanks,<br>Heidi</div></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0003@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0003",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0003",
+        "tag": "hq-2610190809-3076-0-0003",
+        "found": true,
+        "passed": false,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 5",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as heidis24@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "failed",
+            "detail": "the system stored 0 attachment(s): missing ['scan7138.csv'] (match: exact)",
+            "expected": [
+              "scan7138.csv"
+            ],
+            "actual": [],
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0004",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0004",
+      "message_id": "hq-2610190809-3076-0-0004@hq.example.test",
+      "payload_sha256": "0a169e4907fa6dff8a8ccdc7496c7b1415a160d59f47414cf5f787b205edcc81",
+      "intended": {
+        "sender": "bjones@example.edu",
+        "subject": "Quick question about onboarding",
+        "body_core": "I am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 79.83919998514466,
+        "body_snippet": "2.0.0 Ok: queued as 1792397387.M852297P1Q5.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "6",
+          "from_addr": "bjones@example.edu",
+          "subject": "Quick question about onboarding",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hey Alice,</p><p class=\"MsoNormal\">I am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.</p><p class=\"MsoNormal\">Cheers,<br>Bob</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0004@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0004",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0004",
+        "tag": "hq-2610190809-3076-0-0004",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 6",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bjones@example.edu",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0005",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0005",
+      "message_id": "hq-2610190809-3076-0-0005@hq.example.test",
+      "payload_sha256": "97f71c83042fdaae8596e53d95ca6f7dbf9dc91e795d63b6dfa1596db21ffa99",
+      "intended": {
+        "sender": "flee@internal.localhost",
+        "subject": "Re: the quarterly report",
+        "body_core": "Quick note regarding the quarterly report. Let me know if the timeline still works for you.",
+        "attachments": [
+          "report9736.csv",
+          "export3305.txt"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 74.22349997796118,
+        "body_snippet": "2.0.0 Ok: queued as 1792397387.M928071P1Q6.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "19",
+          "from_addr": "flee@internal.localhost",
+          "subject": "Re: the quarterly report",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the quarterly report. Let me know if the timeline still works for you.</p><p class=\"MsoNormal\">Sincerely,<br>Frank</p></div>",
+          "attachment_names": [
+            "report9736.csv",
+            "export3305.txt"
+          ],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0005@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0005",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0005",
+        "tag": "hq-2610190809-3076-0-0005",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 19",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as flee@internal.localhost",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "passed",
+            "detail": "all 2 attachment(s) present (match: exact)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0006",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0006",
+      "message_id": "hq-2610190809-3076-0-0006@hq.example.test",
+      "payload_sha256": "6ddb9d4d154d96192642188d879d6d353ceb4a9ce13ac5a3ff8542ecc8a8dd03",
+      "intended": {
+        "sender": "grace.jones@example.org",
+        "subject": "Your order",
+        "body_core": "I am writing about your order. This relates to what we discussed last week.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 73.80389998434111,
+        "body_snippet": "2.0.0 Ok: queued as 1792397388.M003648P1Q7.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "11",
+          "from_addr": "grace.jones@example.org",
+          "subject": "Your order",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hey Oscar,</p><p class=\"MsoNormal\">I am writing about your order. This relates to what we discussed last week.</p><p class=\"MsoNormal\">Best,<br>Grace</p><p class=\"MsoNormal\">--<br>Grace Jones<br>+1 555 0103</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0006@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0006",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0006",
+        "tag": "hq-2610190809-3076-0-0006",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 11",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace.jones@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0007",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0007",
+      "message_id": "hq-2610190809-3076-0-0007@hq.example.test",
+      "payload_sha256": "f0e3e260c8e3839e0197effca6c36f8cdcce82a450dc0db60e6ba5b614f4e564",
+      "intended": {
+        "sender": "carol_brown@widgets.example",
+        "subject": "Following up on the support ticket",
+        "body_core": "This message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.",
+        "attachments": [
+          "scan790.pdf",
+          "report2519.png"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.080699988640845,
+        "body_snippet": "2.0.0 Ok: queued as 1792397388.M135773P1Q8.08dda54f4972"
+      },
+      "assertion": {
+        "passed": false,
+        "mismatches": [
+          "attachments: the system stored 0 attachment(s): missing ['report2519.png', 'scan790.pdf'] (match: exact)"
+        ]
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "17",
+          "from_addr": "carol_brown@widgets.example",
+          "subject": "Following up on the support ticket",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hi Oscar,</p><p class=\"MsoNormal\">This message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.</p><p class=\"MsoNormal\">Best regards,<br>Carol</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0007@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0007",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0007",
+        "tag": "hq-2610190809-3076-0-0007",
+        "found": true,
+        "passed": false,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 17",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as carol_brown@widgets.example",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "failed",
+            "detail": "the system stored 0 attachment(s): missing ['report2519.png', 'scan790.pdf'] (match: exact)",
+            "expected": [
+              "report2519.png",
+              "scan790.pdf"
+            ],
+            "actual": [],
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0008",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0008",
+      "message_id": "hq-2610190809-3076-0-0008@hq.example.test",
+      "payload_sha256": "d5d6bfd6d2435f6a2beb861dfea38d5685d5b1b16b08ab5d7950cfc5f28d8e04",
+      "intended": {
+        "sender": "emuller@example.net",
+        "subject": "Quick question about the invoice",
+        "body_core": "I have a question about the invoice. Let me know if the timeline still works for you.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.89819998526946,
+        "body_snippet": "2.0.0 Ok: queued as 1792397388.M335763P1Q9.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "7",
+          "from_addr": "emuller@example.net",
+          "subject": "Quick question about the invoice",
+          "body": "<div dir=\"ltr\"><div>Hello Alice,</div><div><br></div><div>I have a question about the invoice. Let me know if the timeline still works for you.</div><div><br></div><div>Best regards,<br>Erin</div></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0008@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0008",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0008",
+        "tag": "hq-2610190809-3076-0-0008",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 7",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as emuller@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0009",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0009",
+      "message_id": "hq-2610190809-3076-0-0009@hq.example.test",
+      "payload_sha256": "4292ca83b6f9432324766685743f1253842afb133a7231033bcba52e684bce12",
+      "intended": {
+        "sender": "grace_chen@example.org",
+        "subject": "The renewal - action needed",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 61.23130000196397,
+        "body_snippet": "2.0.0 Ok: queued as 1792397388.M543816P1Q10.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "20",
+          "from_addr": "grace_chen@example.org",
+          "subject": "The renewal - action needed",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">Quick note regarding the renewal. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Best,<br>Grace</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0009@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0009",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0009",
+        "tag": "hq-2610190809-3076-0-0009",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 20",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace_chen@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0010",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0010",
+      "message_id": "hq-2610190809-3076-0-0010@hq.example.test",
+      "payload_sha256": "39efbd9c6535ca43d16cf39e98395e6d83a3bcd2bc6fe10ffb4b9e27131916fc",
+      "intended": {
+        "sender": "frank.garcia@example.com",
+        "subject": "The shipment - action needed",
+        "body_core": "Following up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.",
+        "attachments": [
+          "receipt7716.png"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 61.44500002847053,
+        "body_snippet": "2.0.0 Ok: queued as 1792397388.M743460P1Q11.08dda54f4972"
+      },
+      "assertion": {
+        "passed": false,
+        "mismatches": [
+          "attachments: the system stored 0 attachment(s): missing ['receipt7716.png'] (match: exact)"
+        ]
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "2",
+          "from_addr": "frank.garcia@example.com",
+          "subject": "The shipment - action needed",
+          "body": "<div dir=\"ltr\"><div>Hey Dave,</div><div><br></div><div>Following up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.</div><div><br></div><div>Best,<br>Frank</div></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0010@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0010",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0010",
+        "tag": "hq-2610190809-3076-0-0010",
+        "found": true,
+        "passed": false,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 2",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as frank.garcia@example.com",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "failed",
+            "detail": "the system stored 0 attachment(s): missing ['receipt7716.png'] (match: exact)",
+            "expected": [
+              "receipt7716.png"
+            ],
+            "actual": [],
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0011",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0011",
+      "message_id": "hq-2610190809-3076-0-0011@hq.example.test",
+      "payload_sha256": "df065c2c6bd8dd56add052f3f4ebf23619d32c40f7543f2620f553998bd6fa77",
+      "intended": {
+        "sender": "bob_brown15@corp.example.invalid",
+        "subject": "Update on the shipment",
+        "body_core": "Quick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 53.766500001074746,
+        "body_snippet": "2.0.0 Ok: queued as 1792397388.M935553P1Q12.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "15",
+          "from_addr": "bob_brown15@corp.example.invalid",
+          "subject": "Update on the shipment",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hello Dave,</p><p class=\"MsoNormal\">Quick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.</p><p class=\"MsoNormal\">Thanks,<br>Bob</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0011@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0011",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0011",
+        "tag": "hq-2610190809-3076-0-0011",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 15",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bob_brown15@corp.example.invalid",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0012",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0012",
+      "message_id": "hq-2610190809-3076-0-0012@hq.example.test",
+      "payload_sha256": "2693cadf1a4d5c15aab30a35cfe66d252210433d592cb2d67e810570194c5cd4",
+      "intended": {
+        "sender": "fmuller@example.com",
+        "subject": "Re: the contract",
+        "body_core": "I am writing about the contract. Can you confirm receipt of this message?",
+        "attachments": [
+          "attachment1858.txt"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 64.92669999715872,
+        "body_snippet": "2.0.0 Ok: queued as 1792397389.M147754P1Q13.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "3",
+          "from_addr": "fmuller@example.com",
+          "subject": "Re: the contract",
+          "body": "<div dir=\"ltr\"><div>Dear team,</div><div><br></div><div>I am writing about the contract. Can you confirm receipt of this message?</div><div><br></div><div>Thanks,<br>Frank</div><div><br></div><div>--<br>Frank Muller<br>+1 555 0141</div></div>",
+          "attachment_names": [
+            "attachment1858.txt"
+          ],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0012@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0012",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0012",
+        "tag": "hq-2610190809-3076-0-0012",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 3",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as fmuller@example.com",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "passed",
+            "detail": "all 1 attachment(s) present (match: exact)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0013",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0013",
+      "message_id": "hq-2610190809-3076-0-0013@hq.example.test",
+      "payload_sha256": "90318f753e60d2a2744228b587c8b8a5f2be584161abd2f1d41d88ce02c3d212",
+      "intended": {
+        "sender": "judy@corp.example.invalid",
+        "subject": "Re: the quarterly report",
+        "body_core": "I have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 65.24510000599548,
+        "body_snippet": "2.0.0 Ok: queued as 1792397389.M347559P1Q14.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "16",
+          "from_addr": "judy@corp.example.invalid",
+          "subject": "Re: the quarterly report",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Good morning,</p><p class=\"MsoNormal\">I have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.</p><p class=\"MsoNormal\">Best regards,<br>Judy</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0013@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0013",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0013",
+        "tag": "hq-2610190809-3076-0-0013",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 16",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as judy@corp.example.invalid",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0014",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0014",
+      "message_id": "hq-2610190809-3076-0-0014@hq.example.test",
+      "payload_sha256": "e51f5c99900ec25b0b5ad379f57db4df5033c5b2e09c3ea7b9f26b0791357811",
+      "intended": {
+        "sender": "aliceb@example.org",
+        "subject": "Re: your order",
+        "body_core": "I am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.",
+        "attachments": [
+          "form8971.csv",
+          "report9290.docx"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 65.02700000419281,
+        "body_snippet": "2.0.0 Ok: queued as 1792397389.M547708P1Q15.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "12",
+          "from_addr": "aliceb@example.org",
+          "subject": "Re: your order",
+          "body": "<div dir=\"ltr\"><div>Hello Alice,</div><div><br></div><div>I am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.</div><div><br></div><div>Thanks,<br>Alice</div></div>",
+          "attachment_names": [
+            "form8971.csv",
+            "report9290.docx"
+          ],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0014@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0014",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0014",
+        "tag": "hq-2610190809-3076-0-0014",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 12",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as aliceb@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "passed",
+            "detail": "all 2 attachment(s) present (match: exact)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0015",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0015",
+      "message_id": "hq-2610190809-3076-0-0015@hq.example.test",
+      "payload_sha256": "db5e503f3636f44f52d2812c77ad631be46f4fde1b36eac89871fbea7f6183be",
+      "intended": {
+        "sender": "grace_jones12@example.net",
+        "subject": "Update on the quarterly report",
+        "body_core": "I am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?",
+        "attachments": [
+          "attachment3783.jpg"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.60719998460263,
+        "body_snippet": "2.0.0 Ok: queued as 1792397389.M751744P1Q16.08dda54f4972"
+      },
+      "assertion": {
+        "passed": false,
+        "mismatches": [
+          "attachments: the system stored 0 attachment(s): missing ['attachment3783.jpg'] (match: exact)"
+        ]
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "8",
+          "from_addr": "grace_jones12@example.net",
+          "subject": "Update on the quarterly report",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hi Alice,</p><p class=\"MsoNormal\">I am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Best,<br>Grace</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0015@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0015",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0015",
+        "tag": "hq-2610190809-3076-0-0015",
+        "found": true,
+        "passed": false,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 8",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace_jones12@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "failed",
+            "detail": "the system stored 0 attachment(s): missing ['attachment3783.jpg'] (match: exact)",
+            "expected": [
+              "attachment3783.jpg"
+            ],
+            "actual": [],
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0016",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0016",
+      "message_id": "hq-2610190809-3076-0-0016@hq.example.test",
+      "payload_sha256": "b02bfb71b53a122efe75690911dc9726ad1d69521564d6f0b3972ac8c6b4d67d",
+      "intended": {
+        "sender": "jnguyen@example.org",
+        "subject": "Update on the quarterly report",
+        "body_core": "This message is about the quarterly report. This relates to what we discussed last week.",
+        "attachments": [
+          "attachment1231.json"
+        ],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.40409998060204,
+        "body_snippet": "2.0.0 Ok: queued as 1792397389.M951727P1Q17.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "1",
+          "from_addr": "jnguyen@example.org",
+          "subject": "Update on the quarterly report",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hey Mallory,</p><p class=\"MsoNormal\">This message is about the quarterly report. This relates to what we discussed last week.</p><p class=\"MsoNormal\">Best regards,<br>Judy</p></div>",
+          "attachment_names": [
+            "attachment1231.json"
+          ],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0016@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0016",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0016",
+        "tag": "hq-2610190809-3076-0-0016",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 1",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as jnguyen@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "passed",
+            "detail": "all 1 attachment(s) present (match: exact)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0017",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0017",
+      "message_id": "hq-2610190809-3076-0-0017@hq.example.test",
+      "payload_sha256": "cb81b1adbbcab112fb59ea53acdd807325ec021c466512827d49e7a5a965ca00",
+      "intended": {
+        "sender": "oscar_nguyen@widgets.example",
+        "subject": "Update on your order",
+        "body_core": "Quick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 70.33489999594167,
+        "body_snippet": "2.0.0 Ok: queued as 1792397390.M151788P1Q18.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "4",
+          "from_addr": "oscar_nguyen@widgets.example",
+          "subject": "Update on your order",
+          "body": "<div dir=\"ltr\"><div>Dear team,</div><div><br></div><div>Quick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.</div><div><br></div><div>Best,<br>Oscar</div><div><br></div><div>--<br>Oscar Nguyen<br>+1 555 0145</div></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0017@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0017",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0017",
+        "tag": "hq-2610190809-3076-0-0017",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 4",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as oscar_nguyen@widgets.example",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0018",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0018",
+      "message_id": "hq-2610190809-3076-0-0018@hq.example.test",
+      "payload_sha256": "922b906ac0ea35436942b8cc54d038b93fc48d54f7297ad93355747973a1823e",
+      "intended": {
+        "sender": "bobm@mail.example.test",
+        "subject": "Quick question about the caf\u00e9 booking",
+        "body_core": "This message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 69.73369998740964,
+        "body_snippet": "2.0.0 Ok: queued as 1792397390.M351554P1Q19.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "18",
+          "from_addr": "bobm@mail.example.test",
+          "subject": "Quick question about the caf\u00e9 booking",
+          "body": "<div class=\"WordSection1\"><p class=\"MsoNormal\">Hello Mallory,</p><p class=\"MsoNormal\">This message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?</p><p class=\"MsoNormal\">Thanks,<br>Bob</p></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0018@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0018",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0018",
+        "tag": "hq-2610190809-3076-0-0018",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 18",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bobm@mail.example.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0019",
+      "category": "clean",
+      "tag": "hq-2610190809-3076-0-0019",
+      "message_id": "hq-2610190809-3076-0-0019@hq.example.test",
+      "payload_sha256": "b4e7c04e6406a66d1be852de8b7f50c56e9b4515cec503b4e8d89f6e43fc5546",
+      "intended": {
+        "sender": "frank.jones@example.edu",
+        "subject": "Following up on the schedule",
+        "body_core": "I have a question about the schedule. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": "support@freescout.test",
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 250,
+        "latency_ms": 78.051200020127,
+        "body_snippet": "2.0.0 Ok: queued as 1792397390.M552266P1Q20.08dda54f4972"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "13",
+          "from_addr": "frank.jones@example.edu",
+          "subject": "Following up on the schedule",
+          "body": "<div dir=\"ltr\"><div>Good morning,</div><div><br></div><div>I have a question about the schedule. Please let me know if you have any questions.</div><div><br></div><div>Best,<br>Frank</div></div>",
+          "attachment_names": [],
+          "route": "support@freescout.test",
+          "message_id": "hq-2610190809-3076-0-0019@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": "hq-2610190809-3076-0-0019",
+          "category": null,
+          "priority": null,
+          "fields": [
+            "attachment_names",
+            "body",
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "tag"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0019",
+        "tag": "hq-2610190809-3076-0-0019",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 13",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as frank.jones@example.edu",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "passed",
+            "detail": "body survived intact (match: contains, after HTML tag stripping)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the payload carried no attachments to check",
+            "expected": null,
+            "actual": null,
+            "reason": "nothing to check"
+          },
+          {
+            "check": "routing",
+            "status": "passed",
+            "detail": "routed to support@freescout.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          }
+        ]
+      }
+    }
+  ]
+}

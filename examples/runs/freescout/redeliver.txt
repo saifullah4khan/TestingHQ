@@ -1,0 +1,15 @@
+report: wrote sweep/runs/freescout/20261019T080856Z/redeliver.html
+tool:    redeliver
+verdict: DELIVERY-SAFE
+seed:    0
+target:  freescout
+
+counts:
+  sent        18
+  passed      4
+  scenarios   4
+
+findings: 1
+  [other-runs] 70 record(s) carry another run's tag (informational)
+
+exit code: 0 (derived, not recorded in the artifact)

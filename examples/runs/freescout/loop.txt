@@ -1,0 +1,22 @@
+report: wrote sweep/runs/freescout/20261019T080856Z/loop.html
+tool:    loop
+verdict: LOOPS-DETECTED
+seed:    0
+target:  freescout
+
+counts:
+  sent        14
+  passed      7
+  failed      6
+  records     13
+
+findings: 7
+  [machine-mail] hq-2610190817-3740-0-0006: an outbound message was emitted for machine mail marked "Subject starts 'out of office'"
+  [machine-mail] hq-2610190817-3740-0-0007: an outbound message was emitted for machine mail marked 'Return-Path: <>'
+  [machine-mail] hq-2610190817-3740-0-0008: an outbound message was emitted for machine mail marked 'From: noreply@'
+  [machine-mail] hq-2610190817-3740-0-0009: an outbound message was emitted for machine mail marked 'From: no-reply@'
+  [machine-mail] hq-2610190817-3740-0-0010: an outbound message was emitted for machine mail marked 'List-Unsubscribe present'
+  [machine-mail] hq-2610190817-3740-0-0011: an outbound message was emitted for machine mail marked 'List-Id present'
+  [bait-fabricated] the loop bait replied to a fabricated Message-ID: no reply to the ordinary message was seen within 15s
+
+exit code: 3 (derived, not recorded in the artifact)
