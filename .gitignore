@@ -15,6 +15,10 @@ corpus/
 # followed by a paste is one `git add -A` away from publishing a token.
 .env
 
+# What the sweep's setup scripts write: the API keys and DSNs of the local
+# helpdesks.
+sweep/.env.*
+
 # A config pointed at a real deployment, with its URL in it. The recipes are
 # tracked templates; these are the working copies.
 examples/readback/*.local.toml

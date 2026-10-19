@@ -1,0 +1,71 @@
+# osTicket for the sweep: the helpdesk on 127.0.0.1:3200, its MariaDB on
+# 127.0.0.1:3206 so the readback adapter can read the tables from the host.
+#
+#   docker compose -f sweep/compose/osticket.yml up -d
+#   bash sweep/setup/osticket.sh
+#
+# The image is tiredofit/osticket: version-tagged, osTicket 1.18 on PHP 8.2
+# and nginx, and it installs osTicket into an empty database on first start
+# from the environment below (no web installer to click through). The
+# osTicket project publishes no image of its own, and osticket/osticket on
+# Docker Hub stopped at 1.14. If 3.6.2 cannot be pulled, devinsolutions/osticket
+# installs the same way from MYSQL_* variables (osTicket 1.17).
+#
+# Every password here is for a throwaway instance reachable from loopback
+# only. The readback reads through a separate SELECT-only user that the setup
+# script creates.
+
+name: thq-osticket
+
+services:
+  db:
+    image: mariadb:10.11.10
+    environment:
+      MARIADB_ROOT_PASSWORD: thq-osticket-root
+      MARIADB_DATABASE: osticket
+      MARIADB_USER: osticket
+      MARIADB_PASSWORD: thq-osticket-db
+    ports:
+      - "127.0.0.1:3206:3306"
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  osticket:
+    image: tiredofit/osticket:3.6.2
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TIMEZONE: UTC
+      CONTAINER_NAME: thq-osticket
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: osticket
+      DB_USER: osticket
+      DB_PASS: thq-osticket-db
+      DB_PREFIX: ost_
+      INSTALL_SECRET: thq-osticket-install-secret-not-for-production
+      INSTALL_NAME: TestingHQ sweep
+      INSTALL_EMAIL: support@helpdesk.test
+      INSTALL_URL: http://127.0.0.1:3200/
+      ADMIN_FIRSTNAME: Sweep
+      ADMIN_LASTNAME: Admin
+      ADMIN_EMAIL: admin@helpdesk.test
+      ADMIN_USER: ostadmin
+      ADMIN_PASS: thq-osticket-admin
+      # osTicket sends replies and alerts by mail; there is nowhere for them
+      # to go here, and the sweep reads tickets, not mail.
+      SMTP_HOST: localhost
+      SMTP_PORT: "25"
+      SMTP_TLS: "0"
+      CRON_INTERVAL: "1"
+    ports:
+      - "127.0.0.1:3200:80"
+
+volumes:
+  db:
