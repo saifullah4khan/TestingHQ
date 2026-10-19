@@ -1,0 +1,208 @@
+# Zammad for the TestingHQ sweep, with two Mailpit sidecars.
+#
+# Based on zammad/zammad-docker-compose (docker-compose.yml at b51cba1,
+# Zammad 7.2.2), with these changes:
+#
+#   - no Elasticsearch: ELASTICSEARCH_ENABLED=false leaves es_url empty, and
+#     ticket search runs on the database (app/models/ticket/search.rb).
+#   - no backup service.
+#   - every image pinned to an exact tag, every published port on 127.0.0.1,
+#     in the 3300-3399 range the sweep gives Zammad.
+#   - zammad-mail-in: the mailbox TestingHQ sends into over SMTP and the
+#     email channel fetches over POP3. zammad-mail-out: where the channel's
+#     outbound SMTP goes, so Zammad's own auto-replies never land in the
+#     mailbox it fetches from. sweep/PULL_MAIL.md explains the pattern.
+#
+#   docker compose -f sweep/compose/zammad.yml up -d
+#   bash sweep/setup/zammad.sh
+#
+#   http://127.0.0.1:3380   Zammad
+#   127.0.0.1:3325          SMTP into zammad-mail-in (the sweep's target)
+#   127.0.0.1:3310          POP3 of zammad-mail-in (what the channel fetches)
+#   http://127.0.0.1:3385   zammad-mail-in web UI and API
+#   http://127.0.0.1:3386   zammad-mail-out web UI and API (Zammad's replies)
+#
+# The POP3 credential is local to this stack; sweep/setup/zammad.sh uses the
+# same one for the channel.
+
+name: thq-zammad
+
+x-shared:
+  zammad-service: &zammad-service
+    environment: &zammad-environment
+      MEMCACHE_SERVERS: zammad-memcached:11211
+      POSTGRESQL_DB: zammad_production
+      POSTGRESQL_HOST: zammad-postgresql
+      POSTGRESQL_USER: zammad
+      POSTGRESQL_PASS: zammad
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_OPTIONS: "?pool=50"
+      # The postgres service below creates the database and a role that may
+      # not create databases, as upstream does.
+      POSTGRESQL_DB_CREATE: "false"
+      REDIS_URL: redis://zammad-redis:6379
+      TZ: UTC
+      ELASTICSEARCH_ENABLED: "false"
+      # Where the auto wizard file is read from, relative to /opt/zammad. The
+      # setup script writes it into the railsserver container and calls
+      # /api/v1/getting_started/auto_wizard/<token>.
+      AUTOWIZARD_RELATIVE_PATH: tmp/auto_wizard.json
+      ZAMMAD_HTTP_TYPE: http
+      ZAMMAD_FQDN: 127.0.0.1:3380
+    image: ghcr.io/zammad/zammad:7.2.2-0000
+    init: true
+    restart: unless-stopped
+    volumes:
+      - zammad-storage:/opt/zammad/storage
+    depends_on:
+      zammad-memcached:
+        condition: service_healthy
+      zammad-postgresql:
+        condition: service_healthy
+      zammad-redis:
+        condition: service_healthy
+
+services:
+  zammad-init:
+    <<: *zammad-service
+    command: ["zammad-init"]
+    restart: on-failure
+    user: 0:0
+
+  zammad-memcached:
+    command: memcached -m 256M
+    image: memcached:1.6.45-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "11211"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  zammad-nginx:
+    <<: *zammad-service
+    command: ["zammad-nginx"]
+    init: false
+    expose:
+      - "8080"
+    ports:
+      - "127.0.0.1:3380:8080"
+    depends_on:
+      zammad-railsserver:
+        condition: service_healthy
+
+  zammad-postgresql:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: zammad
+      ZAMMAD_DB: zammad_production
+      ZAMMAD_DB_USER: zammad
+      ZAMMAD_DB_PASS: zammad
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+    configs:
+      - source: postgresql-initdb
+        # Not executable outside Swarm, which is fine: the postgres entrypoint
+        # sources a .sh hook that is not executable.
+        target: /docker-entrypoint-initdb.d/10-create-zammad-role.sh
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |-
+          PGPASSWORD="$${ZAMMAD_DB_PASS}" \
+          psql --no-password --quiet --output /dev/null --variable ON_ERROR_STOP=1 \
+               --host 127.0.0.1 --username "$${ZAMMAD_DB_USER}" \
+               --dbname "$${ZAMMAD_DB}" --command "SELECT 1"
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+  zammad-railsserver:
+    <<: *zammad-service
+    command: ["zammad-railsserver"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+
+  zammad-redis:
+    image: redis:8.10.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  # Runs the "Check channels." job every 30 seconds, which fetches the POP3
+  # mailbox, and the background workers that turn each message into a ticket.
+  zammad-scheduler:
+    <<: *zammad-service
+    command: ["zammad-scheduler"]
+
+  zammad-websocket:
+    <<: *zammad-service
+    command: ["zammad-websocket"]
+
+  # SMTP in (1025), POP3 out (1110), web UI and API (8025). The POP3 server
+  # only starts with a credential configured. No message cap: the channel
+  # deletes what it fetches, and a cap would drop mail before the next fetch
+  # under barrage.
+  zammad-mail-in:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    environment:
+      MP_POP3_AUTH: "zammad:thq-sweep-pop3"
+      MP_MAX_MESSAGES: "0"
+      MP_LABEL: "zammad inbound"
+    ports:
+      - "127.0.0.1:3325:1025"
+      - "127.0.0.1:3310:1110"
+      - "127.0.0.1:3385:8025"
+
+  # Takes the channel's outbound mail (auto-replies, notifications) and keeps
+  # it readable over the Mailpit API, away from the mailbox the channel reads.
+  zammad-mail-out:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "0"
+      MP_LABEL: "zammad outbound"
+    ports:
+      - "127.0.0.1:3386:8025"
+
+configs:
+  postgresql-initdb:
+    # As upstream: a plain login role that owns Zammad's database, created
+    # once while the data directory is initialised. '$$' leaves the
+    # variables for the container's shell.
+    content: |
+      #!/bin/bash
+      set -o errexit
+      set -o pipefail
+      psql --variable ON_ERROR_STOP=1 \
+           --username "$${POSTGRES_USER}" \
+           --dbname "$${POSTGRES_DB}" \
+           --variable role="$${ZAMMAD_DB_USER}" \
+           --variable pass="$${ZAMMAD_DB_PASS}" \
+           --variable db="$${ZAMMAD_DB}" <<'EOSQL'
+      CREATE ROLE :"role" LOGIN PASSWORD :'pass';
+      CREATE DATABASE :"db" OWNER :"role";
+      EOSQL
+
+volumes:
+  postgresql-data:
+    driver: local
+  redis-data:
+    driver: local
+  zammad-storage:
+    driver: local

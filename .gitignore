@@ -7,6 +7,8 @@ dist/
 venv/
 .pytest_cache/
 corpus/
+# The hand-written sample corpus the blast --corpus tests read is tracked.
+!tests/fixtures/corpus/
 *.run.json
 
 # A real deployment's credentials, loaded from the shell. `.env.example` is
@@ -21,3 +23,7 @@ examples/readback/*.local.toml
 target.local.toml
 
 .ruff_cache/
+
+# What sweep/setup/<helpdesk>.sh writes: API tokens and admin passwords for
+# the local helpdesks.
+sweep/.env.*
