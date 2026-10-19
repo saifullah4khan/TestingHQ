@@ -481,6 +481,7 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
     mode = config.get("mode", "fire")
 
     findings = list(_skip_findings(summary.get("checks_skipped_by_reason") or {}))
+    findings += _verify_mismatches(artifact.get("records") or [])
 
     recorded = summary.get("verdict")
     if isinstance(recorded, str) and recorded:
@@ -523,6 +524,39 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
         mode=mode,
         **_base(artifact, "verify"),
     )
+
+
+#: Most failed verify checks listed, as verify's own report caps them; the
+#: count stays exact and a further finding says the list was cut.
+MAX_LISTED_MISMATCHES = 20
+
+
+def _verify_mismatches(records: List[Any]) -> List[Finding]:
+    """One finding per failed check, named by record, the way verify prints
+    them under "mismatches"."""
+    failed = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        verification = record.get("verification")
+        if not isinstance(verification, dict):
+            continue
+        for check in verification.get("checks") or []:
+            if isinstance(check, dict) and check.get("status") == "failed":
+                failed.append(
+                    f"{record.get('id') or record.get('tag')} {check.get('check')}: "
+                    f"{check.get('detail')}"
+                )
+    findings = [Finding(kind="mismatched", detail=d) for d in failed[:MAX_LISTED_MISMATCHES]]
+    if len(failed) > MAX_LISTED_MISMATCHES:
+        findings.append(
+            Finding(
+                kind="truncated",
+                detail=f"only the first {MAX_LISTED_MISMATCHES} of {len(failed)} "
+                       "failed checks are listed",
+            )
+        )
+    return findings
 
 
 def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:

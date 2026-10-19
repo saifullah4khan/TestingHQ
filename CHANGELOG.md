@@ -108,6 +108,10 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   one bare word with no address, and the payload went out with an empty From
   the original never had; the address is now found in the raw header and
   re-addressed like any other.
+- `report` on a verify artifact lists every failed check as a `mismatched`
+  finding, named by record, as verify prints them (the first 20, then a
+  `truncated` finding). It used to say MISMATCHED with only the skipped
+  checks listed, so the report could not say which message failed or why.
 
 ## [1.0.0] - 2026-10-15
 
