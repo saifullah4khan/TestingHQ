@@ -204,3 +204,25 @@ def test_a_corpus_run_reaches_the_inbox_through_envelope_to(tmp_path, fake, secr
     assert sent and all(r["response"]["status"] == 204 for r in sent)
     assert all(i.routed for i in fake.inbound)
     assert len(fake.conversations) == len(sent)
+
+
+def test_a_threaded_reply_reads_back_as_itself(tmp_path, fake, secrets, capsys):
+    """A reply Chatwoot threads into an earlier conversation is one message of
+    several there. Read back per conversation, it took the thread's first
+    sender, its subject and its latest message's headers, and redeliver
+    reported a broken References chain and a wrong subject for a thread
+    Chatwoot had filed correctly. Read back per message, only the sender
+    differs: Chatwoot records every incoming email in a conversation as its
+    contact's, whoever wrote it, and the fake does the same."""
+    out = tmp_path / "redeliver.json"
+    code = cli_main([
+        "redeliver", "fire", "--send", "--target", "chatwoot",
+        "--config", _config(tmp_path, fake), "--scenario", "references",
+        "--rate", "200", "--quiet-window", "0.3", "--poll-interval", "0.05",
+        "--readback-rate", "200", "--out", str(out),
+    ])
+    assert code == EXIT_FINDING, capsys.readouterr()
+    [scenario] = json.loads(out.read_text(encoding="utf-8"))["scenarios"]
+    assert scenario["findings"]
+    assert all(finding.startswith("sender: ") for finding in scenario["findings"]), scenario
+    assert len({c.id for c in fake.conversations}) == 1
