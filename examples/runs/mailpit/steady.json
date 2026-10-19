@@ -1,0 +1,1344 @@
+{
+  "schema_version": 1,
+  "tool": "steady",
+  "aborted": false,
+  "seed": 0,
+  "config": {
+    "tool": "steady",
+    "seed": 0,
+    "count": 6,
+    "tag_prefix": "hq-2610190302-f3f0",
+    "target": "pipeline",
+    "readback": {
+      "kind": "http",
+      "url": "http://127.0.0.1:8025/api/v1/search",
+      "path": null,
+      "tag_param": "query",
+      "items_key": "messages",
+      "timeout": 10.0,
+      "field_map": {
+        "ticket_id": "ID",
+        "from_addr": "From",
+        "subject": "Subject",
+        "body": "body",
+        "attachment_names": "attachments",
+        "route": "To.0.Address",
+        "message_id": "MessageID",
+        "in_reply_to": "in_reply_to",
+        "references": "references",
+        "tag": "tag",
+        "category": "category",
+        "priority": "priority"
+      },
+      "unmapped_fields": [],
+      "spec": null,
+      "list_path": "/api/v1/messages?limit=5000",
+      "enumerate": true,
+      "headers": [],
+      "query": "\"{tag}\"",
+      "method": "GET",
+      "body": null,
+      "page_param": null,
+      "page_size_param": null,
+      "next_path": null,
+      "max_pages": 10,
+      "retry_max": 5,
+      "retry_base_seconds": 0.5,
+      "rate": 50.0
+    },
+    "label_field": "route",
+    "transforms": [
+      "add-quoted-history",
+      "add-signature",
+      "reflow-whitespace",
+      "reword-greeting",
+      "wrap-forward"
+    ],
+    "repeats": 1,
+    "max_dissent_rate": 0.1,
+    "max_flip_rate": null,
+    "intents_path": null,
+    "readback_poll": {
+      "quiet_window": 3.0,
+      "max_wait": 60.0,
+      "max_wait_source": "given",
+      "poll_interval": 0.5
+    },
+    "dry_run": false,
+    "format": "sendgrid",
+    "allow_public_target": false,
+    "transport": "http"
+  },
+  "stability": {
+    "label_field": "route",
+    "dissent_rate": 0.0,
+    "dissenters": 0,
+    "labelled_variants": 105,
+    "sample_size": "6 families, 16 to 18 variants each; a single dissenting variant is 1.0% of the headline",
+    "families": [
+      {
+        "intent_id": "refund-request",
+        "category_hint": "billing",
+        "variants": 18,
+        "labelled": 18,
+        "majority": "billing@team.example.com",
+        "dissenters": [],
+        "dissent_rate": 0.0,
+        "pairs": 153,
+        "flips": 0,
+        "consistent": true
+      },
+      {
+        "intent_id": "password-reset-request",
+        "category_hint": "account",
+        "variants": 18,
+        "labelled": 18,
+        "majority": "account@team.example.com",
+        "dissenters": [],
+        "dissent_rate": 0.0,
+        "pairs": 153,
+        "flips": 0,
+        "consistent": true
+      },
+      {
+        "intent_id": "delivery-delay",
+        "category_hint": "shipping",
+        "variants": 18,
+        "labelled": 18,
+        "majority": "shipping@team.example.com",
+        "dissenters": [],
+        "dissent_rate": 0.0,
+        "pairs": 153,
+        "flips": 0,
+        "consistent": true
+      },
+      {
+        "intent_id": "wrong-item-received",
+        "category_hint": "shipping",
+        "variants": 18,
+        "labelled": 18,
+        "majority": "shipping@team.example.com",
+        "dissenters": [],
+        "dissent_rate": 0.0,
+        "pairs": 153,
+        "flips": 0,
+        "consistent": true
+      },
+      {
+        "intent_id": "product-defect-report",
+        "category_hint": "product",
+        "variants": 17,
+        "labelled": 17,
+        "majority": "product@team.example.com",
+        "dissenters": [],
+        "dissent_rate": 0.0,
+        "pairs": 136,
+        "flips": 0,
+        "consistent": true
+      },
+      {
+        "intent_id": "subscription-cancel",
+        "category_hint": "account",
+        "variants": 16,
+        "labelled": 16,
+        "majority": "account@team.example.com",
+        "dissenters": [],
+        "dissent_rate": 0.0,
+        "pairs": 120,
+        "flips": 0,
+        "consistent": true
+      }
+    ],
+    "pairs": 868,
+    "flips": 0,
+    "flip_rate": 0.0,
+    "pairs_by_language": {
+      "same_language": {
+        "pairs": 255,
+        "flips": 0,
+        "flip_rate": 0.0
+      },
+      "cross_language": {
+        "pairs": 613,
+        "flips": 0,
+        "flip_rate": 0.0
+      }
+    },
+    "inconsistent_families": [],
+    "unlabelled_families": [],
+    "label_reads": {
+      "labelled": 105,
+      "null": 0,
+      "not-visible": 0,
+      "no-record": 0
+    },
+    "constant_label": null,
+    "repeats": 0,
+    "repeat_instability": null,
+    "repeat_by_family": {},
+    "by_transform": {
+      "add-quoted-history": {
+        "variants": 18,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "add-signature": {
+        "variants": 18,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "baseline": {
+        "variants": 18,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "reflow-whitespace": {
+        "variants": 15,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "reword-greeting": {
+        "variants": 18,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "wrap-forward": {
+        "variants": 18,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      }
+    },
+    "by_language": {
+      "en": {
+        "variants": 35,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "roman_ur": {
+        "variants": 36,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      },
+      "ur": {
+        "variants": 34,
+        "dissenters": 0,
+        "dissent_rate": 0.0
+      }
+    },
+    "verdict": "STABLE",
+    "verdict_source": "tool",
+    "readback_headline": null,
+    "gate": {
+      "failed": false,
+      "judged": true,
+      "reason": "majority dissent 0.0% is within the 10.0% gate",
+      "max_dissent_rate": 0.1,
+      "max_flip_rate": null
+    },
+    "sent": 105,
+    "unsettled": false,
+    "readback": {
+      "elapsed_s": 4.722,
+      "polls": 2,
+      "stable": true,
+      "unsettled": false,
+      "verdict": null,
+      "budget_exhausted": false,
+      "complete_polls": 2,
+      "cause": null,
+      "missing_tags": [],
+      "partial_tags": [],
+      "all_404": false,
+      "headline": null,
+      "detail": null
+    }
+  },
+  "families": [
+    {
+      "intent_id": "refund-request",
+      "category_hint": "billing",
+      "variants": [
+        {
+          "intent_id": "refund-request",
+          "language": "en",
+          "transform": "baseline",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Duplicate charge on my card",
+          "payload_sha256": "568e22b80727884022fb9b68b71e04a3cb433a39dc5746a28577b0cee6a54bb5"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "en",
+          "transform": "add-quoted-history",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Duplicate charge on my card",
+          "payload_sha256": "672d8e9b9b3c18c4c2bda4da7955d88814fa3a7c02f7339c0a2c78cdcdd51cf2"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "en",
+          "transform": "add-signature",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Duplicate charge on my card",
+          "payload_sha256": "f281bb348f6ccbe6d082aac55b6f9c9844980842c6ba2a1cddb5e824451e0836"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "en",
+          "transform": "reflow-whitespace",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Duplicate charge on my card",
+          "payload_sha256": "49e121a700f777726dd5ed04c08c1d6194643525c10744f91a08dd116764141f"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "en",
+          "transform": "reword-greeting",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Duplicate charge on my card",
+          "payload_sha256": "ef3d7a61b7109b596e08b0d79737b40a4b324b3bbb262dbc909d32c7beb4d2c0"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "en",
+          "transform": "wrap-forward",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: Duplicate charge on my card",
+          "payload_sha256": "3a85a32ef214f974f85a6ff85fa18c2725c712c8d9e63ee0c9c34f9e2c7fdd4d"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "roman_ur",
+          "transform": "baseline",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "card par do dafa charge",
+          "payload_sha256": "25f92c6275780faa0bb83984114a50eedb2a251919d8f5a576baccc63fb799c2"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "roman_ur",
+          "transform": "add-quoted-history",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "card par do dafa charge",
+          "payload_sha256": "4fb93867b7433c4a5365accc2ecffb6487766d29e59d6fee028bd4ecd884053f"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "roman_ur",
+          "transform": "add-signature",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "card par do dafa charge",
+          "payload_sha256": "2c6a6c26425b3cc5f182dcedffcdb3585400f4221501cf14fd85f51b5401039f"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "roman_ur",
+          "transform": "reflow-whitespace",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "card par do dafa charge",
+          "payload_sha256": "d7446748a6cbf068d52381d170afcbcab1e9f7b8277dcd7f996f1e9bc5e1c212"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "roman_ur",
+          "transform": "reword-greeting",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "card par do dafa charge",
+          "payload_sha256": "c89cfbdbdfdfe97e91375e797cd67b64bbb9298edc73032e07ebc14fff04e0c0"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "roman_ur",
+          "transform": "wrap-forward",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: card par do dafa charge",
+          "payload_sha256": "0f107acc2a6107b7e370f73ac92841fe7ffc031ac7f5ff5c8d3d992f57fe970c"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "ur",
+          "transform": "baseline",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u0627\u0631\u0688 \u067e\u0631 \u062f\u0648 \u0628\u0627\u0631 \u0686\u0627\u0631\u062c",
+          "payload_sha256": "b581e16c3ef77b822219bc2fa0b2cf8d209fa9d0e85dc82fbf15102642ade670"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "ur",
+          "transform": "add-quoted-history",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u0627\u0631\u0688 \u067e\u0631 \u062f\u0648 \u0628\u0627\u0631 \u0686\u0627\u0631\u062c",
+          "payload_sha256": "c6fe0542afd3c92fd0a7b4cf10bd0dbcf6ed780e8dceb60474cbe44e174703c6"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "ur",
+          "transform": "add-signature",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u0627\u0631\u0688 \u067e\u0631 \u062f\u0648 \u0628\u0627\u0631 \u0686\u0627\u0631\u062c",
+          "payload_sha256": "14f8001a3805e4f5942bde2e0e360da7ca3f27ba32ecd153bf06c4af7ce6e189"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "ur",
+          "transform": "reflow-whitespace",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u0627\u0631\u0688 \u067e\u0631 \u062f\u0648 \u0628\u0627\u0631 \u0686\u0627\u0631\u062c",
+          "payload_sha256": "40a6b79411a3cf4e4a0b12c8ae0d549b1d29efed1d12f13a1029177f47078321"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "ur",
+          "transform": "reword-greeting",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u0627\u0631\u0688 \u067e\u0631 \u062f\u0648 \u0628\u0627\u0631 \u0686\u0627\u0631\u062c",
+          "payload_sha256": "1419ad72eda7063244ca7d55c5e668b34a4e6fcd7d7d049a7f534f7c78d8daa4"
+        },
+        {
+          "intent_id": "refund-request",
+          "language": "ur",
+          "transform": "wrap-forward",
+          "label": "billing@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: \u06a9\u0627\u0631\u0688 \u067e\u0631 \u062f\u0648 \u0628\u0627\u0631 \u0686\u0627\u0631\u062c",
+          "payload_sha256": "499fe5abb4afbd9c68bf4622b6e1186e77da7c9954330f38e7631d768e5ff1e7"
+        }
+      ]
+    },
+    {
+      "intent_id": "password-reset-request",
+      "category_hint": "account",
+      "variants": [
+        {
+          "intent_id": "password-reset-request",
+          "language": "en",
+          "transform": "baseline",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Need a password reset link",
+          "payload_sha256": "6a28cd35f6da889a88f2b84d0ac9d9c1ff33451a5389b129e537ea2d036b7c21"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "en",
+          "transform": "add-quoted-history",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Need a password reset link",
+          "payload_sha256": "cd8a96cbb8c787ded9f9b023aae4a425c65924741bc89a68b99edf7596731954"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "en",
+          "transform": "add-signature",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Need a password reset link",
+          "payload_sha256": "6b6c4fecd604f465cb4f02c5002b1badf55913cc7411a60d9ecc3c75ef2c119b"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "en",
+          "transform": "reflow-whitespace",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Need a password reset link",
+          "payload_sha256": "153d5e199742ae223c4c270c65fdd461bc7a2057c9424a69a9bd3ba0953fd7a6"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "en",
+          "transform": "reword-greeting",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Need a password reset link",
+          "payload_sha256": "79d107bbefb3b5b408b5783084c42d743b5f1d31897e8a471a9f3e444ec5ff92"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "en",
+          "transform": "wrap-forward",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: Need a password reset link",
+          "payload_sha256": "17855ea0da79dafb7b04be246261b0396335dfcb4a625b2033a7ffe15829851e"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "roman_ur",
+          "transform": "baseline",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "password reset link chahiye",
+          "payload_sha256": "63c2f59d5daf8288f7c0531ac8f6e84f283bb64730f2260128f0645bb93bbac1"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "roman_ur",
+          "transform": "add-quoted-history",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "password reset link chahiye",
+          "payload_sha256": "312788568db98f022e678408918b4776cb5665fb45d1eba02fb1ef60d32cf3d1"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "roman_ur",
+          "transform": "add-signature",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "password reset link chahiye",
+          "payload_sha256": "42b59a0f57d87fb2c6b2df6c6a458011db66d79efa7db740866f9dc1c6a9b3b0"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "roman_ur",
+          "transform": "reflow-whitespace",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "password reset link chahiye",
+          "payload_sha256": "60e943eb4f2c40824bbe1352132c8fd92acf59caf6eb3eb8a9d08a8f7b476503"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "roman_ur",
+          "transform": "reword-greeting",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "password reset link chahiye",
+          "payload_sha256": "d0889e91aac0f410f3fe619619fbc6dd29fe4d48c4673c9244cf46a7c75e8940"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "roman_ur",
+          "transform": "wrap-forward",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: password reset link chahiye",
+          "payload_sha256": "112d68c65c32e6d354902e8e2d49ccdb495dec32b97d32a12008cc9603356756"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "ur",
+          "transform": "baseline",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0633 \u0648\u0631\u0688 \u0631\u06cc \u0633\u06cc\u0679 \u0644\u0646\u06a9 \u0686\u0627\u06c1\u06cc\u06d2",
+          "payload_sha256": "9b0fb428855c12e3cc644c9f2c0ab717cf73ad9d68ed612d195ee082b2d26d2e"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "ur",
+          "transform": "add-quoted-history",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0633 \u0648\u0631\u0688 \u0631\u06cc \u0633\u06cc\u0679 \u0644\u0646\u06a9 \u0686\u0627\u06c1\u06cc\u06d2",
+          "payload_sha256": "fa5abe25e5eb8614cab1be12fb9dcc6ba871a9008c7feabeb09ee64d6e869cc6"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "ur",
+          "transform": "add-signature",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0633 \u0648\u0631\u0688 \u0631\u06cc \u0633\u06cc\u0679 \u0644\u0646\u06a9 \u0686\u0627\u06c1\u06cc\u06d2",
+          "payload_sha256": "df63c3ef0d6814b5523a142750dbd289836218f32483fee25c4d2d0455413bbf"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "ur",
+          "transform": "reflow-whitespace",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0633 \u0648\u0631\u0688 \u0631\u06cc \u0633\u06cc\u0679 \u0644\u0646\u06a9 \u0686\u0627\u06c1\u06cc\u06d2",
+          "payload_sha256": "91f44d1b22fb32ed5b00840c732708145e8dab948bdea2c32cf92f8323487578"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "ur",
+          "transform": "reword-greeting",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0633 \u0648\u0631\u0688 \u0631\u06cc \u0633\u06cc\u0679 \u0644\u0646\u06a9 \u0686\u0627\u06c1\u06cc\u06d2",
+          "payload_sha256": "494021c7238aa6036a220f10ade5386ac10fdbaa266a07e5659336a538d235eb"
+        },
+        {
+          "intent_id": "password-reset-request",
+          "language": "ur",
+          "transform": "wrap-forward",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: \u067e\u0627\u0633 \u0648\u0631\u0688 \u0631\u06cc \u0633\u06cc\u0679 \u0644\u0646\u06a9 \u0686\u0627\u06c1\u06cc\u06d2",
+          "payload_sha256": "36b36e99067e8e7dce180b231fbbc77b00476ff393771a22168f093aa1ef7995"
+        }
+      ]
+    },
+    {
+      "intent_id": "delivery-delay",
+      "category_hint": "shipping",
+      "variants": [
+        {
+          "intent_id": "delivery-delay",
+          "language": "en",
+          "transform": "baseline",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Where is my order?",
+          "payload_sha256": "bdcbf5cf6a7a16b1783cf42e9d567f840b4f2a6e9716ef6f29c1f7055787b619"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "en",
+          "transform": "add-quoted-history",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Where is my order?",
+          "payload_sha256": "9cddc2cc2f8374698d80f50a7c6e155f02181f56c21e9f9317331bd7f22680f2"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "en",
+          "transform": "add-signature",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Where is my order?",
+          "payload_sha256": "1e3a8c790c88948657c671647dcd83121caf021f44e5711d285e5bfbda4bad95"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "en",
+          "transform": "reflow-whitespace",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Where is my order?",
+          "payload_sha256": "fb4ca88ef2fd934e42aba1fe8695c81487cf5a53cacdf9076c631b05aa0e4be1"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "en",
+          "transform": "reword-greeting",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Where is my order?",
+          "payload_sha256": "d8cb343885acccd969f5119a1ca3bd6051f6d4a375840737d5ebfa7fceca6d37"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "en",
+          "transform": "wrap-forward",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: Where is my order?",
+          "payload_sha256": "423d9a020096fa59238e60916d54982cd15c8f4b84b57452c31e8bc1fdff56ae"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "roman_ur",
+          "transform": "baseline",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mera order kahan hai?",
+          "payload_sha256": "ebe4246a09bf4b070458cdbc9e09ae9a9dccd450994f0a733d19ea727e743339"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "roman_ur",
+          "transform": "add-quoted-history",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mera order kahan hai?",
+          "payload_sha256": "9b1c7870281c3cae42aba1e8c2e5b835841d8e9aa84cdc4ceb33bdbb17a0fda6"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "roman_ur",
+          "transform": "add-signature",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mera order kahan hai?",
+          "payload_sha256": "daf85b0789ec3721d2286b8dd8b6a88cc50b3a31fa270beea63cbd13abebeee2"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "roman_ur",
+          "transform": "reflow-whitespace",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mera order kahan hai?",
+          "payload_sha256": "9d96160b12f4630ea7df3a0c8640f5a021dc864cc809abc219178e7d010ef258"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "roman_ur",
+          "transform": "reword-greeting",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mera order kahan hai?",
+          "payload_sha256": "b9b12139207d61254e850618d0e19f1df77a9b6d8adf52d1b6ce31ae3029a129"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "roman_ur",
+          "transform": "wrap-forward",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: mera order kahan hai?",
+          "payload_sha256": "110849b4a47af31228c090e6325dcb04f58330718ba3a5a937bbec888be90913"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "ur",
+          "transform": "baseline",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u06cc\u0631\u0627 \u0622\u0631\u0688\u0631 \u06a9\u06c1\u0627\u06ba \u06c1\u06d2\u061f",
+          "payload_sha256": "c04ba728e378ebc5d45aa882d7d6bdbf86187491523df52efc08967b11ce7a16"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "ur",
+          "transform": "add-quoted-history",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u06cc\u0631\u0627 \u0622\u0631\u0688\u0631 \u06a9\u06c1\u0627\u06ba \u06c1\u06d2\u061f",
+          "payload_sha256": "f3cb2110fdfe12d7430895ae6f062b8bd2bcd4ed2d387fb18b73e254b95d91d3"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "ur",
+          "transform": "add-signature",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u06cc\u0631\u0627 \u0622\u0631\u0688\u0631 \u06a9\u06c1\u0627\u06ba \u06c1\u06d2\u061f",
+          "payload_sha256": "11d26a88aac54a491247dcafec226ccc60fdbe4e855b3cd19c70b8d492d19510"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "ur",
+          "transform": "reflow-whitespace",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u06cc\u0631\u0627 \u0622\u0631\u0688\u0631 \u06a9\u06c1\u0627\u06ba \u06c1\u06d2\u061f",
+          "payload_sha256": "5d4b2c77daa8a50c15dfe44c8dd1fc586f4299aa4601ae9953dfa75f39e0dd55"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "ur",
+          "transform": "reword-greeting",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u06cc\u0631\u0627 \u0622\u0631\u0688\u0631 \u06a9\u06c1\u0627\u06ba \u06c1\u06d2\u061f",
+          "payload_sha256": "909beecc82457ddbd699730813531eeca47ffc76a2e24ffdcfe43b3cdd41ff42"
+        },
+        {
+          "intent_id": "delivery-delay",
+          "language": "ur",
+          "transform": "wrap-forward",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: \u0645\u06cc\u0631\u0627 \u0622\u0631\u0688\u0631 \u06a9\u06c1\u0627\u06ba \u06c1\u06d2\u061f",
+          "payload_sha256": "70328df9fbe4f5f9a85a19e4767bafd20d60ada52e0965e0cb946a2c6a55e9f0"
+        }
+      ]
+    },
+    {
+      "intent_id": "wrong-item-received",
+      "category_hint": "shipping",
+      "variants": [
+        {
+          "intent_id": "wrong-item-received",
+          "language": "en",
+          "transform": "baseline",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Wrong size in my parcel",
+          "payload_sha256": "bd63d27cae6e0bf70671b3c5d32118411056824ec9a67370c12a9711fd6eadfc"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "en",
+          "transform": "add-quoted-history",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Wrong size in my parcel",
+          "payload_sha256": "b2205bc6834c36280f63eb7f9a8b6395301294149035c13e1bf66f12b7f48583"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "en",
+          "transform": "add-signature",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Wrong size in my parcel",
+          "payload_sha256": "1628a34e48b0c401c25d762da57ec2cad03037944be1e5490ae46538cebfcd1a"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "en",
+          "transform": "reflow-whitespace",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Wrong size in my parcel",
+          "payload_sha256": "f602ed65cfa7a526362ae1844173f6b0bcf19ab2d29751cbafaa5dbbae5f1d3c"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "en",
+          "transform": "reword-greeting",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Wrong size in my parcel",
+          "payload_sha256": "0d5e325cc2e1c1676188151ccb692d4e6702b3340e6b0a2526c2224b0fe3e2cc"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "en",
+          "transform": "wrap-forward",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: Wrong size in my parcel",
+          "payload_sha256": "34f87db06bbf285888bddefacd18f662b37134d872e3d2d032d688b41bff31ed"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "roman_ur",
+          "transform": "baseline",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "parcel mein ghalat size",
+          "payload_sha256": "13934b145e6105b76376e80260677009577b6d53e429f8eedc8afea321dcfba4"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "roman_ur",
+          "transform": "add-quoted-history",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "parcel mein ghalat size",
+          "payload_sha256": "f756fee14396ce6d4a4b984fefe0cbe426c0d179194878e8d51a872fdfdc561d"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "roman_ur",
+          "transform": "add-signature",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "parcel mein ghalat size",
+          "payload_sha256": "cdbc795dae31aee2e880ce41a34eb8faef41b24739ab253b0f7e04af2040b527"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "roman_ur",
+          "transform": "reflow-whitespace",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "parcel mein ghalat size",
+          "payload_sha256": "1f7d1f5f6280046ba63a3a0bef4e30cdc9a2acd04d47056c21e6a21d347aff71"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "roman_ur",
+          "transform": "reword-greeting",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "parcel mein ghalat size",
+          "payload_sha256": "33b7d4909a994ed1fb16efcfee4b1d46e0874b68650db96805ef193102a05104"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "roman_ur",
+          "transform": "wrap-forward",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: parcel mein ghalat size",
+          "payload_sha256": "8ef2d257e39bd238c17e39731fe9b3b464388c13a8fedc65e9f631c4dd4d52d5"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "ur",
+          "transform": "baseline",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0631\u0633\u0644 \u0645\u06cc\u06ba \u063a\u0644\u0637 \u0633\u0627\u0626\u0632",
+          "payload_sha256": "874d2af5b70fc299e586b0ea057c7304c149fa304fd8b702bb3fe81f66cd01b7"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "ur",
+          "transform": "add-quoted-history",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0631\u0633\u0644 \u0645\u06cc\u06ba \u063a\u0644\u0637 \u0633\u0627\u0626\u0632",
+          "payload_sha256": "4ea0e2dece203f8e69f8b597d32dcd56e19783298b1589b9efc81098ba23bd5c"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "ur",
+          "transform": "add-signature",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0631\u0633\u0644 \u0645\u06cc\u06ba \u063a\u0644\u0637 \u0633\u0627\u0626\u0632",
+          "payload_sha256": "cef4fa102ac9e4c4597f80400b5f29eb97ac265c6ba5cabf779884ad16335889"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "ur",
+          "transform": "reflow-whitespace",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0631\u0633\u0644 \u0645\u06cc\u06ba \u063a\u0644\u0637 \u0633\u0627\u0626\u0632",
+          "payload_sha256": "14756976381195ef95eb632e865088bcac587604a041829948f78662cef16096"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "ur",
+          "transform": "reword-greeting",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u067e\u0627\u0631\u0633\u0644 \u0645\u06cc\u06ba \u063a\u0644\u0637 \u0633\u0627\u0626\u0632",
+          "payload_sha256": "88fd6b52818b1f302fb864e697411874257494ea5c684e97b1615d9db89a86fd"
+        },
+        {
+          "intent_id": "wrong-item-received",
+          "language": "ur",
+          "transform": "wrap-forward",
+          "label": "shipping@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: \u067e\u0627\u0631\u0633\u0644 \u0645\u06cc\u06ba \u063a\u0644\u0637 \u0633\u0627\u0626\u0632",
+          "payload_sha256": "f6d9c51fe9e82a96fa4e7e953e3e230c62ee3207cb43cc482e5b105588e0fb0a"
+        }
+      ]
+    },
+    {
+      "intent_id": "product-defect-report",
+      "category_hint": "product",
+      "variants": [
+        {
+          "intent_id": "product-defect-report",
+          "language": "en",
+          "transform": "baseline",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Kettle arrived cracked",
+          "payload_sha256": "07620f6f086db5feac4389a2e9fa7991175eeaa2d5386b1ad5d7443aae9664a3"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "en",
+          "transform": "add-quoted-history",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Kettle arrived cracked",
+          "payload_sha256": "421ab3c74fec15df8c841883cf3da79333e5a0e97eaf386959d9a37b439250ad"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "en",
+          "transform": "add-signature",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Kettle arrived cracked",
+          "payload_sha256": "4876b35262bdbc4243ef0e6e43a1aeee07bdc411c6ea81b39fb03246f4f93266"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "en",
+          "transform": "reflow-whitespace",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Kettle arrived cracked",
+          "payload_sha256": "2f6d5e66cbe2f8b027deb99bf3ad877946e2579f2bc5a47b6162c8d81de55b3f"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "en",
+          "transform": "reword-greeting",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Kettle arrived cracked",
+          "payload_sha256": "0513d8395bd5751d29d83b27d0b4ed57bb898bc339156e8e9b391439b66c3a61"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "en",
+          "transform": "wrap-forward",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: Kettle arrived cracked",
+          "payload_sha256": "a63ec1483386b5cd87ca8dd377320bb3517b46071c6bc9c9f00cdcb63c72ee8c"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "roman_ur",
+          "transform": "baseline",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "kettle toota hua aya",
+          "payload_sha256": "561cb0803d87c16ed8adbacd2dc321f64d0eaaf491ffd045874c2f6abf37c2c6"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "roman_ur",
+          "transform": "add-quoted-history",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "kettle toota hua aya",
+          "payload_sha256": "9975959adf6974035972842e837ab302ef40c43a03ee07def6597854ff40a20a"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "roman_ur",
+          "transform": "add-signature",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "kettle toota hua aya",
+          "payload_sha256": "78581f74a00806183ce3ab8378db8186d6ec96c106e559000c2a3e2ed819697f"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "roman_ur",
+          "transform": "reflow-whitespace",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "kettle toota hua aya",
+          "payload_sha256": "29d6b93b85e925c0c3f6afb0c362c5245875d1e88931443d0291355060290990"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "roman_ur",
+          "transform": "reword-greeting",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "kettle toota hua aya",
+          "payload_sha256": "609e375a216af723f81bf26af1ffe8b711bf20266f22ac0b46015c396c764a85"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "roman_ur",
+          "transform": "wrap-forward",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: kettle toota hua aya",
+          "payload_sha256": "1f13c7a53cee275d665173d2fedeb12bf874bfcaae6aa99729b56f32cbc798ea"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "ur",
+          "transform": "baseline",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u06cc\u062a\u0644 \u0679\u0648\u0679\u0627 \u06c1\u0648\u0627 \u0622\u06cc\u0627",
+          "payload_sha256": "a09f93083594f6e386d0439e5ce7b7f5c017de031fd3da61d6b4b2635e41670a"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "ur",
+          "transform": "add-quoted-history",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u06cc\u062a\u0644 \u0679\u0648\u0679\u0627 \u06c1\u0648\u0627 \u0622\u06cc\u0627",
+          "payload_sha256": "fd477e3f285c923a904d704f22624ae48555c639aed96ffd107e621fea237e36"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "ur",
+          "transform": "add-signature",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u06cc\u062a\u0644 \u0679\u0648\u0679\u0627 \u06c1\u0648\u0627 \u0622\u06cc\u0627",
+          "payload_sha256": "556b5e8c2f7f4a48d05ba1e3677e02648898ff55781f88ec0d0b137b03f18daa"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "ur",
+          "transform": "reword-greeting",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u06a9\u06cc\u062a\u0644 \u0679\u0648\u0679\u0627 \u06c1\u0648\u0627 \u0622\u06cc\u0627",
+          "payload_sha256": "6fc6015c13312e74e34e39cbb2f3f139a585feeba89d60d183fda9a4e7f53b2c"
+        },
+        {
+          "intent_id": "product-defect-report",
+          "language": "ur",
+          "transform": "wrap-forward",
+          "label": "product@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: \u06a9\u06cc\u062a\u0644 \u0679\u0648\u0679\u0627 \u06c1\u0648\u0627 \u0622\u06cc\u0627",
+          "payload_sha256": "f9711d9478f689bf3862cbee377c4fd7d2fed0939cf82baab932abc4645149e1"
+        }
+      ]
+    },
+    {
+      "intent_id": "subscription-cancel",
+      "category_hint": "account",
+      "variants": [
+        {
+          "intent_id": "subscription-cancel",
+          "language": "en",
+          "transform": "baseline",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Please stop my monthly plan",
+          "payload_sha256": "1d808ca19e7515f4d08d0cb3b43a366e153b4f1fd86f19feb7693e48518a9132"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "en",
+          "transform": "add-quoted-history",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Please stop my monthly plan",
+          "payload_sha256": "9199d06b894016ad0c9e776197e61796bbfdd34091da2855e8bb43f447e2b0ce"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "en",
+          "transform": "add-signature",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Please stop my monthly plan",
+          "payload_sha256": "337149ad66b3a55f3a4d687f610112cba9db16f203644c8736eb552e7e442e86"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "en",
+          "transform": "reword-greeting",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Please stop my monthly plan",
+          "payload_sha256": "d2e06c910c7bf5dd7936fbd99e91d33570d50a43eb48d296540c48bc2694d508"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "en",
+          "transform": "wrap-forward",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: Please stop my monthly plan",
+          "payload_sha256": "956a69f0692f488555633c8e9dda1b78da43df86daf855d6db0a6b2d31d285ce"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "roman_ur",
+          "transform": "baseline",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mahana plan band kar dein",
+          "payload_sha256": "2f088be3002b78578698b2716acbee99ae35040be2e3329b6b4101cd6b4ed0ac"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "roman_ur",
+          "transform": "add-quoted-history",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mahana plan band kar dein",
+          "payload_sha256": "7084c7a78320da2159bad9251d3d719681899dbd842ee3fcd35c187c882cd9f6"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "roman_ur",
+          "transform": "add-signature",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mahana plan band kar dein",
+          "payload_sha256": "cc060e7e28e6557c9d184ae4362f11eac0cef152f42192d53cf94af19dcee269"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "roman_ur",
+          "transform": "reflow-whitespace",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mahana plan band kar dein",
+          "payload_sha256": "ca925f0e7c4b825d203fe55c273e8f070728f3995e3fbed422de6f1d34b85e2c"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "roman_ur",
+          "transform": "reword-greeting",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "mahana plan band kar dein",
+          "payload_sha256": "12f8fbbb64515dfb7d261605595db364868f4d2f41c111cab3af96251f8fb457"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "roman_ur",
+          "transform": "wrap-forward",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: mahana plan band kar dein",
+          "payload_sha256": "f1af2b1f25b81e3cda6262f8742997219d6ac8832784785f928ae4ecd9e00650"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "ur",
+          "transform": "baseline",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u0627\u06c1\u0627\u0646\u06c1 \u067e\u0644\u0627\u0646 \u0628\u0646\u062f \u06a9\u0631 \u062f\u06cc\u06ba",
+          "payload_sha256": "c09995771ad2042639ada65b107e7f7df6b8a0a37dc7673c3eb7fb68a5791b88"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "ur",
+          "transform": "add-quoted-history",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u0627\u06c1\u0627\u0646\u06c1 \u067e\u0644\u0627\u0646 \u0628\u0646\u062f \u06a9\u0631 \u062f\u06cc\u06ba",
+          "payload_sha256": "ece28bec2bb9f5bd4cca3c98c6e561aa0000ce8b18b1ded689e57e2f9949bdca"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "ur",
+          "transform": "add-signature",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u0627\u06c1\u0627\u0646\u06c1 \u067e\u0644\u0627\u0646 \u0628\u0646\u062f \u06a9\u0631 \u062f\u06cc\u06ba",
+          "payload_sha256": "55a186d434a497f02dbd8165695b8fb54cb1ad370a28bd08fb0d2bc5b49e7344"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "ur",
+          "transform": "reword-greeting",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "\u0645\u0627\u06c1\u0627\u0646\u06c1 \u067e\u0644\u0627\u0646 \u0628\u0646\u062f \u06a9\u0631 \u062f\u06cc\u06ba",
+          "payload_sha256": "d2ea7ad1c3396679e2b1dd096ce46d4921cf23f7fadd07872848249d6a7785da"
+        },
+        {
+          "intent_id": "subscription-cancel",
+          "language": "ur",
+          "transform": "wrap-forward",
+          "label": "account@team.example.com",
+          "label_state": "labelled",
+          "label_detail": "",
+          "subject": "Fwd: \u0645\u0627\u06c1\u0627\u0646\u06c1 \u067e\u0644\u0627\u0646 \u0628\u0646\u062f \u06a9\u0631 \u062f\u06cc\u06ba",
+          "payload_sha256": "2df46c643e93932e5b9787e8474358c97ec55fce8670437c121c631ff3ac5c4a"
+        }
+      ]
+    }
+  ]
+}

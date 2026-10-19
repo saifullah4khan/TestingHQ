@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; style-src &#x27;sha256-9Xqz4EKjIOPl8sMZqPMYoXxdTbapwtfYWAiXimXxvAw=&#x27;; script-src &#x27;sha256-6JbOcHQbjGjEgTkkywmr027eZpw9hbTSMdK8ruuiaJ8=&#x27;; img-src data:; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;">
+<meta name="generator" content="testinghq 1.0.0">
+<title>TestingHQ blast: FLAGGED</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --border: #dedcd6;
+  --text: #1d1f23;
+  --muted: #5d636e;
+  --ok: #1e7a4c;
+  --ok-bg: #e3f3ea;
+  --bad: #b3261e;
+  --bad-bg: #fbe7e5;
+  --warn: #8a5a00;
+  --warn-bg: #fdf0d5;
+  --info: #2f4f8f;
+  --info-bg: #e6ecf8;
+  --row-bad: #fdf3f2;
+  --grid: #e7e5df;
+  --s0: #2f6fdb;
+  --s1: #d9480f;
+  --s2: #2b8a3e;
+  --s3: #9c36b5;
+  --knee: #b3261e;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --border: #2e333c;
+    --text: #e6e8ec;
+    --muted: #9aa1ad;
+    --ok: #5fd39a;
+    --ok-bg: #173327;
+    --bad: #ff8a80;
+    --bad-bg: #3a1d1b;
+    --warn: #f5c062;
+    --warn-bg: #3a2e14;
+    --info: #9db8f2;
+    --info-bg: #1d2740;
+    --row-bad: #2a1c1c;
+    --grid: #2a2e36;
+    --s0: #7aa7ff;
+    --s1: #ff9b6a;
+    --s2: #6fd08a;
+    --s3: #d59bf0;
+    --knee: #ff8a80;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
+header.top h1 { font-size: 20px; margin: 0; }
+header.top .meta { color: var(--muted); font-size: 13px; }
+header.top .meta span + span::before { content: " / "; }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+section h2 { font-size: 15px; margin: 0 0 12px; }
+.verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.verdict-word { font-size: 26px; font-weight: 700; letter-spacing: 0.01em; padding: 4px 12px; border-radius: 6px; }
+.tone-ok .verdict-word { color: var(--ok); background: var(--ok-bg); }
+.tone-finding .verdict-word { color: var(--bad); background: var(--bad-bg); }
+.tone-dry .verdict-word, .tone-unknown .verdict-word { color: var(--info); background: var(--info-bg); }
+.tone-refused .verdict-word { color: var(--warn); background: var(--warn-bg); }
+.verdict .source { color: var(--muted); font-size: 13px; }
+.exit { font-family: var(--mono); font-size: 13px; }
+.banner { margin-top: 12px; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+.banner-dry { background: var(--info-bg); color: var(--info); }
+.banner-aborted { background: var(--warn-bg); color: var(--warn); }
+.counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.count { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; }
+.count dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.count dd { margin: 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); margin: 0; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-weight: 600; white-space: nowrap; }
+th button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+th[aria-sort="ascending"] button::after { content: " \2191"; }
+th[aria-sort="descending"] button::after { content: " \2193"; }
+td { font-family: var(--mono); white-space: nowrap; }
+td.long { white-space: normal; min-width: 28ch; overflow-wrap: anywhere; }
+td.kind { white-space: nowrap; }
+tr.row-bad td { background: var(--row-bad); }
+.note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.filter { margin: 0 0 8px; padding: 4px 8px; font: inherit; font-size: 13px; width: min(320px, 100%); background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+pre { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.chart { width: 100%; height: auto; max-width: 720px; display: block; }
+.chart text { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.chart .axis { stroke: var(--border); }
+.chart .gridline { stroke: var(--grid); }
+.chart .line { fill: none; stroke-width: 2; }
+.chart .knee { stroke: var(--knee); stroke-dasharray: 4 3; }
+.chart .knee-label { fill: var(--knee); }
+.series-0 { stroke: var(--s0); }
+.series-1 { stroke: var(--s1); }
+.series-2 { stroke: var(--s2); }
+.series-3 { stroke: var(--s3); }
+.legend { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0; margin: 4px 0 12px; font-size: 13px; }
+.legend li::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 6px; vertical-align: middle; background: currentColor; }
+.legend .series-0 { color: var(--s0); }
+.legend .series-1 { color: var(--s1); }
+.legend .series-2 { color: var(--s2); }
+.legend .series-3 { color: var(--s3); }
+.charts h3 { font-size: 13px; margin: 8px 0 4px; color: var(--muted); font-weight: 600; }
+footer { color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+<header class="top"><h1>TestingHQ report</h1><div class="meta"><span>tool blast</span><span>target pipeline</span><span>seed 0</span><span>schema 1</span></div></header><section class="verdict-panel tone-finding" aria-label="Verdict"><div class="verdict"><span class="verdict-word" data-verdict>FLAGGED</span><span class="source">verdict derived</span><span class="exit" data-exit-code="3">exit code 3: ran, answer was no (derived)</span></div></section><section aria-label="Counts"><h2>Counts</h2><dl class="counts"><div class="count" data-count="sent"><dt>sent</dt><dd>26</dd></div><div class="count" data-count="passed"><dt>passed</dt><dd>25</dd></div><div class="count" data-count="failed"><dt>failed</dt><dd>1</dd></div><div class="count" data-count="records"><dt>records</dt><dd>26</dd></div></dl></section><section aria-label="Findings"><h2>Findings (1)</h2><div class="table-wrap"><table id="findings" data-sortable><thead><tr><th><button type="button">kind</button></th><th><button type="button">detail</button></th></tr></thead><tbody><tr><td class="kind">flag</td><td class="long">structurally-malformed structurally-malformed-0-0010 got no response: Remote end closed connection without response</td></tr></tbody></table></div></section><section aria-label="Records"><h2>Records (26)</h2><input class="filter" type="search" data-filter="table-records" placeholder="Filter records" aria-label="Filter records" hidden><div class="table-wrap"><table id="table-records" data-sortable><thead><tr><th><button type="button">id</button></th><th><button type="button">category</button></th><th><button type="button">intended.from</button></th><th><button type="button">intended.subject</button></th><th><button type="button">intended.body_core</button></th><th><button type="button">intended.attachments</button></th><th><button type="button">response.status</button></th><th><button type="button">response.latency_ms</button></th><th><button type="button">response.body_snippet</button></th><th><button type="button">response.error</button></th><th><button type="button">response.error_kind</button></th><th><button type="button">assertion.passed</button></th><th><button type="button">assertion.mismatches</button></th><th><button type="button">case</button></th></tr></thead><tbody><tr><td>messy-but-valid-0-0000</td><td>messy-but-valid</td><td>dave.patel28@corp.example.invalid</td><td>Following up on the Zürich office move</td><td class="long">Following up on the Zürich office move from earlier. Looking forward to your reply.</td><td>1</td><td>200</td><td>40.02</td><td>{&quot;ticket&quot;: &quot;T00001&quot;}</td><td></td><td></td><td>true</td><td></td><td>attachment_only_minimal_body</td></tr><tr><td>structurally-malformed-0-0001</td><td>structurally-malformed</td><td>bob.patel@example.net</td><td>Re: the contract</td><td class="long">This message is about the contract. Let me know if the timeline still works for you. This relates to what we discussed last week.</td><td>0</td><td>200</td><td>6.91</td><td>{&quot;ticket&quot;: &quot;T00002&quot;}</td><td></td><td></td><td>true</td><td></td><td>declared_charset_mismatch</td></tr><tr><td>structurally-malformed-0-0002</td><td>structurally-malformed</td><td>mallory_kim@example.edu</td><td>Quick question about the renewal</td><td class="long">Quick note regarding the renewal. Attached is what we discussed. I wanted to follow up on this. This relates to what we discussed last week. My order number is 919965-81.</td><td>1</td><td>200</td><td>6.07</td><td>{&quot;ticket&quot;: &quot;T00003&quot;}</td><td></td><td></td><td>true</td><td></td><td>degenerate_attachment</td></tr><tr><td>structurally-malformed-0-0003</td><td>structurally-malformed</td><td>carol28@example.org</td><td>Quick question about account access</td><td class="long">Following up on account access from earlier. Can you confirm receipt of this message? Happy to hop on a call if that is easier.</td><td>0</td><td>200</td><td>5.847</td><td>{&quot;ticket&quot;: &quot;T00004&quot;}</td><td></td><td></td><td>true</td><td></td><td>duplicate_form_field</td></tr><tr><td>messy-but-valid-0-0004</td><td>messy-but-valid</td><td>oscar_kim@widgets.example</td><td></td><td class="long">I am writing about the café booking. Please let me know if you have any questions. This relates to what we discussed last week. My order number is 286934-39.</td><td>0</td><td>200</td><td>5.812</td><td>{&quot;ticket&quot;: &quot;T00005&quot;}</td><td></td><td></td><td>true</td><td></td><td>empty_subject</td></tr><tr><td>messy-but-valid-0-0005</td><td>messy-but-valid</td><td>frankb@example.org</td><td class="long">Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the support ticket Re: the...</td><td class="long">I have a question about the support ticket. I wanted to follow up on this. Can you confirm receipt of this message? Attached is what we discussed.</td><td>0</td><td>200</td><td>29.001</td><td>{&quot;ticket&quot;: &quot;T00006&quot;}</td><td></td><td></td><td>true</td><td></td><td>extremely_long_subject</td></tr><tr><td>structurally-malformed-0-0006</td><td>structurally-malformed</td><td>judy.brown@widgets.example</td><td>Onboarding - action needed</td><td class="long">I am writing about onboarding. Happy to hop on a call if that is easier. This relates to what we discussed last week. Please let me know if you have any questions.</td><td>0</td><td>200</td><td>3.515</td><td>{&quot;ticket&quot;: &quot;T00007&quot;}</td><td></td><td></td><td>true</td><td></td><td>header_injection_attempt</td></tr><tr><td>clean-0-0007</td><td>clean</td><td>grace.chen@mail.example.test</td><td>Re: Quick question about your order</td><td class="long">Quick note regarding your order. Happy to hop on a call if that is easier. Attached is what we discussed. Please let me know if you have any questions.</td><td>0</td><td>200</td><td>9.088</td><td>{&quot;ticket&quot;: &quot;T00008&quot;}</td><td></td><td></td><td>true</td><td></td><td>heavily_quoted_reply_chain</td></tr><tr><td>clean-0-0008</td><td>clean</td><td>dnguyen5@mail.example.test</td><td>The quarterly report - action needed</td><td class="long">Quick note regarding the quarterly report. I wanted to follow up on this.</td><td>0</td><td>200</td><td>6.286</td><td>{&quot;ticket&quot;: &quot;T00009&quot;}</td><td></td><td></td><td>true</td><td></td><td>html_only_no_text</td></tr><tr><td>messy-but-valid-0-0009</td><td>messy-but-valid</td><td class="long">xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx@example.net</td><td>Following up on the Zürich office move</td><td class="long">This message is about the Zürich office move. This relates to what we discussed last week. Let me know if the timeline still works for you. Please let me know if you have any questions.</td><td>0</td><td>200</td><td>6.814</td><td>{&quot;ticket&quot;: &quot;T00010&quot;}</td><td></td><td></td><td>true</td><td></td><td>long_local_part</td></tr><tr class="row-bad"><td>structurally-malformed-0-0010</td><td>structurally-malformed</td><td>dave.nguyen26@example.edu</td><td>Update on the contract</td><td class="long">I have a question about the contract. Let me know if the timeline still works for you. Can you confirm receipt of this message?</td><td>0</td><td></td><td>10.91</td><td></td><td class="long">Remote end closed connection without response</td><td>other</td><td>false</td><td class="long">structurally-malformed structurally-malformed-0-0010 got no response: Remote end closed connection without response</td><td>malformed_envelope_json</td></tr><tr><td>messy-but-valid-0-0011</td><td>messy-but-valid</td><td>oscar_muller0@example.com</td><td>The shipment - action needed</td><td class="long">I am writing about the shipment. Attached is what we discussed. I wanted to follow up on this. The details are at https://www.example.com/orders/64772.</td><td>0</td><td>200</td><td>8.901</td><td>{&quot;ticket&quot;: &quot;T00012&quot;}</td><td></td><td></td><td>true</td><td></td><td>many_recipients</td></tr><tr><td>structurally-malformed-0-0012</td><td>structurally-malformed</td><td>ivan@example.net</td><td>Following up on the renewal</td><td class="long">This message is about the renewal. Attached is what we discussed. This relates to what we discussed last week. Looking forward to your reply.</td><td>0</td><td>200</td><td>7.141</td><td>{&quot;ticket&quot;: &quot;T00013&quot;}</td><td></td><td></td><td>true</td><td></td><td>missing_boundary_field</td></tr><tr><td>messy-but-valid-0-0013</td><td>messy-but-valid</td><td>malloryn@widgets.example</td><td>Quick question about your request</td><td class="long">I am writing about your request. This relates to what we discussed last week. Attached is what we discussed. I wanted to follow up on this.</td><td>0</td><td>200</td><td>7.888</td><td>{&quot;ticket&quot;: &quot;T00014&quot;}</td><td></td><td></td><td>true</td><td></td><td>mixed_line_endings</td></tr><tr><td>structurally-malformed-0-0014</td><td>structurally-malformed</td><td>grace24@example.edu</td><td>Quick question about the renewal</td><td class="long">Quick note regarding the renewal. Happy to hop on a call if that is easier. Please let me know if you have any questions.</td><td>0</td><td>200</td><td>6.363</td><td>{&quot;ticket&quot;: &quot;T00015&quot;}</td><td></td><td></td><td>true</td><td></td><td>null_byte_in_body</td></tr><tr><td>messy-but-valid-0-0015</td><td>messy-but-valid</td><td>gpatel7@corp.example.invalid</td><td>Update on the renewal</td><td class="long">I have a question about the renewal. This relates to what we discussed last week. Let me know if the timeline still works for you.</td><td>0</td><td>200</td><td>1439.818</td><td>{&quot;ticket&quot;: &quot;T00016&quot;}</td><td></td><td></td><td>true</td><td></td><td>oversized_body_1mb</td></tr><tr><td>clean-0-0016</td><td>clean</td><td>bobl23@example.edu</td><td>Following up on onboarding</td><td class="long">This message is about onboarding. Please let me know if you have any questions.</td><td>0</td><td>200</td><td>6.626</td><td>{&quot;ticket&quot;: &quot;T00017&quot;}</td><td></td><td></td><td>true</td><td></td><td>plus_addressing</td></tr><tr><td>clean-0-0017</td><td>clean</td><td>bob_chen@example.com</td><td>Following up on onboarding</td><td class="long">Quick note regarding onboarding. I wanted to follow up on this. This relates to what we discussed last week. Attached is what we discussed.</td><td>0</td><td>200</td><td>5.638</td><td>{&quot;ticket&quot;: &quot;T00018&quot;}</td><td></td><td></td><td>true</td><td></td><td>reply_to_mismatch</td></tr><tr><td>clean-0-0018</td><td>clean</td><td>grace.jones@widgets.example</td><td>Following up on the shipment</td><td class="long">مرحبا، هذه رسالة تجريبية باللغة العربية لاختبار النصوص من اليمين إلى اليسار.</td><td>0</td><td>200</td><td>7.048</td><td>{&quot;ticket&quot;: &quot;T00019&quot;}</td><td></td><td></td><td>true</td><td></td><td>rtl_body_text</td></tr><tr><td>structurally-malformed-0-0019</td><td>structurally-malformed</td><td>alice16@mail.example.test</td><td>Update on the shipment</td><td class="long">This message is about the shipment. I wanted to follow up on this. Can you confirm receipt of this message?</td><td>1</td><td>200</td><td>7.006</td><td>{&quot;ticket&quot;: &quot;T00020&quot;}</td><td></td><td></td><td>true</td><td></td><td>rtl_override_in_filename</td></tr><tr><td>clean-0-0020</td><td>clean</td><td>a@example.edu</td><td>Quick question about the renewal</td><td class="long">Quick note regarding the renewal. Looking forward to your reply.</td><td>0</td><td>200</td><td>4.934</td><td>{&quot;ticket&quot;: &quot;T00021&quot;}</td><td></td><td></td><td>true</td><td></td><td>single_char_local_part</td></tr><tr><td>clean-0-0021</td><td>clean</td><td>heidi@mail.example.test</td><td>Update on the support ticket</td><td class="long">I am writing about the support ticket. Let me know if the timeline still works for you.</td><td>0</td><td>200</td><td>6.045</td><td>{&quot;ticket&quot;: &quot;T00022&quot;}</td><td></td><td></td><td>true</td><td></td><td>text_only_no_html</td></tr><tr><td>clean-0-0022</td><td>clean</td><td>daveg@internal.localhost</td><td>订单确认 🎉 подтверждение заказа مؤكد</td><td class="long">Following up on onboarding from earlier. Can you confirm receipt of this message? Attached is what we discussed. Let me know if the timeline still works for you.</td><td>0</td><td>200</td><td>7.343</td><td>{&quot;ticket&quot;: &quot;T00023&quot;}</td><td></td><td></td><td>true</td><td></td><td>unicode_heavy_subject</td></tr><tr><td>degenerate-0-0023</td><td>degenerate</td><td>alice@mail.example.test</td><td>The café booking - action needed</td><td class="long">I am writing about the café booking. Happy to hop on a call if that is easier.</td><td>0</td><td>200</td><td>6.706</td><td>{&quot;ticket&quot;: &quot;T00024&quot;}</td><td></td><td></td><td>true</td><td></td><td>whitespace_only_body</td></tr><tr><td>messy-but-valid-0-0024</td><td>messy-but-valid</td><td>frank.chen@mail.example.test</td><td>Following up on the café booking</td><td class="long">Following up on the café booking from earlier. Attached is what we discussed. Looking forward to your reply. Let me know if the timeline still works for you.</td><td>1</td><td>200</td><td>10.554</td><td>{&quot;ticket&quot;: &quot;T00025&quot;}</td><td></td><td></td><td>true</td><td></td><td>zero_byte_attachment</td></tr><tr><td>degenerate-0-0025</td><td>degenerate</td><td>grace_lee13@widgets.example</td><td>Re: the Zürich office move</td><td class="long">Quick note regarding the Zürich office move. Attached is what we discussed.</td><td>0</td><td>200</td><td>9.199</td><td>{&quot;ticket&quot;: &quot;T00026&quot;}</td><td></td><td></td><td>true</td><td></td><td>zero_length_envelope</td></tr></tbody></table></div></section><section aria-label="Config"><h2>Config</h2><pre>{
+  &quot;allow_public_target&quot;: false,
+  &quot;catalog&quot;: [
+    &quot;attachment_only_minimal_body&quot;,
+    &quot;declared_charset_mismatch&quot;,
+    &quot;degenerate_attachment&quot;,
+    &quot;duplicate_form_field&quot;,
+    &quot;empty_subject&quot;,
+    &quot;extremely_long_subject&quot;,
+    &quot;header_injection_attempt&quot;,
+    &quot;heavily_quoted_reply_chain&quot;,
+    &quot;html_only_no_text&quot;,
+    &quot;long_local_part&quot;,
+    &quot;malformed_envelope_json&quot;,
+    &quot;many_recipients&quot;,
+    &quot;missing_boundary_field&quot;,
+    &quot;mixed_line_endings&quot;,
+    &quot;null_byte_in_body&quot;,
+    &quot;oversized_body_1mb&quot;,
+    &quot;plus_addressing&quot;,
+    &quot;reply_to_mismatch&quot;,
+    &quot;rtl_body_text&quot;,
+    &quot;rtl_override_in_filename&quot;,
+    &quot;single_char_local_part&quot;,
+    &quot;text_only_no_html&quot;,
+    &quot;unicode_heavy_subject&quot;,
+    &quot;whitespace_only_body&quot;,
+    &quot;zero_byte_attachment&quot;,
+    &quot;zero_length_envelope&quot;
+  ],
+  &quot;count&quot;: 26,
+  &quot;dry_run&quot;: false,
+  &quot;fail_on_body&quot;: null,
+  &quot;format&quot;: &quot;sendgrid&quot;,
+  &quot;mix&quot;: [],
+  &quot;seed&quot;: 0,
+  &quot;target&quot;: &quot;pipeline&quot;,
+  &quot;transport&quot;: &quot;http&quot;
+}</pre></section><footer>Written by testinghq 1.0.0. Self-contained: this file loads nothing from the network.</footer>
+</main>
+<script>// TestingHQ report page: sorting and filtering for the tables that
+// `testinghq report --html` writes.
+//
+// The page is complete without this script. Python renders every verdict,
+// count and row; this file only reorders and hides rows that are already
+// there, so it never decides what a result means.
+//
+// The pure functions are exported for `node --test`. In a browser the same
+// file publishes window.TestingHQRender and wires up the page it is inlined
+// into. It makes no network requests and loads nothing.
+
+(function (root, factory) {
+  "use strict";
+  var api = factory();
+  if (typeof module === "object" && module.exports) {
+    module.exports = api;
+    return;
+  }
+  root.TestingHQRender = api;
+  if (root.document && typeof root.document.querySelectorAll === "function") {
+    api.enhance(root.document);
+  }
+})(
+  typeof self !== "undefined" ? self : this,
+  function () {
+    "use strict";
+
+    var NUMBER = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
+
+    //: A cell's numeric value, or null when it is not a plain number.
+    function numericValue(text) {
+      var trimmed = String(text === null || text === undefined ? "" : text).trim();
+      if (!NUMBER.test(trimmed)) {
+        return null;
+      }
+      return Number(trimmed);
+    }
+
+    //: Order two cell texts. Empty cells sort last, numbers compare as
+    //: numbers, and anything else compares as case-insensitive text.
+    function compareCells(a, b) {
+      var left = String(a === null || a === undefined ? "" : a).trim();
+      var right = String(b === null || b === undefined ? "" : b).trim();
+      if (left === "" && right === "") return 0;
+      if (left === "") return 1;
+      if (right === "") return -1;
+      var ln = numericValue(left);
+      var rn = numericValue(right);
+      if (ln !== null && rn !== null) {
+        return ln < rn ? -1 : ln > rn ? 1 : 0;
+      }
+      if (ln !== null) return -1;
+      if (rn !== null) return 1;
+      var lc = left.toLowerCase();
+      var rc = right.toLowerCase();
+      return lc < rc ? -1 : lc > rc ? 1 : 0;
+    }
+
+    //: A sorted copy of rows ({cells: [...]}) by one column. Stable, and the
+    //: input is left as it was. Empty cells stay last in both directions.
+    function sortRows(rows, column, descending) {
+      var indexed = (rows || []).map(function (row, index) {
+        return { row: row, index: index };
+      });
+      indexed.sort(function (x, y) {
+        var a = (x.row.cells || [])[column];
+        var b = (y.row.cells || [])[column];
+        var aEmpty = String(a === null || a === undefined ? "" : a).trim() === "";
+        var bEmpty = String(b === null || b === undefined ? "" : b).trim() === "";
+        var order;
+        if (aEmpty || bEmpty) {
+          order = compareCells(a, b);
+        } else {
+          order = descending ? compareCells(b, a) : compareCells(a, b);
+        }
+        return order !== 0 ? order : x.index - y.index;
+      });
+      return indexed.map(function (entry) {
+        return entry.row;
+      });
+    }
+
+    //: True when any cell contains the query, ignoring case. An empty query
+    //: matches every row.
+    function matchesQuery(row, query) {
+      var needle = String(query || "").trim().toLowerCase();
+      if (needle === "") return true;
+      return (row.cells || []).some(function (cell) {
+        return String(cell === null || cell === undefined ? "" : cell)
+          .toLowerCase()
+          .indexOf(needle) !== -1;
+      });
+    }
+
+    function filterRows(rows, query) {
+      return (rows || []).filter(function (row) {
+        return matchesQuery(row, query);
+      });
+    }
+
+    //: The aria-sort value a header moves to when it is clicked.
+    function nextDirection(current) {
+      return current === "ascending" ? "descending" : "ascending";
+    }
+
+    function toArray(list) {
+      return Array.prototype.slice.call(list || []);
+    }
+
+    function rowsOf(tbody) {
+      return toArray(tbody.rows).map(function (node) {
+        return {
+          node: node,
+          cells: toArray(node.cells).map(function (cell) {
+            return cell.textContent;
+          }),
+        };
+      });
+    }
+
+    function wireSorting(table) {
+      var head = table.tHead && table.tHead.rows[0];
+      var tbody = table.tBodies && table.tBodies[0];
+      if (!head || !tbody) return;
+      var headers = toArray(head.cells);
+      headers.forEach(function (th, column) {
+        var button = th.querySelector("button");
+        if (!button) return;
+        button.addEventListener("click", function () {
+          var direction = nextDirection(th.getAttribute("aria-sort"));
+          headers.forEach(function (other) {
+            other.removeAttribute("aria-sort");
+          });
+          th.setAttribute("aria-sort", direction);
+          sortRows(rowsOf(tbody), column, direction === "descending").forEach(
+            function (row) {
+              tbody.appendChild(row.node);
+            }
+          );
+        });
+      });
+    }
+
+    function wireFilter(doc, input) {
+      var table = doc.getElementById(input.getAttribute("data-filter"));
+      if (!table || !table.tBodies || !table.tBodies[0]) return;
+      var tbody = table.tBodies[0];
+      input.hidden = false;
+      input.addEventListener("input", function () {
+        rowsOf(tbody).forEach(function (row) {
+          row.node.hidden = !matchesQuery(row, input.value);
+        });
+      });
+    }
+
+    //: Attach sorting to every table marked data-sortable and show the
+    //: filter boxes, which are hidden until a script can make them work.
+    //: Returns the number of tables wired, for the tests.
+    function enhance(doc) {
+      var tables = toArray(doc.querySelectorAll("table[data-sortable]"));
+      tables.forEach(wireSorting);
+      toArray(doc.querySelectorAll("input[data-filter]")).forEach(function (input) {
+        wireFilter(doc, input);
+      });
+      return tables.length;
+    }
+
+    return {
+      numericValue: numericValue,
+      compareCells: compareCells,
+      sortRows: sortRows,
+      matchesQuery: matchesQuery,
+      filterRows: filterRows,
+      nextDirection: nextDirection,
+      enhance: enhance,
+    };
+  }
+);
+</script>
+</body>
+</html>

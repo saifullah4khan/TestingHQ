@@ -1,0 +1,15 @@
+report: wrote sweep/runs/mailpit/20261019T030128Z/steady.html
+tool:    steady
+verdict: STABLE
+seed:    0
+target:  pipeline
+
+counts:
+  sent        105
+  found       105
+  passed      105
+  records     105
+
+findings: 0
+
+exit code: 0 (derived, not recorded in the artifact)

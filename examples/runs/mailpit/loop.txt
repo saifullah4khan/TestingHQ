@@ -1,0 +1,14 @@
+report: wrote sweep/runs/mailpit/20261019T030128Z/loop.html
+tool:    loop
+verdict: LOOP-SAFE
+seed:    0
+target:  pipeline
+
+counts:
+  sent        14
+  passed      13
+  records     13
+
+findings: 0
+
+exit code: 0 (derived, not recorded in the artifact)

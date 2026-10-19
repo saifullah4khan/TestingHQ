@@ -1,0 +1,14 @@
+report: wrote sweep/runs/mailpit/20261019T030128Z/redeliver.html
+tool:    redeliver
+verdict: DELIVERY-SAFE
+seed:    0
+target:  pipeline
+
+counts:
+  sent        12
+  passed      2
+  scenarios   2
+
+findings: 0
+
+exit code: 0 (derived, not recorded in the artifact)

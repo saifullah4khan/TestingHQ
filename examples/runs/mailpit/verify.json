@@ -1,0 +1,2248 @@
+{
+  "schema_version": 1,
+  "tool": "verify",
+  "seed": 0,
+  "config": {
+    "tool": "verify",
+    "seed": 0,
+    "count": 20,
+    "tag_prefix": "hq-2610190301-27da",
+    "target": "pipeline",
+    "readback": {
+      "kind": "http",
+      "url": "http://127.0.0.1:8025/api/v1/search",
+      "path": null,
+      "tag_param": "query",
+      "items_key": "messages",
+      "timeout": 10.0,
+      "field_map": {
+        "ticket_id": "ID",
+        "from_addr": "From",
+        "subject": "Subject",
+        "body": "body",
+        "attachment_names": "attachments",
+        "route": "To.0.Address",
+        "message_id": "MessageID",
+        "in_reply_to": "in_reply_to",
+        "references": "references",
+        "tag": "tag",
+        "category": "category",
+        "priority": "priority"
+      },
+      "unmapped_fields": [],
+      "spec": null,
+      "list_path": "/api/v1/messages?limit=5000",
+      "enumerate": true,
+      "headers": [],
+      "query": "\"{tag}\"",
+      "method": "GET",
+      "body": null,
+      "page_param": null,
+      "page_size_param": null,
+      "next_path": null,
+      "max_pages": 10,
+      "retry_max": 5,
+      "retry_base_seconds": 0.5,
+      "rate": 50.0
+    },
+    "expect_route": null,
+    "body_exact": false,
+    "subject_match": "contains",
+    "attachment_match": "exact",
+    "readback_poll": {
+      "quiet_window": 3.0,
+      "max_wait": 60.0,
+      "max_wait_source": "given",
+      "poll_interval": 0.5
+    },
+    "format": "sendgrid",
+    "allow_public_target": false,
+    "transport": "http",
+    "dry_run": false
+  },
+  "summary": {
+    "sent": 20,
+    "found": 20,
+    "verified": 20,
+    "failed": 0,
+    "transport_unanswered": 0,
+    "transport_non_2xx": 0,
+    "checks_passed_by_name": {
+      "ticket_created": 20,
+      "sender": 20,
+      "subject": 20
+    },
+    "checks_skipped_by_reason": {
+      "no record found": {},
+      "adapter cannot see field": {
+        "body": 20,
+        "attachments": 20
+      },
+      "nothing to check": {},
+      "no expected route": {
+        "routing": 20
+      }
+    },
+    "unsettled": false,
+    "readback": {
+      "elapsed_s": 3.039,
+      "polls": 4,
+      "stable": true,
+      "unsettled": false,
+      "verdict": null,
+      "budget_exhausted": false,
+      "complete_polls": 4,
+      "cause": null,
+      "missing_tags": [],
+      "partial_tags": [],
+      "all_404": false,
+      "headline": null,
+      "detail": null
+    },
+    "verdict": "VERIFIED",
+    "verdict_source": "tool"
+  },
+  "records": [
+    {
+      "id": "clean-0-0000",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0000",
+      "message_id": "hq-2610190301-27da-0-0000@hq.example.test",
+      "payload_sha256": "d45c2fffbabdae1698928d8367201beaa68d025f6a74d257fc792b05ace22a79",
+      "intended": {
+        "sender": "grace.brown@internal.localhost",
+        "subject": "Onboarding - action needed",
+        "body_core": "This message is about onboarding. Looking forward to your reply.",
+        "attachments": [
+          "invoice4.jpg"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 32.806093000090186,
+        "body_snippet": "{\"ticket\": \"T00001\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "3cOscTFOjcQXX9x7TS4w2N",
+          "from_addr": "grace.brown@internal.localhost",
+          "subject": "Onboarding - action needed",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0000@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0000",
+        "tag": "hq-2610190301-27da-0-0000",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 3cOscTFOjcQXX9x7TS4w2N",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace.brown@internal.localhost",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0001",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0001",
+      "message_id": "hq-2610190301-27da-0-0001@hq.example.test",
+      "payload_sha256": "ff0823486883074d57db5ded4d7a009c17d192b0d75a3207c48e63c087edd272",
+      "intended": {
+        "sender": "bmuller19@example.com",
+        "subject": "Update on the Z\u00fcrich office move",
+        "body_core": "This message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.839171999923565,
+        "body_snippet": "{\"ticket\": \"T00002\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "1mTuBP5wX5ZJcYwCGsVV2P",
+          "from_addr": "bmuller19@example.com",
+          "subject": "Update on the Z\u00fcrich office move",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0001@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0001",
+        "tag": "hq-2610190301-27da-0-0001",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 1mTuBP5wX5ZJcYwCGsVV2P",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bmuller19@example.com",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0002",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0002",
+      "message_id": "hq-2610190301-27da-0-0002@hq.example.test",
+      "payload_sha256": "1c07cec39142c714da3775617f852195fea130f47134a917a4ca4b5cab26010f",
+      "intended": {
+        "sender": "ivan.chen@example.net",
+        "subject": "The renewal",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.586456000173712,
+        "body_snippet": "{\"ticket\": \"T00003\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "0kAdnPXcGR08VqIrWrsKEV",
+          "from_addr": "ivan.chen@example.net",
+          "subject": "The renewal",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0002@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0002",
+        "tag": "hq-2610190301-27da-0-0002",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 0kAdnPXcGR08VqIrWrsKEV",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as ivan.chen@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0003",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0003",
+      "message_id": "hq-2610190301-27da-0-0003@hq.example.test",
+      "payload_sha256": "3ebfcb4bb46724355b044ce9537863fdbdb98189a1e1bd13ff7c3afddebd4432",
+      "intended": {
+        "sender": "heidis24@example.net",
+        "subject": "Re: the contract",
+        "body_core": "This message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.",
+        "attachments": [
+          "scan7138.csv"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.903150999960417,
+        "body_snippet": "{\"ticket\": \"T00004\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "4KyM527J8uykEzd4UdgNVJ",
+          "from_addr": "heidis24@example.net",
+          "subject": "Re: the contract",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0003@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0003",
+        "tag": "hq-2610190301-27da-0-0003",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 4KyM527J8uykEzd4UdgNVJ",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as heidis24@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0004",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0004",
+      "message_id": "hq-2610190301-27da-0-0004@hq.example.test",
+      "payload_sha256": "5fdf88e5df957719e6a435f890d8ecb1b8e753b4b89b8509816b5e4c982c5695",
+      "intended": {
+        "sender": "bjones@example.edu",
+        "subject": "Quick question about onboarding",
+        "body_core": "I am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 5.572680000113905,
+        "body_snippet": "{\"ticket\": \"T00005\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "60aLuaEf3qp8BRL1rT6RIh",
+          "from_addr": "bjones@example.edu",
+          "subject": "Quick question about onboarding",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0004@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0004",
+        "tag": "hq-2610190301-27da-0-0004",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 60aLuaEf3qp8BRL1rT6RIh",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bjones@example.edu",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0005",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0005",
+      "message_id": "hq-2610190301-27da-0-0005@hq.example.test",
+      "payload_sha256": "08c7c1516c4bbf8ad0bbe890a897097290a9ee4ddad210760ef0195ded8b1096",
+      "intended": {
+        "sender": "flee@internal.localhost",
+        "subject": "Re: the quarterly report",
+        "body_core": "Quick note regarding the quarterly report. Let me know if the timeline still works for you.",
+        "attachments": [
+          "report9736.csv",
+          "export3305.txt"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 10.38881800013769,
+        "body_snippet": "{\"ticket\": \"T00006\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "2EChYFC1WQFxskP4YtQLnM",
+          "from_addr": "flee@internal.localhost",
+          "subject": "Re: the quarterly report",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0005@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0005",
+        "tag": "hq-2610190301-27da-0-0005",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 2EChYFC1WQFxskP4YtQLnM",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as flee@internal.localhost",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0006",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0006",
+      "message_id": "hq-2610190301-27da-0-0006@hq.example.test",
+      "payload_sha256": "06f6d0433593178954e980af33940f2ae8fbb44bf0daaaf0fad8beba70ae2d3b",
+      "intended": {
+        "sender": "grace.jones@example.org",
+        "subject": "Your order",
+        "body_core": "I am writing about your order. This relates to what we discussed last week.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.691764000152034,
+        "body_snippet": "{\"ticket\": \"T00007\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "331XPo16HfV8wqcD4dkqvQ",
+          "from_addr": "grace.jones@example.org",
+          "subject": "Your order",
+          "body": null,
+          "attachment_names": [],
+          "route": "shipping@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0006@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0006",
+        "tag": "hq-2610190301-27da-0-0006",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 331XPo16HfV8wqcD4dkqvQ",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace.jones@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0007",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0007",
+      "message_id": "hq-2610190301-27da-0-0007@hq.example.test",
+      "payload_sha256": "539dc4e84e80528956bb7f4e35324c8e5f086fac2d77e0f891a42622abe9b7f0",
+      "intended": {
+        "sender": "carol_brown@widgets.example",
+        "subject": "Following up on the support ticket",
+        "body_core": "This message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.",
+        "attachments": [
+          "scan790.pdf",
+          "report2519.png"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 11.923287999934473,
+        "body_snippet": "{\"ticket\": \"T00008\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "01orVKAG8A9yWr0I9L5qZG",
+          "from_addr": "carol_brown@widgets.example",
+          "subject": "Following up on the support ticket",
+          "body": null,
+          "attachment_names": [],
+          "route": "shipping@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0007@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0007",
+        "tag": "hq-2610190301-27da-0-0007",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 01orVKAG8A9yWr0I9L5qZG",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as carol_brown@widgets.example",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0008",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0008",
+      "message_id": "hq-2610190301-27da-0-0008@hq.example.test",
+      "payload_sha256": "fb2bb2eb62ab558599ddfb3646e4ad9f6b1422226f6fa93be0e6fde47e85eb01",
+      "intended": {
+        "sender": "emuller@example.net",
+        "subject": "Quick question about the invoice",
+        "body_core": "I have a question about the invoice. Let me know if the timeline still works for you.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.246579999877213,
+        "body_snippet": "{\"ticket\": \"T00009\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "3BI44FTAYndhDJc2wUsVPe",
+          "from_addr": "emuller@example.net",
+          "subject": "Quick question about the invoice",
+          "body": null,
+          "attachment_names": [],
+          "route": "billing@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0008@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0008",
+        "tag": "hq-2610190301-27da-0-0008",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 3BI44FTAYndhDJc2wUsVPe",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as emuller@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0009",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0009",
+      "message_id": "hq-2610190301-27da-0-0009@hq.example.test",
+      "payload_sha256": "5bf2a1c40ccf57957442c8328c32e9245577c694c05d67f55e5f24a63d25231c",
+      "intended": {
+        "sender": "grace_chen@example.org",
+        "subject": "The renewal - action needed",
+        "body_core": "Quick note regarding the renewal. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.436032999999952,
+        "body_snippet": "{\"ticket\": \"T00010\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "5nUkDoO3K0dYTf8P06PCLB",
+          "from_addr": "grace_chen@example.org",
+          "subject": "The renewal - action needed",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0009@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0009",
+        "tag": "hq-2610190301-27da-0-0009",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 5nUkDoO3K0dYTf8P06PCLB",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace_chen@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0010",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0010",
+      "message_id": "hq-2610190301-27da-0-0010@hq.example.test",
+      "payload_sha256": "a04ae01725360fa1acf4b21a4df806238baaac05011c09ba8623f4664103606f",
+      "intended": {
+        "sender": "frank.garcia@example.com",
+        "subject": "The shipment - action needed",
+        "body_core": "Following up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.",
+        "attachments": [
+          "receipt7716.png"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.7889589999813325,
+        "body_snippet": "{\"ticket\": \"T00011\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "5EwJobzxk0AiaZydTpv3bZ",
+          "from_addr": "frank.garcia@example.com",
+          "subject": "The shipment - action needed",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0010@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0010",
+        "tag": "hq-2610190301-27da-0-0010",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 5EwJobzxk0AiaZydTpv3bZ",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as frank.garcia@example.com",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0011",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0011",
+      "message_id": "hq-2610190301-27da-0-0011@hq.example.test",
+      "payload_sha256": "95264f15f3dd2a7b9df3f9d433ca3cb3a6a9734aa3a93734428d69481449164a",
+      "intended": {
+        "sender": "bob_brown15@corp.example.invalid",
+        "subject": "Update on the shipment",
+        "body_core": "Quick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 6.774948000156655,
+        "body_snippet": "{\"ticket\": \"T00012\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "4t5Epfag8pWw5LX01efk8c",
+          "from_addr": "bob_brown15@corp.example.invalid",
+          "subject": "Update on the shipment",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0011@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0011",
+        "tag": "hq-2610190301-27da-0-0011",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 4t5Epfag8pWw5LX01efk8c",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bob_brown15@corp.example.invalid",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0012",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0012",
+      "message_id": "hq-2610190301-27da-0-0012@hq.example.test",
+      "payload_sha256": "49ecc13105acdd0c63d4c1d7d939590c35aef99c1f29c22f33e43a02a87bae91",
+      "intended": {
+        "sender": "fmuller@example.com",
+        "subject": "Re: the contract",
+        "body_core": "I am writing about the contract. Can you confirm receipt of this message?",
+        "attachments": [
+          "attachment1858.txt"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 12.029346999952395,
+        "body_snippet": "{\"ticket\": \"T00013\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "0pod9Q3bkBezwqJjaqbUwg",
+          "from_addr": "fmuller@example.com",
+          "subject": "Re: the contract",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0012@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0012",
+        "tag": "hq-2610190301-27da-0-0012",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 0pod9Q3bkBezwqJjaqbUwg",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as fmuller@example.com",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0013",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0013",
+      "message_id": "hq-2610190301-27da-0-0013@hq.example.test",
+      "payload_sha256": "0c7b9e3fe65c49f720ab0f1b72e01c2c80d4c624d29114d09fec4aa40fba6a84",
+      "intended": {
+        "sender": "judy@corp.example.invalid",
+        "subject": "Re: the quarterly report",
+        "body_core": "I have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.184087000017826,
+        "body_snippet": "{\"ticket\": \"T00014\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "7PyCuCvu3OE3CSz2BXAxyb",
+          "from_addr": "judy@corp.example.invalid",
+          "subject": "Re: the quarterly report",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0013@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0013",
+        "tag": "hq-2610190301-27da-0-0013",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 7PyCuCvu3OE3CSz2BXAxyb",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as judy@corp.example.invalid",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0014",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0014",
+      "message_id": "hq-2610190301-27da-0-0014@hq.example.test",
+      "payload_sha256": "8a6764ba3e635d2abe2c2d9b5d84afa3e5578891b28a684c88cea71662655555",
+      "intended": {
+        "sender": "aliceb@example.org",
+        "subject": "Re: your order",
+        "body_core": "I am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.",
+        "attachments": [
+          "form8971.csv",
+          "report9290.docx"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 12.396733000059612,
+        "body_snippet": "{\"ticket\": \"T00015\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "5JG8xjrajYekR2WZkzUD3T",
+          "from_addr": "aliceb@example.org",
+          "subject": "Re: your order",
+          "body": null,
+          "attachment_names": [],
+          "route": "shipping@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0014@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0014",
+        "tag": "hq-2610190301-27da-0-0014",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 5JG8xjrajYekR2WZkzUD3T",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as aliceb@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0015",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0015",
+      "message_id": "hq-2610190301-27da-0-0015@hq.example.test",
+      "payload_sha256": "cd69dbfae936e07bdcb51cadeafd26e5993e5f69a91251a7c5b78630db26c7fb",
+      "intended": {
+        "sender": "grace_jones12@example.net",
+        "subject": "Update on the quarterly report",
+        "body_core": "I am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?",
+        "attachments": [
+          "attachment3783.jpg"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 9.556347000170717,
+        "body_snippet": "{\"ticket\": \"T00016\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "22MwMK5Ri22gaOu7ovec2f",
+          "from_addr": "grace_jones12@example.net",
+          "subject": "Update on the quarterly report",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0015@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0015",
+        "tag": "hq-2610190301-27da-0-0015",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 22MwMK5Ri22gaOu7ovec2f",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as grace_jones12@example.net",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0016",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0016",
+      "message_id": "hq-2610190301-27da-0-0016@hq.example.test",
+      "payload_sha256": "be2385a3be7adba0c74bba231ab839a7fdd321eb0f9c8ad05c340c51f83e4e56",
+      "intended": {
+        "sender": "jnguyen@example.org",
+        "subject": "Update on the quarterly report",
+        "body_core": "This message is about the quarterly report. This relates to what we discussed last week.",
+        "attachments": [
+          "attachment1231.json"
+        ],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.342938999930993,
+        "body_snippet": "{\"ticket\": \"T00017\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "3tyDmV50Acyzmu8g79azaN",
+          "from_addr": "jnguyen@example.org",
+          "subject": "Update on the quarterly report",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0016@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0016",
+        "tag": "hq-2610190301-27da-0-0016",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 3tyDmV50Acyzmu8g79azaN",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as jnguyen@example.org",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0017",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0017",
+      "message_id": "hq-2610190301-27da-0-0017@hq.example.test",
+      "payload_sha256": "7cb8441ac6c37bc0a0c3514b4d127a016fd9c3c3094eccc4bfb93b1517ec83e4",
+      "intended": {
+        "sender": "oscar_nguyen@widgets.example",
+        "subject": "Update on your order",
+        "body_core": "Quick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 8.15751100003581,
+        "body_snippet": "{\"ticket\": \"T00018\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "1j83pD7szshFY15pBg9TKi",
+          "from_addr": "oscar_nguyen@widgets.example",
+          "subject": "Update on your order",
+          "body": null,
+          "attachment_names": [],
+          "route": "shipping@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0017@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0017",
+        "tag": "hq-2610190301-27da-0-0017",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 1j83pD7szshFY15pBg9TKi",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as oscar_nguyen@widgets.example",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0018",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0018",
+      "message_id": "hq-2610190301-27da-0-0018@hq.example.test",
+      "payload_sha256": "925f088486dcae94f5b091a4af77eafc5ac9859dbdecced34851448c430df807",
+      "intended": {
+        "sender": "bobm@mail.example.test",
+        "subject": "Quick question about the caf\u00e9 booking",
+        "body_core": "This message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.094800999993822,
+        "body_snippet": "{\"ticket\": \"T00019\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "5kyIic9wH4TWTVjXkdwIvh",
+          "from_addr": "bobm@mail.example.test",
+          "subject": "Quick question about the caf\u00e9 booking",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0018@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0018",
+        "tag": "hq-2610190301-27da-0-0018",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 5kyIic9wH4TWTVjXkdwIvh",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as bobm@mail.example.test",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-0-0019",
+      "category": "clean",
+      "tag": "hq-2610190301-27da-0-0019",
+      "message_id": "hq-2610190301-27da-0-0019@hq.example.test",
+      "payload_sha256": "5ebd087d38073bfb4856ebd51e7f93524e1328314e1cbdfe7f6b9930629d9502",
+      "intended": {
+        "sender": "frank.jones@example.edu",
+        "subject": "Following up on the schedule",
+        "body_core": "I have a question about the schedule. Please let me know if you have any questions.",
+        "attachments": [],
+        "route": null,
+        "body_exact": false,
+        "subject_match": "contains",
+        "attachment_match": "exact"
+      },
+      "response": {
+        "status": 200,
+        "latency_ms": 7.426528999985749,
+        "body_snippet": "{\"ticket\": \"T00020\"}"
+      },
+      "assertion": {
+        "passed": true,
+        "mismatches": []
+      },
+      "readback": [
+        {
+          "exists": true,
+          "ticket_id": "1Qz1F1WdEHM8LIAvGXRw5y",
+          "from_addr": "frank.jones@example.edu",
+          "subject": "Following up on the schedule",
+          "body": null,
+          "attachment_names": [],
+          "route": "general@team.example.com",
+          "message_id": "hq-2610190301-27da-0-0019@hq.example.test",
+          "in_reply_to": null,
+          "references": [],
+          "tag": null,
+          "category": null,
+          "priority": null,
+          "fields": [
+            "from_addr",
+            "message_id",
+            "route",
+            "subject",
+            "ticket_id"
+          ]
+        }
+      ],
+      "verification": {
+        "record_id": "clean-0-0019",
+        "tag": "hq-2610190301-27da-0-0019",
+        "found": true,
+        "passed": true,
+        "checks": [
+          {
+            "check": "ticket_created",
+            "status": "passed",
+            "detail": "created as 1Qz1F1WdEHM8LIAvGXRw5y",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "sender",
+            "status": "passed",
+            "detail": "sender parsed as frank.jones@example.edu",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "subject",
+            "status": "passed",
+            "detail": "subject parsed intact (match: contains)",
+            "expected": null,
+            "actual": null,
+            "reason": null
+          },
+          {
+            "check": "body",
+            "status": "skipped",
+            "detail": "the adapter could not see a body on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "attachments",
+            "status": "skipped",
+            "detail": "the adapter could not see attachments on this record",
+            "expected": null,
+            "actual": null,
+            "reason": "adapter cannot see field"
+          },
+          {
+            "check": "routing",
+            "status": "skipped",
+            "detail": "no expected route: declare one with --expect-route to check routing",
+            "expected": null,
+            "actual": null,
+            "reason": "no expected route"
+          }
+        ]
+      }
+    }
+  ]
+}
