@@ -73,6 +73,10 @@ has to be longer than one poll period plus processing, with room to spare, and
 `sweep/profiles/zammad.env` sets `SWEEP_QUIET_WINDOW=60` and
 `SWEEP_MAX_WAIT=240`. Set them from the helpdesk's own poll period.
 
+The channel files every ticket under one group or mailbox, so the profile
+names it as `SWEEP_EXPECT_ROUTE` (Zammad: `SWEEP_EXPECT_ROUTE=Users`), which
+verify compares with the route the readback maps (`route = "group"`).
+
 ## Setup script
 
 The setup script creates the channel pointing at the mail-in sidecar by its
