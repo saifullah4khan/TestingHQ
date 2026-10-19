@@ -1,0 +1,60 @@
+# The sweep's Zammad target and readback, for sweep/compose/zammad.yml.
+#
+# Zammad pulls mail, so nothing is posted to it. Each message goes over SMTP
+# into the Mailpit sidecar (zammad-mail-in), the email channel that
+# sweep/setup/zammad.sh creates fetches that Mailpit over POP3 every 30
+# seconds and opens a ticket per message, and the readback asks Zammad's
+# ticket search for the tag. sweep/PULL_MAIL.md describes the pattern.
+#
+# Secrets come from sweep/.env.zammad, which the setup script writes:
+#
+#   ZAMMAD_AUTH   "Token token=<api token>", the whole Authorization value
+#
+# Waiting: a ticket exists only after the next fetch has run and the
+# background worker has processed it, so --quiet-window has to outlast one
+# fetch period with room to spare. sweep/profiles/zammad.env sets it.
+
+[targets.zammad]
+name = "zammad"
+transport = "smtp"
+host = "127.0.0.1"
+port = 3325
+# The address the channel's email address is set to. Mailpit takes mail for
+# any recipient and the POP3 fetch reads all of it, so this only has to be
+# synthetic and the same everywhere.
+envelope_to = "support@zammad.test"
+
+[readback]
+kind = "http"
+# expand=true renders associations by name: `customer` is the customer's login
+# (the sender's address for a customer created from an email) and `group` the
+# group name.
+url = "http://127.0.0.1:3380/api/v1/tickets/search?expand=true"
+tag_param = "query"
+# Search runs on the database when Elasticsearch is off (the compose file turns
+# it off): a case-insensitive substring of the title, the ticket number or any
+# article's body, from, to or subject. The tag is in the body marker, so the
+# bare tag is the query. Quoting it would make the database search look for
+# the quotes.
+page_param = "page"
+page_size_param = "per_page"
+timeout = 15.0
+# A ticket in this response carries no article body, so an enumerated ticket
+# cannot be tied to a tag, and a listing would count every one as untagged.
+# Stray detection is off rather than reporting a balance it did not check.
+enumerate = false
+
+[readback.headers]
+Authorization = "env:ZAMMAD_AUTH"
+
+[readback.fields]
+ticket_id = "id"
+from_addr = "customer"
+subject = "title"
+route = "group"
+# The body and the attachments live on the ticket's articles, a second request
+# (/api/v1/ticket_articles/by_ticket/<id>) the http readback does not make.
+body = false
+attachment_names = false
+# `priority` here is Zammad's own urgency ("2 normal"), not a classifier label.
+priority = false

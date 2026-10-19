@@ -1,0 +1,128 @@
+# Readback recipe: Zammad
+#
+# STATUS: Written from Zammad's published REST API documentation (Tickets:
+# search, Access tokens) and its source for the database search
+# (app/models/ticket/search.rb) and the expanded response
+# (attributes_with_association_names). Read the field paths as "what the
+# documentation and the source say the response looks like". If one is wrong
+# the failure is visible and safe: that check reports NOT CHECKED and says
+# which field the adapter could not see.
+#
+# Zammad pulls its mail: an email channel fetches a mailbox over POP3 or IMAP
+# and opens a ticket per new message. So the target is SMTP, into the mail
+# server the channel fetches from, and the readback is Zammad's ticket search.
+# A Mailpit does for the mail server: it takes SMTP on 1025 and, with a POP3
+# credential configured, serves what it took over POP3 on 1110.
+#
+#   docker run -d -p 1025:1025 -p 1110:1110 -p 8025:8025 \
+#     -e MP_POP3_AUTH="zammad:secret" axllent/mailpit
+#   # Zammad: Channels > Email > New account, POP3, host of that Mailpit,
+#   # port 1110, user zammad, password secret, SSL off.
+#   export ZAMMAD_AUTH="Token token=$ZAMMAD_TOKEN"   # Profile > Token Access
+#   testinghq verify fire --target zammad --send --config target.toml \
+#     --quiet-window 60 --max-wait 240 --expect-route Users
+#
+# sweep/compose/zammad.yml and sweep/setup/zammad.sh set all of this up in
+# containers, and sweep/PULL_MAIL.md describes the pattern.
+#
+# AUTH. A Zammad API token is sent as `Authorization: Token token=<token>`.
+# The variable holds the whole value. A [readback.headers] value that is not an
+# `env:` reference is refused, because a config file is a file that gets
+# shared. The token needs the ticket.agent permission, and its user needs read
+# access to the group the channel files into, or the search returns nothing.
+#
+# WAITING. The channel is fetched every 30 seconds, and a fetched message
+# becomes a ticket once a background worker has processed it. The readback
+# settles once nothing it sees has changed for --quiet-window, and a ticket
+# still not found then is reported as lost, so --quiet-window has to outlast a
+# fetch period with room to spare (60), and --max-wait well above that (240).
+# With the default 5s window an unfetched message reads as loss.
+
+[targets.zammad]
+name = "zammad"
+transport = "smtp"
+host = "127.0.0.1"
+port = 1025
+# The address the channel's email address is set to. A Mailpit takes mail for
+# any recipient, and a synthetic one is all a test should send to.
+envelope_to = "support@zammad.test"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The lookup is GET /api/v1/tickets/search?query=<tag>&expand=true.
+#
+# Without Elasticsearch, Zammad searches the database: `*` is dropped and the
+# rest is a case-insensitive substring of the ticket's title or number, or of
+# any article's body, from, to or subject. TestingHQ stamps the tag into the
+# body as [testinghq:<tag>], so the bare tag finds the ticket. Do not quote it:
+# the database search would look for the quotes as well.
+#
+# With Elasticsearch, the query is a query_string, where a hyphenated tag is
+# split into terms. Quote it there, so it is matched as one phrase:
+#
+#   query = "\"{tag}\""
+#
+# Results are a JSON list, newest first, 50 to a page by default and at most
+# 200, paged with page and per_page.
+#
+# A Zammad on localhost or a private address needs nothing more. A hosted one
+# is a public host: add allow_public_hosts = true, or pass
+# --allow-public-readback per run.
+
+[readback]
+kind = "http"
+url = "http://127.0.0.1:8080/api/v1/tickets/search?expand=true"
+tag_param = "query"
+page_param = "page"
+page_size_param = "per_page"
+timeout = 15.0
+
+# A ticket in a search result carries no article body, so a ticket from a
+# listing cannot be tied to a tag: stray detection is off, and the ledger
+# reports strays as not searched rather than as none.
+enumerate = false
+
+[readback.headers]
+Authorization = "env:ZAMMAD_AUTH"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A ticket from the search with expand=true. Every `*_id` column is kept and
+# each association gains its name: `customer` is the customer's login, which
+# for a customer Zammad created from an email is the sender's address, in lower
+# case, and `group` is the group name. The title of a ticket opened from an
+# email is the message's subject.
+
+[readback.fields]
+ticket_id = "id"
+from_addr = "customer"
+subject = "title"
+route = "group"
+
+# Unmapped, each for a reason:
+#
+#   body              The body is on the ticket's first article
+#   attachment_names  (/api/v1/ticket_articles/by_ticket/<id>), and so are the
+#                     attachments: a second request this adapter does not
+#                     make. Write a custom adapter if you need them.
+#   priority          Zammad's own urgency ("2 normal"), not a classifier's
+#                     label. Reading it as one would make a steady run measure
+#                     the wrong thing.
+body = false
+attachment_names = false
+priority = false
+
+# NOT MAPPED, each for a reason:
+#
+#   message_id,       Kept on the article (`message_id`), not on the ticket.
+#   in_reply_to,
+#   references
+#   tag               Zammad's tags are a separate resource (/api/v1/tags),
+#                     and the search already found the ticket by the tag.
+#   category          Only if you have a custom ticket attribute, which the
+#                     expanded ticket carries under its own name: map
+#                     category to it.
