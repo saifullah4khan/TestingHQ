@@ -42,3 +42,9 @@ ticket_policy = "allowed"
 # address other than the mailbox's here, in the mailbox readback shape.
 kind = "mailbox"
 path = "../.state/freescout/outbound.jsonl"
+
+[steady]
+# FreeScout does not classify mail. The one decision it makes is the mailbox
+# a conversation lands in, so steady reads that: every variant should land in
+# the sweep mailbox.
+label_field = "route"
