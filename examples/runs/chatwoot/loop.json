@@ -7,7 +7,7 @@
     "tool": "loop",
     "seed": 0,
     "count": 12,
-    "tag_prefix": "hq-2610190533-7c9d",
+    "tag_prefix": "hq-2610190751-31fb",
     "target": "chatwoot",
     "readback": {
       "kind": "http",
@@ -87,7 +87,7 @@
     "verdict": "LOOP-SAFE (auto-reply NOT CHECKED)",
     "verdict_source": "tool",
     "readback": {
-      "elapsed_s": 19.802,
+      "elapsed_s": 19.808,
       "polls": 3,
       "stable": true,
       "unsettled": false,
@@ -96,8 +96,8 @@
       "complete_polls": 3,
       "cause": null,
       "missing_tags": [
-        "hq-2610190533-7c9d-0-0005",
-        "hq-2610190533-7c9d-0-0006"
+        "hq-2610190751-31fb-0-0005",
+        "hq-2610190751-31fb-0-0006"
       ],
       "partial_tags": [],
       "all_404": false,
@@ -108,27 +108,27 @@
   },
   "messages": [
     {
-      "tag": "hq-2610190533-7c9d-0-0012",
+      "tag": "hq-2610190751-31fb-0-0012",
       "record_id": "loop-0-precursor",
       "kind": "ordinary-precursor",
       "marker": "ordinary mail, not judged",
       "subject": "Question about order 2291",
       "from_addr": "Sana Malik <sana.malik@example.net>",
-      "message_id": "hq-2610190533-7c9d-0-0012@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0012@hq.example.test",
       "is_loop_bait": false,
       "result": null
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0000",
+      "tag": "hq-2610190751-31fb-0-0000",
       "record_id": "loop-0-0000",
       "kind": "auto-submitted-auto-replied",
       "marker": "Auto-Submitted: auto-replied",
       "subject": "Re: your refund request",
       "from_addr": "robot@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0000@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0000@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0000",
+        "tag": "hq-2610190751-31fb-0-0000",
         "kind": "auto-submitted-auto-replied",
         "marker": "Auto-Submitted: auto-replied",
         "ticked": true,
@@ -143,16 +143,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0001",
+      "tag": "hq-2610190751-31fb-0-0001",
       "record_id": "loop-0-0001",
       "kind": "auto-submitted-auto-generated",
       "marker": "Auto-Submitted: auto-generated",
       "subject": "Your order has shipped",
       "from_addr": "robot@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0001@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0001@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0001",
+        "tag": "hq-2610190751-31fb-0-0001",
         "kind": "auto-submitted-auto-generated",
         "marker": "Auto-Submitted: auto-generated",
         "ticked": true,
@@ -167,16 +167,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0002",
+      "tag": "hq-2610190751-31fb-0-0002",
       "record_id": "loop-0-0002",
       "kind": "precedence-bulk",
       "marker": "Precedence: bulk",
       "subject": "Monthly product bulletin",
       "from_addr": "newsletter@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0002@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0002@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0002",
+        "tag": "hq-2610190751-31fb-0-0002",
         "kind": "precedence-bulk",
         "marker": "Precedence: bulk",
         "ticked": true,
@@ -191,16 +191,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0003",
+      "tag": "hq-2610190751-31fb-0-0003",
       "record_id": "loop-0-0003",
       "kind": "precedence-list",
       "marker": "Precedence: list",
       "subject": "[users] Re: meeting time",
       "from_addr": "users@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0003@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0003@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0003",
+        "tag": "hq-2610190751-31fb-0-0003",
         "kind": "precedence-list",
         "marker": "Precedence: list",
         "ticked": true,
@@ -215,16 +215,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0004",
+      "tag": "hq-2610190751-31fb-0-0004",
       "record_id": "loop-0-0004",
       "kind": "precedence-junk",
       "marker": "Precedence: junk",
       "subject": "Special offer for you",
       "from_addr": "deals@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0004@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0004@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0004",
+        "tag": "hq-2610190751-31fb-0-0004",
         "kind": "precedence-junk",
         "marker": "Precedence: junk",
         "ticked": true,
@@ -239,16 +239,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0005",
+      "tag": "hq-2610190751-31fb-0-0005",
       "record_id": "loop-0-0005",
       "kind": "out-of-office",
       "marker": "Auto-Submitted: auto-replied",
       "subject": "Automatic reply: away until Monday",
       "from_addr": "colleague@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0005@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0005@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0005",
+        "tag": "hq-2610190751-31fb-0-0005",
         "kind": "out-of-office",
         "marker": "Auto-Submitted: auto-replied",
         "ticked": false,
@@ -262,16 +262,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0006",
+      "tag": "hq-2610190751-31fb-0-0006",
       "record_id": "loop-0-0006",
       "kind": "out-of-office-alternate",
       "marker": "Subject starts 'out of office'",
       "subject": "Out of Office",
       "from_addr": "colleague@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0006@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0006@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0006",
+        "tag": "hq-2610190751-31fb-0-0006",
         "kind": "out-of-office-alternate",
         "marker": "Subject starts 'out of office'",
         "ticked": false,
@@ -285,16 +285,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0007",
+      "tag": "hq-2610190751-31fb-0-0007",
       "record_id": "loop-0-0007",
       "kind": "bounce-dsn",
       "marker": "Return-Path: <>",
       "subject": "Undelivered Mail Returned to Sender",
       "from_addr": "MAILER-DAEMON@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0007@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0007@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0007",
+        "tag": "hq-2610190751-31fb-0-0007",
         "kind": "bounce-dsn",
         "marker": "Return-Path: <>",
         "ticked": true,
@@ -309,16 +309,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0008",
+      "tag": "hq-2610190751-31fb-0-0008",
       "record_id": "loop-0-0008",
       "kind": "noreply-sender",
       "marker": "From: noreply@",
       "subject": "Your payment was received",
       "from_addr": "noreply@billing.example.com",
-      "message_id": "hq-2610190533-7c9d-0-0008@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0008@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0008",
+        "tag": "hq-2610190751-31fb-0-0008",
         "kind": "noreply-sender",
         "marker": "From: noreply@",
         "ticked": true,
@@ -333,16 +333,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0009",
+      "tag": "hq-2610190751-31fb-0-0009",
       "record_id": "loop-0-0009",
       "kind": "noreply-sender-alternate",
       "marker": "From: no-reply@",
       "subject": "Your invoice is attached",
       "from_addr": "no-reply@billing.example.com",
-      "message_id": "hq-2610190533-7c9d-0-0009@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0009@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0009",
+        "tag": "hq-2610190751-31fb-0-0009",
         "kind": "noreply-sender-alternate",
         "marker": "From: no-reply@",
         "ticked": true,
@@ -357,16 +357,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0010",
+      "tag": "hq-2610190751-31fb-0-0010",
       "record_id": "loop-0-0010",
       "kind": "list-headers",
       "marker": "List-Unsubscribe present",
       "subject": "[users] Re: meeting time",
       "from_addr": "users@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0010@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0010@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0010",
+        "tag": "hq-2610190751-31fb-0-0010",
         "kind": "list-headers",
         "marker": "List-Unsubscribe present",
         "ticked": true,
@@ -381,16 +381,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0011",
+      "tag": "hq-2610190751-31fb-0-0011",
       "record_id": "loop-0-0011",
       "kind": "list-headers-id",
       "marker": "List-Id present",
       "subject": "Weekly digest",
       "from_addr": "digest@example.com",
-      "message_id": "hq-2610190533-7c9d-0-0011@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0011@hq.example.test",
       "is_loop_bait": false,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0011",
+        "tag": "hq-2610190751-31fb-0-0011",
         "kind": "list-headers-id",
         "marker": "List-Id present",
         "ticked": true,
@@ -405,16 +405,16 @@
       }
     },
     {
-      "tag": "hq-2610190533-7c9d-0-0013",
+      "tag": "hq-2610190751-31fb-0-0013",
       "record_id": "loop-0-bait",
       "kind": "loop-bait",
       "marker": "auto-reply to the pipeline's own outbound message",
       "subject": "Automatic reply: Re: Question about order 2291",
       "from_addr": "Sana Malik <sana.malik@example.net>",
-      "message_id": "hq-2610190533-7c9d-0-0013@hq.example.test",
+      "message_id": "hq-2610190751-31fb-0-0013@hq.example.test",
       "is_loop_bait": true,
       "result": {
-        "tag": "hq-2610190533-7c9d-0-0013",
+        "tag": "hq-2610190751-31fb-0-0013",
         "kind": "loop-bait",
         "marker": "auto-reply to the pipeline's own outbound message",
         "ticked": true,

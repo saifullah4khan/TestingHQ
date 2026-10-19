@@ -6,7 +6,7 @@
     "tool": "redeliver",
     "seed": 0,
     "count": 3,
-    "tag_prefix": "hq-2610190530-61a8",
+    "tag_prefix": "hq-2610190748-5f8a",
     "target": "chatwoot",
     "readback": {
       "kind": "http",
@@ -82,283 +82,283 @@
     "strays_not_searched_reason": null,
     "other_runs": [
       {
-        "tag": "hq-2610190529-8cb3-0-0049",
+        "tag": "hq-2610190747-8475-0-0049",
         "ticket": "65"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0048",
+        "tag": "hq-2610190747-8475-0-0048",
         "ticket": "64"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0047",
+        "tag": "hq-2610190747-8475-0-0047",
         "ticket": "63"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0046",
+        "tag": "hq-2610190747-8475-0-0046",
         "ticket": "62"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0045",
+        "tag": "hq-2610190747-8475-0-0045",
         "ticket": "61"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0044",
+        "tag": "hq-2610190747-8475-0-0044",
         "ticket": "60"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0043",
+        "tag": "hq-2610190747-8475-0-0043",
         "ticket": "59"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0042",
+        "tag": "hq-2610190747-8475-0-0042",
         "ticket": "58"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0041",
+        "tag": "hq-2610190747-8475-0-0041",
         "ticket": "57"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0040",
+        "tag": "hq-2610190747-8475-0-0040",
         "ticket": "56"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0039",
+        "tag": "hq-2610190747-8475-0-0039",
         "ticket": "55"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0038",
+        "tag": "hq-2610190747-8475-0-0038",
         "ticket": "54"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0037",
+        "tag": "hq-2610190747-8475-0-0037",
         "ticket": "53"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0036",
+        "tag": "hq-2610190747-8475-0-0036",
         "ticket": "52"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0035",
+        "tag": "hq-2610190747-8475-0-0035",
         "ticket": "51"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0034",
+        "tag": "hq-2610190747-8475-0-0034",
         "ticket": "50"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0033",
+        "tag": "hq-2610190747-8475-0-0033",
         "ticket": "49"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0032",
+        "tag": "hq-2610190747-8475-0-0032",
         "ticket": "48"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0031",
+        "tag": "hq-2610190747-8475-0-0031",
         "ticket": "47"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0030",
+        "tag": "hq-2610190747-8475-0-0030",
         "ticket": "46"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0029",
+        "tag": "hq-2610190747-8475-0-0029",
         "ticket": "45"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0028",
+        "tag": "hq-2610190747-8475-0-0028",
         "ticket": "44"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0027",
+        "tag": "hq-2610190747-8475-0-0027",
         "ticket": "43"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0026",
+        "tag": "hq-2610190747-8475-0-0026",
         "ticket": "42"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0025",
+        "tag": "hq-2610190747-8475-0-0025",
         "ticket": "41"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0024",
+        "tag": "hq-2610190747-8475-0-0024",
         "ticket": "40"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0023",
+        "tag": "hq-2610190747-8475-0-0023",
         "ticket": "39"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0022",
+        "tag": "hq-2610190747-8475-0-0022",
         "ticket": "38"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0021",
+        "tag": "hq-2610190747-8475-0-0021",
         "ticket": "37"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0020",
+        "tag": "hq-2610190747-8475-0-0020",
         "ticket": "36"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0019",
+        "tag": "hq-2610190747-8475-0-0019",
         "ticket": "35"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0018",
+        "tag": "hq-2610190747-8475-0-0018",
         "ticket": "34"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0017",
+        "tag": "hq-2610190747-8475-0-0017",
         "ticket": "33"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0016",
+        "tag": "hq-2610190747-8475-0-0016",
         "ticket": "32"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0015",
+        "tag": "hq-2610190747-8475-0-0015",
         "ticket": "31"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0014",
+        "tag": "hq-2610190747-8475-0-0014",
         "ticket": "15"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0013",
+        "tag": "hq-2610190747-8475-0-0013",
         "ticket": "12"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0012",
+        "tag": "hq-2610190747-8475-0-0012",
         "ticket": "14"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0011",
+        "tag": "hq-2610190747-8475-0-0011",
         "ticket": "30"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0010",
+        "tag": "hq-2610190747-8475-0-0010",
         "ticket": "29"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0009",
+        "tag": "hq-2610190747-8475-0-0009",
         "ticket": "28"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0008",
+        "tag": "hq-2610190747-8475-0-0008",
         "ticket": "27"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0007",
+        "tag": "hq-2610190747-8475-0-0007",
         "ticket": "26"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0006",
+        "tag": "hq-2610190747-8475-0-0006",
         "ticket": "25"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0005",
+        "tag": "hq-2610190747-8475-0-0005",
         "ticket": "6"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0004",
+        "tag": "hq-2610190747-8475-0-0004",
         "ticket": "24"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0003",
-        "ticket": "5"
-      },
-      {
-        "tag": "hq-2610190529-8cb3-0-0002",
+        "tag": "hq-2610190747-8475-0-0002",
         "ticket": "23"
       },
       {
-        "tag": "hq-2610190529-8cb3-0-0001",
-        "ticket": "22"
-      },
-      {
-        "tag": "hq-2610190529-8cb3-0-0000",
-        "ticket": "21"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0019",
-        "ticket": "20"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0018",
-        "ticket": "19"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0017",
-        "ticket": "18"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0016",
-        "ticket": "17"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0015",
-        "ticket": "16"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0014",
-        "ticket": "15"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0012",
-        "ticket": "14"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0009",
-        "ticket": "13"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0013",
-        "ticket": "12"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0011",
-        "ticket": "11"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0010",
-        "ticket": "10"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0008",
-        "ticket": "9"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0007",
-        "ticket": "8"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0006",
-        "ticket": "7"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0005",
-        "ticket": "6"
-      },
-      {
-        "tag": "hq-2610190529-099e-0-0003",
+        "tag": "hq-2610190747-8475-0-0003",
         "ticket": "5"
       },
       {
-        "tag": "hq-2610190529-099e-0-0004",
+        "tag": "hq-2610190747-8475-0-0001",
+        "ticket": "22"
+      },
+      {
+        "tag": "hq-2610190747-8475-0-0000",
+        "ticket": "21"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0017",
+        "ticket": "20"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0019",
+        "ticket": "19"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0018",
+        "ticket": "18"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0016",
+        "ticket": "17"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0015",
+        "ticket": "16"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0014",
+        "ticket": "15"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0012",
+        "ticket": "14"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0009",
+        "ticket": "13"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0013",
+        "ticket": "12"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0011",
+        "ticket": "10"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0010",
+        "ticket": "11"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0008",
+        "ticket": "9"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0007",
+        "ticket": "8"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0006",
+        "ticket": "7"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0005",
+        "ticket": "6"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0003",
+        "ticket": "5"
+      },
+      {
+        "tag": "hq-2610190747-4f3d-0-0004",
         "ticket": "4"
       },
       {
-        "tag": "hq-2610190529-099e-0-0001",
+        "tag": "hq-2610190747-4f3d-0-0002",
         "ticket": "3"
       },
       {
-        "tag": "hq-2610190529-099e-0-0002",
+        "tag": "hq-2610190747-4f3d-0-0000",
         "ticket": "2"
       },
       {
-        "tag": "hq-2610190529-099e-0-0000",
+        "tag": "hq-2610190747-4f3d-0-0001",
         "ticket": "1"
       }
     ],
@@ -368,7 +368,7 @@
     "verdict": "DELIVERY-BUGS",
     "verdict_source": "tool",
     "readback": {
-      "elapsed_s": 18.298,
+      "elapsed_s": 18.3,
       "polls": 3,
       "stable": true,
       "unsettled": false,
@@ -397,9 +397,9 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190530-61a8-dup-0-0000",
+          "tag": "hq-2610190748-5f8a-dup-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190530-61a8-dup-0-0000@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-dup-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "66"
@@ -456,9 +456,9 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-dup-0-0001",
+          "tag": "hq-2610190748-5f8a-dup-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190530-61a8-dup-0-0001@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-dup-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
             "67"
@@ -515,9 +515,9 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-dup-0-0002",
+          "tag": "hq-2610190748-5f8a-dup-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190530-61a8-dup-0-0002@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-dup-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
             "68"
@@ -588,9 +588,9 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190530-61a8-rty-0-0000",
+          "tag": "hq-2610190748-5f8a-rty-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190530-61a8-rty-0-0000@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-rty-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "69"
@@ -647,9 +647,9 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-rty-0-0001",
+          "tag": "hq-2610190748-5f8a-rty-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190530-61a8-rty-0-0001@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-rty-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
             "70"
@@ -706,9 +706,9 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-rty-0-0002",
+          "tag": "hq-2610190748-5f8a-rty-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190530-61a8-rty-0-0002@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-rty-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
             "71"
@@ -775,18 +775,18 @@
       "passed": false,
       "findings": [
         "sender: expected ivan.chen@example.net but the system recorded bmuller19@example.com",
-        "hq-2610190530-61a8-r1st-0-0001: the reply is on ticket 72 but its original is on 73",
-        "hq-2610190530-61a8-r1st-0-0002: the reply is on ticket 72 but its original is on 73"
+        "hq-2610190748-5f8a-r1st-0-0001: the reply is on ticket 72 but its original is on 73",
+        "hq-2610190748-5f8a-r1st-0-0002: the reply is on ticket 72 but its original is on 73"
       ],
       "missing": [],
       "not_checked": [],
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190530-61a8-r1st-0-0001",
+          "tag": "hq-2610190748-5f8a-r1st-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190530-61a8-r1st-0-0001@hq.example.test",
-          "replies_to": "hq-2610190530-61a8-r1st-0-0000",
+          "message_id": "hq-2610190748-5f8a-r1st-0-0001@hq.example.test",
+          "replies_to": "hq-2610190748-5f8a-r1st-0-0000",
           "tickets": [
             "72"
           ],
@@ -842,8 +842,8 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190530-61a8-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
-              "expected": "hq-2610190530-61a8-r1st-0-0000@hq.example.test",
+              "detail": "linked to hq-2610190748-5f8a-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190748-5f8a-r1st-0-0000@hq.example.test",
               "actual": null,
               "reason": null
             },
@@ -858,10 +858,10 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-r1st-0-0002",
+          "tag": "hq-2610190748-5f8a-r1st-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190530-61a8-r1st-0-0002@hq.example.test",
-          "replies_to": "hq-2610190530-61a8-r1st-0-0000",
+          "message_id": "hq-2610190748-5f8a-r1st-0-0002@hq.example.test",
+          "replies_to": "hq-2610190748-5f8a-r1st-0-0000",
           "tickets": [
             "72"
           ],
@@ -917,8 +917,8 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190530-61a8-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
-              "expected": "hq-2610190530-61a8-r1st-0-0000@hq.example.test",
+              "detail": "linked to hq-2610190748-5f8a-r1st-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190748-5f8a-r1st-0-0000@hq.example.test",
               "actual": null,
               "reason": null
             },
@@ -933,9 +933,9 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-r1st-0-0000",
+          "tag": "hq-2610190748-5f8a-r1st-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190530-61a8-r1st-0-0000@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-r1st-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "73"
@@ -1001,17 +1001,17 @@
       "strays_searched": true,
       "passed": false,
       "findings": [
-        "hq-2610190530-61a8-ref-0-0001: the reply is on ticket 75 but its original is on 74",
-        "hq-2610190530-61a8-ref-0-0002: the reply is on ticket 76 but its original is on 75"
+        "hq-2610190748-5f8a-ref-0-0001: the reply is on ticket 75 but its original is on 74",
+        "hq-2610190748-5f8a-ref-0-0002: the reply is on ticket 76 but its original is on 75"
       ],
       "missing": [],
       "not_checked": [],
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190530-61a8-ref-0-0000",
+          "tag": "hq-2610190748-5f8a-ref-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190530-61a8-ref-0-0000@hq.example.test",
+          "message_id": "hq-2610190748-5f8a-ref-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
             "74"
@@ -1068,10 +1068,10 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-ref-0-0001",
+          "tag": "hq-2610190748-5f8a-ref-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190530-61a8-ref-0-0001@hq.example.test",
-          "replies_to": "hq-2610190530-61a8-ref-0-0000",
+          "message_id": "hq-2610190748-5f8a-ref-0-0001@hq.example.test",
+          "replies_to": "hq-2610190748-5f8a-ref-0-0000",
           "tickets": [
             "75"
           ],
@@ -1127,8 +1127,8 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190530-61a8-ref-0-0000@hq.example.test, References carries all 1 ancestor(s)",
-              "expected": "hq-2610190530-61a8-ref-0-0000@hq.example.test",
+              "detail": "linked to hq-2610190748-5f8a-ref-0-0000@hq.example.test, References carries all 1 ancestor(s)",
+              "expected": "hq-2610190748-5f8a-ref-0-0000@hq.example.test",
               "actual": null,
               "reason": null
             },
@@ -1143,10 +1143,10 @@
           ]
         },
         {
-          "tag": "hq-2610190530-61a8-ref-0-0002",
+          "tag": "hq-2610190748-5f8a-ref-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190530-61a8-ref-0-0002@hq.example.test",
-          "replies_to": "hq-2610190530-61a8-ref-0-0001",
+          "message_id": "hq-2610190748-5f8a-ref-0-0002@hq.example.test",
+          "replies_to": "hq-2610190748-5f8a-ref-0-0001",
           "tickets": [
             "76"
           ],
@@ -1202,8 +1202,8 @@
             {
               "check": "thread_link",
               "status": "passed",
-              "detail": "linked to hq-2610190530-61a8-ref-0-0001@hq.example.test, References carries all 2 ancestor(s)",
-              "expected": "hq-2610190530-61a8-ref-0-0001@hq.example.test",
+              "detail": "linked to hq-2610190748-5f8a-ref-0-0001@hq.example.test, References carries all 2 ancestor(s)",
+              "expected": "hq-2610190748-5f8a-ref-0-0001@hq.example.test",
               "actual": null,
               "reason": null
             },

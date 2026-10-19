@@ -26,7 +26,7 @@ record per message with the conversation it landed on as its ticket.
 | [steady](steady.html) | STABLE | 0 | 105 variants, every one in inbox 1: Chatwoot makes no other decision about a message |
 | [blast --catalog](blast-catalog.html) | CLEAN | 0 | 26 of 26 edge cases answered 2xx |
 | [blast --corpus](blast-corpus.html) | CLEAN | 0 | 99 of Zammad's test mails, every one answered 2xx |
-| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 29ms, no errors, no knee |
+| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 26ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
@@ -39,4 +39,4 @@ steady's constant-label warning is expected here: the inbox is the only label
 Chatwoot gives a message, so every variant reading `1` is the stable answer.
 
 Paths in the artifacts are relative to the repository root and point at the
-run directory the sweep wrote, `sweep/runs/chatwoot/20261019T052845Z/`.
+run directory the sweep wrote, `sweep/runs/chatwoot/20261019T074646Z/`.

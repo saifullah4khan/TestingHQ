@@ -80,7 +80,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 64.57099999533966,
+        "latency_ms": 58.223200001521036,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -103,7 +103,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 43.49150002235547,
+        "latency_ms": 42.85229998640716,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -126,7 +126,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 27.000300004146993,
+        "latency_ms": 45.34119999152608,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -149,7 +149,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 47.67319999518804,
+        "latency_ms": 23.6109999823384,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -172,7 +172,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 43.494699988514185,
+        "latency_ms": 21.80460002273321,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -195,7 +195,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.68049999536015,
+        "latency_ms": 25.504799996269867,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -218,7 +218,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 32.881899998756126,
+        "latency_ms": 23.651199997402728,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -241,7 +241,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.349700008518994,
+        "latency_ms": 43.50390000035986,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -264,7 +264,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 35.87960000731982,
+        "latency_ms": 23.47290000761859,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -287,7 +287,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.702499998966232,
+        "latency_ms": 45.727399992756546,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -310,7 +310,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.934800021583214,
+        "latency_ms": 23.63290000357665,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -333,7 +333,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 31.444699998246506,
+        "latency_ms": 46.83629999635741,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -356,7 +356,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.694199993973598,
+        "latency_ms": 23.69670002372004,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -379,7 +379,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 23.609900003066286,
+        "latency_ms": 36.57779999775812,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -402,7 +402,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 45.300600002519786,
+        "latency_ms": 39.33960001450032,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -425,7 +425,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 52.763799991225824,
+        "latency_ms": 41.95920002530329,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -448,7 +448,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 23.73679997981526,
+        "latency_ms": 23.954799980856478,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -471,7 +471,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 49.64760001166724,
+        "latency_ms": 43.718500004615635,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -494,7 +494,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 34.76609999779612,
+        "latency_ms": 22.84910000162199,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -517,7 +517,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.533499992685392,
+        "latency_ms": 24.347800004761666,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -540,7 +540,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.04209999460727,
+        "latency_ms": 47.10909997811541,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -563,7 +563,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 40.49349998240359,
+        "latency_ms": 24.114200001349673,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -586,7 +586,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.718200002098456,
+        "latency_ms": 34.81899999314919,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -609,7 +609,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 41.463500005193055,
+        "latency_ms": 37.62039999128319,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -632,7 +632,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 45.54019999341108,
+        "latency_ms": 28.339300013612956,
         "body_snippet": "",
         "error": null,
         "error_kind": null
@@ -655,7 +655,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 26.24649999779649,
+        "latency_ms": 38.94650001893751,
         "body_snippet": "",
         "error": null,
         "error_kind": null

@@ -6,7 +6,7 @@
     "tool": "verify",
     "seed": 0,
     "count": 20,
-    "tag_prefix": "hq-2610190529-099e",
+    "tag_prefix": "hq-2610190747-4f3d",
     "target": "chatwoot",
     "readback": {
       "kind": "http",
@@ -86,7 +86,7 @@
     },
     "unsettled": false,
     "readback": {
-      "elapsed_s": 20.039,
+      "elapsed_s": 20.046,
       "polls": 2,
       "stable": true,
       "unsettled": false,
@@ -107,9 +107,9 @@
     {
       "id": "clean-0-0000",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0000",
-      "message_id": "hq-2610190529-099e-0-0000@hq.example.test",
-      "payload_sha256": "789d5951849c82d6427f8bbcbce0b5ae785c6e77ebeec9a3c108edf83d32aa70",
+      "tag": "hq-2610190747-4f3d-0-0000",
+      "message_id": "hq-2610190747-4f3d-0-0000@hq.example.test",
+      "payload_sha256": "a578040b8a52805145238acb0efcf7060bf78f5edceb2d59275b998c15f0cda3",
       "intended": {
         "sender": "grace.brown@internal.localhost",
         "subject": "Onboarding - action needed",
@@ -124,7 +124,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 74.78540000738576,
+        "latency_ms": 78.4812000056263,
         "body_snippet": ""
       },
       "assertion": {
@@ -134,13 +134,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "1",
+          "ticket_id": "2",
           "from_addr": "grace.brown@internal.localhost",
           "subject": "Onboarding - action needed",
-          "body": "Hey Grace,\n\nThis message is about onboarding. Looking forward to your reply.\n\nBest regards,\nGrace\n\n[testinghq:hq-2610190529-099e-0-0000]",
+          "body": "Hey Grace,\n\nThis message is about onboarding. Looking forward to your reply.\n\nBest regards,\nGrace\n\n[testinghq:hq-2610190747-4f3d-0-0000]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0000@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0000@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -163,14 +163,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0000",
-        "tag": "hq-2610190529-099e-0-0000",
+        "tag": "hq-2610190747-4f3d-0-0000",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 1",
+            "detail": "created as 2",
             "expected": null,
             "actual": null,
             "reason": null
@@ -221,9 +221,9 @@
     {
       "id": "clean-0-0001",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0001",
-      "message_id": "hq-2610190529-099e-0-0001@hq.example.test",
-      "payload_sha256": "1f5e1d81a7c5c6f2a9791d45dbab50b4aee0d79889968719d768052cdcca347a",
+      "tag": "hq-2610190747-4f3d-0-0001",
+      "message_id": "hq-2610190747-4f3d-0-0001@hq.example.test",
+      "payload_sha256": "76c33ebc26672d7c55d7c459dcc800f20561148763213d0b50f27c6b68ea057f",
       "intended": {
         "sender": "bmuller19@example.com",
         "subject": "Update on the Z\u00fcrich office move",
@@ -236,7 +236,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.823700008913875,
+        "latency_ms": 23.518200003309175,
         "body_snippet": ""
       },
       "assertion": {
@@ -246,13 +246,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "3",
+          "ticket_id": "1",
           "from_addr": "bmuller19@example.com",
           "subject": "Update on the Z\u00fcrich office move",
-          "body": "Good morning,\n\nThis message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.\n\nBest,\nBob\n\n[testinghq:hq-2610190529-099e-0-0001]",
+          "body": "Good morning,\n\nThis message is about the Z\u00fcrich office move. Can you confirm receipt of this message? Let me know if the timeline still works for you. Please let me know if you have any questions.\n\nBest,\nBob\n\n[testinghq:hq-2610190747-4f3d-0-0001]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0001@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0001@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -272,14 +272,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0001",
-        "tag": "hq-2610190529-099e-0-0001",
+        "tag": "hq-2610190747-4f3d-0-0001",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 3",
+            "detail": "created as 1",
             "expected": null,
             "actual": null,
             "reason": null
@@ -330,9 +330,9 @@
     {
       "id": "clean-0-0002",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0002",
-      "message_id": "hq-2610190529-099e-0-0002@hq.example.test",
-      "payload_sha256": "a605f45270b608c20ccddf317f7dd2f025f199aaf9c9a8b9f86cf82cbeb19f15",
+      "tag": "hq-2610190747-4f3d-0-0002",
+      "message_id": "hq-2610190747-4f3d-0-0002@hq.example.test",
+      "payload_sha256": "b209e7710efd0cb9cbb8a1dc4977926fed8c59f9a6420542cabf7ccafadf0c14",
       "intended": {
         "sender": "ivan.chen@example.net",
         "subject": "The renewal",
@@ -345,7 +345,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 37.78199999942444,
+        "latency_ms": 33.212199981790036,
         "body_snippet": ""
       },
       "assertion": {
@@ -355,13 +355,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "2",
+          "ticket_id": "3",
           "from_addr": "ivan.chen@example.net",
           "subject": "The renewal",
-          "body": "Good morning,\n\nQuick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.\n\nBest regards,\nIvan\n\n[testinghq:hq-2610190529-099e-0-0002]",
+          "body": "Good morning,\n\nQuick note regarding the renewal. Can you confirm receipt of this message? Let me know if the timeline still works for you. I wanted to follow up on this.\n\nBest regards,\nIvan\n\n[testinghq:hq-2610190747-4f3d-0-0002]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0002@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0002@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -381,14 +381,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0002",
-        "tag": "hq-2610190529-099e-0-0002",
+        "tag": "hq-2610190747-4f3d-0-0002",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 2",
+            "detail": "created as 3",
             "expected": null,
             "actual": null,
             "reason": null
@@ -439,9 +439,9 @@
     {
       "id": "clean-0-0003",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0003",
-      "message_id": "hq-2610190529-099e-0-0003@hq.example.test",
-      "payload_sha256": "f700f3205a909537066be1d373d0cf06da4f606e13fa742e9bf03cae90910afd",
+      "tag": "hq-2610190747-4f3d-0-0003",
+      "message_id": "hq-2610190747-4f3d-0-0003@hq.example.test",
+      "payload_sha256": "c3c8741ff6e97b1b7802d43cb6ce8bac1b8f9241d64e3229d74e1170a93c4319",
       "intended": {
         "sender": "heidis24@example.net",
         "subject": "Re: the contract",
@@ -456,7 +456,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 41.3362999970559,
+        "latency_ms": 24.185100017348304,
         "body_snippet": ""
       },
       "assertion": {
@@ -469,10 +469,10 @@
           "ticket_id": "5",
           "from_addr": "heidis24@example.net",
           "subject": "Re: the contract",
-          "body": "Hello Oscar,\n\nThis message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.\n\nThanks,\nHeidi\n\n[testinghq:hq-2610190529-099e-0-0003]",
+          "body": "Hello Oscar,\n\nThis message is about the contract. I wanted to follow up on this. Let me know if the timeline still works for you. This relates to what we discussed last week.\n\nThanks,\nHeidi\n\n[testinghq:hq-2610190747-4f3d-0-0003]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0003@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0003@hq.example.test",
           "in_reply_to": "8aab2a118549bc49@widgets.example",
           "references": [
             "3f719529ca9d33ff@example.net",
@@ -498,7 +498,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0003",
-        "tag": "hq-2610190529-099e-0-0003",
+        "tag": "hq-2610190747-4f3d-0-0003",
         "found": true,
         "passed": true,
         "checks": [
@@ -556,9 +556,9 @@
     {
       "id": "clean-0-0004",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0004",
-      "message_id": "hq-2610190529-099e-0-0004@hq.example.test",
-      "payload_sha256": "fa22bd1a7d046e38ebb0cd55437ad478a2a4188075ef7cc5a48b35af2c0b676b",
+      "tag": "hq-2610190747-4f3d-0-0004",
+      "message_id": "hq-2610190747-4f3d-0-0004@hq.example.test",
+      "payload_sha256": "b14f80fac8391e544cb6b7754f3bd78a84bc6fe0cab695159f0c130341d0b269",
       "intended": {
         "sender": "bjones@example.edu",
         "subject": "Quick question about onboarding",
@@ -571,7 +571,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 44.84240000601858,
+        "latency_ms": 57.49690000084229,
         "body_snippet": ""
       },
       "assertion": {
@@ -584,10 +584,10 @@
           "ticket_id": "4",
           "from_addr": "bjones@example.edu",
           "subject": "Quick question about onboarding",
-          "body": "Hey Alice,\n\nI am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.\n\nCheers,\nBob\n\n[testinghq:hq-2610190529-099e-0-0004]",
+          "body": "Hey Alice,\n\nI am writing about onboarding. Can you confirm receipt of this message? Happy to hop on a call if that is easier.\n\nCheers,\nBob\n\n[testinghq:hq-2610190747-4f3d-0-0004]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0004@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0004@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -607,7 +607,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0004",
-        "tag": "hq-2610190529-099e-0-0004",
+        "tag": "hq-2610190747-4f3d-0-0004",
         "found": true,
         "passed": true,
         "checks": [
@@ -665,9 +665,9 @@
     {
       "id": "clean-0-0005",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0005",
-      "message_id": "hq-2610190529-099e-0-0005@hq.example.test",
-      "payload_sha256": "b7334c86ce7a78a77faa7ff11672465c14968e3194a182c692d433fd8dee3925",
+      "tag": "hq-2610190747-4f3d-0-0005",
+      "message_id": "hq-2610190747-4f3d-0-0005@hq.example.test",
+      "payload_sha256": "3cf2452883b0f20d2fa0010cd115f0647511aafb4453f04ff6f32e3926070fe7",
       "intended": {
         "sender": "flee@internal.localhost",
         "subject": "Re: the quarterly report",
@@ -683,7 +683,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.748099986230955,
+        "latency_ms": 24.02439998695627,
         "body_snippet": ""
       },
       "assertion": {
@@ -696,10 +696,10 @@
           "ticket_id": "6",
           "from_addr": "flee@internal.localhost",
           "subject": "Re: the quarterly report",
-          "body": "Good morning,\n\nQuick note regarding the quarterly report. Let me know if the timeline still works for you.\n\nSincerely,\nFrank\n\n[testinghq:hq-2610190529-099e-0-0005]",
+          "body": "Good morning,\n\nQuick note regarding the quarterly report. Let me know if the timeline still works for you.\n\nSincerely,\nFrank\n\n[testinghq:hq-2610190747-4f3d-0-0005]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0005@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0005@hq.example.test",
           "in_reply_to": "f4014a3b6cf31ea3@example.com",
           "references": [
             "94c9361ceb6eb211@internal.localhost",
@@ -725,7 +725,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0005",
-        "tag": "hq-2610190529-099e-0-0005",
+        "tag": "hq-2610190747-4f3d-0-0005",
         "found": true,
         "passed": true,
         "checks": [
@@ -783,9 +783,9 @@
     {
       "id": "clean-0-0006",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0006",
-      "message_id": "hq-2610190529-099e-0-0006@hq.example.test",
-      "payload_sha256": "9dc28538cc0c485fa9f5d245611135c85ce0a8be1f866daad66681e961a0fb75",
+      "tag": "hq-2610190747-4f3d-0-0006",
+      "message_id": "hq-2610190747-4f3d-0-0006@hq.example.test",
+      "payload_sha256": "7c1179fbbd06ecf494d1f4519c837c7d3cc06accf82d31e18740d62b2dbfc241",
       "intended": {
         "sender": "grace.jones@example.org",
         "subject": "Your order",
@@ -798,7 +798,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.167099985992536,
+        "latency_ms": 34.14340000017546,
         "body_snippet": ""
       },
       "assertion": {
@@ -811,10 +811,10 @@
           "ticket_id": "7",
           "from_addr": "grace.jones@example.org",
           "subject": "Your order",
-          "body": "Hey Oscar,\n\nI am writing about your order. This relates to what we discussed last week.\n\nBest,\nGrace\n\n--\nGrace Jones\n+1 555 0103\n\n[testinghq:hq-2610190529-099e-0-0006]",
+          "body": "Hey Oscar,\n\nI am writing about your order. This relates to what we discussed last week.\n\nBest,\nGrace\n\n--\nGrace Jones\n+1 555 0103\n\n[testinghq:hq-2610190747-4f3d-0-0006]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0006@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0006@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -834,7 +834,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0006",
-        "tag": "hq-2610190529-099e-0-0006",
+        "tag": "hq-2610190747-4f3d-0-0006",
         "found": true,
         "passed": true,
         "checks": [
@@ -892,9 +892,9 @@
     {
       "id": "clean-0-0007",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0007",
-      "message_id": "hq-2610190529-099e-0-0007@hq.example.test",
-      "payload_sha256": "ee0981152b989aaf55e863f09634c43e0c2e33946946f0a4da9932cf5923424c",
+      "tag": "hq-2610190747-4f3d-0-0007",
+      "message_id": "hq-2610190747-4f3d-0-0007@hq.example.test",
+      "payload_sha256": "424b3ab404882cb816c6eea60e5a39aaa1334ac997e852fdcc68386e7bdbd657",
       "intended": {
         "sender": "carol_brown@widgets.example",
         "subject": "Following up on the support ticket",
@@ -910,7 +910,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 55.09800001163967,
+        "latency_ms": 33.277700014878064,
         "body_snippet": ""
       },
       "assertion": {
@@ -923,10 +923,10 @@
           "ticket_id": "8",
           "from_addr": "carol_brown@widgets.example",
           "subject": "Following up on the support ticket",
-          "body": "Hi Oscar,\n\nThis message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.\n\nBest regards,\nCarol\n\n[testinghq:hq-2610190529-099e-0-0007]",
+          "body": "Hi Oscar,\n\nThis message is about the support ticket. This relates to what we discussed last week. Happy to hop on a call if that is easier. My order number is 108836-63.\n\nBest regards,\nCarol\n\n[testinghq:hq-2610190747-4f3d-0-0007]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0007@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0007@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -949,7 +949,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0007",
-        "tag": "hq-2610190529-099e-0-0007",
+        "tag": "hq-2610190747-4f3d-0-0007",
         "found": true,
         "passed": true,
         "checks": [
@@ -1007,9 +1007,9 @@
     {
       "id": "clean-0-0008",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0008",
-      "message_id": "hq-2610190529-099e-0-0008@hq.example.test",
-      "payload_sha256": "fc9a968b230986cfa2a18f5e1c5af1b663ef7cde5616a762107c11554a5fa514",
+      "tag": "hq-2610190747-4f3d-0-0008",
+      "message_id": "hq-2610190747-4f3d-0-0008@hq.example.test",
+      "payload_sha256": "c56e89722643624854ad9f34026033a1bbe0c873b4aece29ab0a5764761f128f",
       "intended": {
         "sender": "emuller@example.net",
         "subject": "Quick question about the invoice",
@@ -1022,7 +1022,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.52039999864064,
+        "latency_ms": 25.059000006876886,
         "body_snippet": ""
       },
       "assertion": {
@@ -1035,10 +1035,10 @@
           "ticket_id": "9",
           "from_addr": "emuller@example.net",
           "subject": "Quick question about the invoice",
-          "body": "Hello Alice,\n\nI have a question about the invoice. Let me know if the timeline still works for you.\n\nBest regards,\nErin\n\n[testinghq:hq-2610190529-099e-0-0008]",
+          "body": "Hello Alice,\n\nI have a question about the invoice. Let me know if the timeline still works for you.\n\nBest regards,\nErin\n\n[testinghq:hq-2610190747-4f3d-0-0008]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0008@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0008@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1058,7 +1058,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0008",
-        "tag": "hq-2610190529-099e-0-0008",
+        "tag": "hq-2610190747-4f3d-0-0008",
         "found": true,
         "passed": true,
         "checks": [
@@ -1116,9 +1116,9 @@
     {
       "id": "clean-0-0009",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0009",
-      "message_id": "hq-2610190529-099e-0-0009@hq.example.test",
-      "payload_sha256": "1d89d719d0491503e4257e82673e2b015cca434903a7a5a4a3219aa4bdc84a98",
+      "tag": "hq-2610190747-4f3d-0-0009",
+      "message_id": "hq-2610190747-4f3d-0-0009@hq.example.test",
+      "payload_sha256": "a044dd42779dc9c53c8dd271805c918542af4d5a87f832939e4ca0692d1a0a8b",
       "intended": {
         "sender": "grace_chen@example.org",
         "subject": "The renewal - action needed",
@@ -1131,7 +1131,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.250199989182875,
+        "latency_ms": 33.37029999238439,
         "body_snippet": ""
       },
       "assertion": {
@@ -1144,10 +1144,10 @@
           "ticket_id": "13",
           "from_addr": "grace_chen@example.org",
           "subject": "The renewal - action needed",
-          "body": "Good morning,\n\nQuick note regarding the renewal. Can you confirm receipt of this message?\n\nBest,\nGrace\n\n[testinghq:hq-2610190529-099e-0-0009]",
+          "body": "Good morning,\n\nQuick note regarding the renewal. Can you confirm receipt of this message?\n\nBest,\nGrace\n\n[testinghq:hq-2610190747-4f3d-0-0009]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0009@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0009@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1167,7 +1167,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0009",
-        "tag": "hq-2610190529-099e-0-0009",
+        "tag": "hq-2610190747-4f3d-0-0009",
         "found": true,
         "passed": true,
         "checks": [
@@ -1225,9 +1225,9 @@
     {
       "id": "clean-0-0010",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0010",
-      "message_id": "hq-2610190529-099e-0-0010@hq.example.test",
-      "payload_sha256": "9e01b79bd3dbcba5b0838cd28a2588e0528c9525ac660dcf6872f9a3b584a531",
+      "tag": "hq-2610190747-4f3d-0-0010",
+      "message_id": "hq-2610190747-4f3d-0-0010@hq.example.test",
+      "payload_sha256": "70e707d7884490c0454bb71097ba89997dd57f2e13b3068a34b53b3277e9b32e",
       "intended": {
         "sender": "frank.garcia@example.com",
         "subject": "The shipment - action needed",
@@ -1242,7 +1242,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.420600006124005,
+        "latency_ms": 28.516000020317733,
         "body_snippet": ""
       },
       "assertion": {
@@ -1252,13 +1252,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "10",
+          "ticket_id": "11",
           "from_addr": "frank.garcia@example.com",
           "subject": "The shipment - action needed",
-          "body": "Hey Dave,\n\nFollowing up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.\n\nBest,\nFrank\n\n[testinghq:hq-2610190529-099e-0-0010]",
+          "body": "Hey Dave,\n\nFollowing up on the shipment from earlier. Let me know if the timeline still works for you. Attached is what we discussed.\n\nBest,\nFrank\n\n[testinghq:hq-2610190747-4f3d-0-0010]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0010@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0010@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1281,14 +1281,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0010",
-        "tag": "hq-2610190529-099e-0-0010",
+        "tag": "hq-2610190747-4f3d-0-0010",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 10",
+            "detail": "created as 11",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1339,9 +1339,9 @@
     {
       "id": "clean-0-0011",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0011",
-      "message_id": "hq-2610190529-099e-0-0011@hq.example.test",
-      "payload_sha256": "85c2b9d44f750d9c8cbfed123e2f820322badf4ff7c6cef521392907df83d590",
+      "tag": "hq-2610190747-4f3d-0-0011",
+      "message_id": "hq-2610190747-4f3d-0-0011@hq.example.test",
+      "payload_sha256": "dafff10421e4d1ef44ab1132f700d36caa21c28f2ce1ea98aac691864e9c18cb",
       "intended": {
         "sender": "bob_brown15@corp.example.invalid",
         "subject": "Update on the shipment",
@@ -1354,7 +1354,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.43340001627803,
+        "latency_ms": 41.751000011572614,
         "body_snippet": ""
       },
       "assertion": {
@@ -1364,13 +1364,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "11",
+          "ticket_id": "10",
           "from_addr": "bob_brown15@corp.example.invalid",
           "subject": "Update on the shipment",
-          "body": "Hello Dave,\n\nQuick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.\n\nThanks,\nBob\n\n[testinghq:hq-2610190529-099e-0-0011]",
+          "body": "Hello Dave,\n\nQuick note regarding the shipment. Looking forward to your reply. This relates to what we discussed last week. Attached is what we discussed.\n\nThanks,\nBob\n\n[testinghq:hq-2610190747-4f3d-0-0011]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0011@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0011@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1390,14 +1390,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0011",
-        "tag": "hq-2610190529-099e-0-0011",
+        "tag": "hq-2610190747-4f3d-0-0011",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 11",
+            "detail": "created as 10",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1448,9 +1448,9 @@
     {
       "id": "clean-0-0012",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0012",
-      "message_id": "hq-2610190529-099e-0-0012@hq.example.test",
-      "payload_sha256": "4e539c1142df7869e8493310fe0ff3abf10328a6a4563495d53b08d5bef19f79",
+      "tag": "hq-2610190747-4f3d-0-0012",
+      "message_id": "hq-2610190747-4f3d-0-0012@hq.example.test",
+      "payload_sha256": "404c60c6ecdaee3bd32e5e2386535b024b558592f1d52ee8443a8104d890fc9d",
       "intended": {
         "sender": "fmuller@example.com",
         "subject": "Re: the contract",
@@ -1465,7 +1465,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 23.898000014014542,
+        "latency_ms": 43.04799999226816,
         "body_snippet": ""
       },
       "assertion": {
@@ -1478,10 +1478,10 @@
           "ticket_id": "14",
           "from_addr": "fmuller@example.com",
           "subject": "Re: the contract",
-          "body": "Dear team,\n\nI am writing about the contract. Can you confirm receipt of this message?\n\nThanks,\nFrank\n\n--\nFrank Muller\n+1 555 0141\n\n[testinghq:hq-2610190529-099e-0-0012]",
+          "body": "Dear team,\n\nI am writing about the contract. Can you confirm receipt of this message?\n\nThanks,\nFrank\n\n--\nFrank Muller\n+1 555 0141\n\n[testinghq:hq-2610190747-4f3d-0-0012]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0012@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0012@hq.example.test",
           "in_reply_to": "8ac01f2b94e7b5ca@example.org",
           "references": [
             "8ac01f2b94e7b5ca@example.org",
@@ -1507,7 +1507,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0012",
-        "tag": "hq-2610190529-099e-0-0012",
+        "tag": "hq-2610190747-4f3d-0-0012",
         "found": true,
         "passed": true,
         "checks": [
@@ -1565,9 +1565,9 @@
     {
       "id": "clean-0-0013",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0013",
-      "message_id": "hq-2610190529-099e-0-0013@hq.example.test",
-      "payload_sha256": "89ade520dd5d45b99549961517c8748b1f6b15a04a68e2136ad01b035044cd4a",
+      "tag": "hq-2610190747-4f3d-0-0013",
+      "message_id": "hq-2610190747-4f3d-0-0013@hq.example.test",
+      "payload_sha256": "c38b2bbad2211cd82ef83a8d0c64eedbb427e4bc89f4010e7793e3d87cf20c27",
       "intended": {
         "sender": "judy@corp.example.invalid",
         "subject": "Re: the quarterly report",
@@ -1580,7 +1580,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 42.229299986502156,
+        "latency_ms": 24.86279999720864,
         "body_snippet": ""
       },
       "assertion": {
@@ -1593,10 +1593,10 @@
           "ticket_id": "12",
           "from_addr": "judy@corp.example.invalid",
           "subject": "Re: the quarterly report",
-          "body": "Good morning,\n\nI have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.\n\nBest regards,\nJudy\n\n[testinghq:hq-2610190529-099e-0-0013]",
+          "body": "Good morning,\n\nI have a question about the quarterly report. This relates to what we discussed last week. Attached is what we discussed.\n\nBest regards,\nJudy\n\n[testinghq:hq-2610190747-4f3d-0-0013]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0013@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0013@hq.example.test",
           "in_reply_to": "70b56bf07785d2e7@example.com",
           "references": [
             "70b56bf07785d2e7@example.com",
@@ -1619,7 +1619,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0013",
-        "tag": "hq-2610190529-099e-0-0013",
+        "tag": "hq-2610190747-4f3d-0-0013",
         "found": true,
         "passed": true,
         "checks": [
@@ -1677,9 +1677,9 @@
     {
       "id": "clean-0-0014",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0014",
-      "message_id": "hq-2610190529-099e-0-0014@hq.example.test",
-      "payload_sha256": "2678841afac2e22901dbad8faef926ca5168620db4b0fd4216b9c0922e8181ac",
+      "tag": "hq-2610190747-4f3d-0-0014",
+      "message_id": "hq-2610190747-4f3d-0-0014@hq.example.test",
+      "payload_sha256": "0ab0fa858143d4cf7848131d8ec7317e7e71f79b2550b75344f01415fb64e08b",
       "intended": {
         "sender": "aliceb@example.org",
         "subject": "Re: your order",
@@ -1695,7 +1695,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 41.809999995166436,
+        "latency_ms": 25.651999982073903,
         "body_snippet": ""
       },
       "assertion": {
@@ -1708,10 +1708,10 @@
           "ticket_id": "15",
           "from_addr": "aliceb@example.org",
           "subject": "Re: your order",
-          "body": "Hello Alice,\n\nI am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.\n\nThanks,\nAlice\n\n[testinghq:hq-2610190529-099e-0-0014]",
+          "body": "Hello Alice,\n\nI am writing about your order. Happy to hop on a call if that is easier. I wanted to follow up on this. Attached is what we discussed.\n\nThanks,\nAlice\n\n[testinghq:hq-2610190747-4f3d-0-0014]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0014@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0014@hq.example.test",
           "in_reply_to": "a4f12a023dbeacb3@corp.example.invalid",
           "references": [
             "4a0540a61d19c15b@example.org",
@@ -1737,7 +1737,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0014",
-        "tag": "hq-2610190529-099e-0-0014",
+        "tag": "hq-2610190747-4f3d-0-0014",
         "found": true,
         "passed": true,
         "checks": [
@@ -1795,9 +1795,9 @@
     {
       "id": "clean-0-0015",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0015",
-      "message_id": "hq-2610190529-099e-0-0015@hq.example.test",
-      "payload_sha256": "7919a61d0e528239540928f697f725bd77fcfd315521680717a3a76eb3e8d4a5",
+      "tag": "hq-2610190747-4f3d-0-0015",
+      "message_id": "hq-2610190747-4f3d-0-0015@hq.example.test",
+      "payload_sha256": "716f008e6e6a36267e170eedcda0a8a5b037e15d213373e8f6b36b90c0430ae3",
       "intended": {
         "sender": "grace_jones12@example.net",
         "subject": "Update on the quarterly report",
@@ -1812,7 +1812,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 25.25999999488704,
+        "latency_ms": 26.940699986880645,
         "body_snippet": ""
       },
       "assertion": {
@@ -1825,10 +1825,10 @@
           "ticket_id": "16",
           "from_addr": "grace_jones12@example.net",
           "subject": "Update on the quarterly report",
-          "body": "Hi Alice,\n\nI am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?\n\nBest,\nGrace\n\n[testinghq:hq-2610190529-099e-0-0015]",
+          "body": "Hi Alice,\n\nI am writing about the quarterly report. Happy to hop on a call if that is easier. Can you confirm receipt of this message?\n\nBest,\nGrace\n\n[testinghq:hq-2610190747-4f3d-0-0015]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0015@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0015@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1851,7 +1851,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0015",
-        "tag": "hq-2610190529-099e-0-0015",
+        "tag": "hq-2610190747-4f3d-0-0015",
         "found": true,
         "passed": true,
         "checks": [
@@ -1909,9 +1909,9 @@
     {
       "id": "clean-0-0016",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0016",
-      "message_id": "hq-2610190529-099e-0-0016@hq.example.test",
-      "payload_sha256": "0354d8a3bc4e6e143219c7abba8f715da3f47b17b68a36062b5832bd6e4fdcef",
+      "tag": "hq-2610190747-4f3d-0-0016",
+      "message_id": "hq-2610190747-4f3d-0-0016@hq.example.test",
+      "payload_sha256": "e02cda87735d56851cd1d3eeec1c2aa2df0dd709dd0e2e78cbbad892fd4e7a93",
       "intended": {
         "sender": "jnguyen@example.org",
         "subject": "Update on the quarterly report",
@@ -1926,7 +1926,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.487499991664663,
+        "latency_ms": 23.85970001341775,
         "body_snippet": ""
       },
       "assertion": {
@@ -1939,10 +1939,10 @@
           "ticket_id": "17",
           "from_addr": "jnguyen@example.org",
           "subject": "Update on the quarterly report",
-          "body": "Hey Mallory,\n\nThis message is about the quarterly report. This relates to what we discussed last week.\n\nBest regards,\nJudy\n\n[testinghq:hq-2610190529-099e-0-0016]",
+          "body": "Hey Mallory,\n\nThis message is about the quarterly report. This relates to what we discussed last week.\n\nBest regards,\nJudy\n\n[testinghq:hq-2610190747-4f3d-0-0016]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0016@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0016@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1965,7 +1965,7 @@
       ],
       "verification": {
         "record_id": "clean-0-0016",
-        "tag": "hq-2610190529-099e-0-0016",
+        "tag": "hq-2610190747-4f3d-0-0016",
         "found": true,
         "passed": true,
         "checks": [
@@ -2023,9 +2023,9 @@
     {
       "id": "clean-0-0017",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0017",
-      "message_id": "hq-2610190529-099e-0-0017@hq.example.test",
-      "payload_sha256": "5231da2a13e5763073466f260adf33dfd9bd3d1f85c8a54dd09c60c5cb6a5f7e",
+      "tag": "hq-2610190747-4f3d-0-0017",
+      "message_id": "hq-2610190747-4f3d-0-0017@hq.example.test",
+      "payload_sha256": "f30d0c4b007752f144a2ae46d57ba898b44e3529333c30d2097be893af66d6ac",
       "intended": {
         "sender": "oscar_nguyen@widgets.example",
         "subject": "Update on your order",
@@ -2038,7 +2038,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 26.951200008625165,
+        "latency_ms": 48.38490000111051,
         "body_snippet": ""
       },
       "assertion": {
@@ -2048,13 +2048,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "18",
+          "ticket_id": "20",
           "from_addr": "oscar_nguyen@widgets.example",
           "subject": "Update on your order",
-          "body": "Dear team,\n\nQuick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.\n\nBest,\nOscar\n\n--\nOscar Nguyen\n+1 555 0145\n\n[testinghq:hq-2610190529-099e-0-0017]",
+          "body": "Dear team,\n\nQuick note regarding your order. Can you confirm receipt of this message? Attached is what we discussed.\n\nBest,\nOscar\n\n--\nOscar Nguyen\n+1 555 0145\n\n[testinghq:hq-2610190747-4f3d-0-0017]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0017@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0017@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -2074,14 +2074,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0017",
-        "tag": "hq-2610190529-099e-0-0017",
+        "tag": "hq-2610190747-4f3d-0-0017",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 18",
+            "detail": "created as 20",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2132,9 +2132,9 @@
     {
       "id": "clean-0-0018",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0018",
-      "message_id": "hq-2610190529-099e-0-0018@hq.example.test",
-      "payload_sha256": "c4138fdd9b7cbd32110a3590a9a0fad1882920ccbfdb3a374782c949d59e4942",
+      "tag": "hq-2610190747-4f3d-0-0018",
+      "message_id": "hq-2610190747-4f3d-0-0018@hq.example.test",
+      "payload_sha256": "4bf1c8505df538dafea8bcc7d88caf97f371b0b6f02ce73a638fd9076a4d2a50",
       "intended": {
         "sender": "bobm@mail.example.test",
         "subject": "Quick question about the caf\u00e9 booking",
@@ -2147,7 +2147,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 24.369899998418987,
+        "latency_ms": 24.312399997143075,
         "body_snippet": ""
       },
       "assertion": {
@@ -2157,13 +2157,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "19",
+          "ticket_id": "18",
           "from_addr": "bobm@mail.example.test",
           "subject": "Quick question about the caf\u00e9 booking",
-          "body": "Hello Mallory,\n\nThis message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?\n\nThanks,\nBob\n\n[testinghq:hq-2610190529-099e-0-0018]",
+          "body": "Hello Mallory,\n\nThis message is about the caf\u00e9 booking. Attached is what we discussed. Looking forward to your reply. Can you confirm receipt of this message?\n\nThanks,\nBob\n\n[testinghq:hq-2610190747-4f3d-0-0018]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0018@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0018@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -2183,14 +2183,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0018",
-        "tag": "hq-2610190529-099e-0-0018",
+        "tag": "hq-2610190747-4f3d-0-0018",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 19",
+            "detail": "created as 18",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2241,9 +2241,9 @@
     {
       "id": "clean-0-0019",
       "category": "clean",
-      "tag": "hq-2610190529-099e-0-0019",
-      "message_id": "hq-2610190529-099e-0-0019@hq.example.test",
-      "payload_sha256": "32000250b9fc16b46630ed3c67b44566017457d926093ce1bac3324544f1e802",
+      "tag": "hq-2610190747-4f3d-0-0019",
+      "message_id": "hq-2610190747-4f3d-0-0019@hq.example.test",
+      "payload_sha256": "f7955556e950e5cdd95760aba7663dab4e95c5837db542bee6bb9b1704249c6d",
       "intended": {
         "sender": "frank.jones@example.edu",
         "subject": "Following up on the schedule",
@@ -2256,7 +2256,7 @@
       },
       "response": {
         "status": 204,
-        "latency_ms": 23.71760000823997,
+        "latency_ms": 24.365999997826293,
         "body_snippet": ""
       },
       "assertion": {
@@ -2266,13 +2266,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "20",
+          "ticket_id": "19",
           "from_addr": "frank.jones@example.edu",
           "subject": "Following up on the schedule",
-          "body": "Good morning,\n\nI have a question about the schedule. Please let me know if you have any questions.\n\nBest,\nFrank\n\n[testinghq:hq-2610190529-099e-0-0019]",
+          "body": "Good morning,\n\nI have a question about the schedule. Please let me know if you have any questions.\n\nBest,\nFrank\n\n[testinghq:hq-2610190747-4f3d-0-0019]",
           "attachment_names": [],
           "route": "1",
-          "message_id": "hq-2610190529-099e-0-0019@hq.example.test",
+          "message_id": "hq-2610190747-4f3d-0-0019@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -2292,14 +2292,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0019",
-        "tag": "hq-2610190529-099e-0-0019",
+        "tag": "hq-2610190747-4f3d-0-0019",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 20",
+            "detail": "created as 19",
             "expected": null,
             "actual": null,
             "reason": null

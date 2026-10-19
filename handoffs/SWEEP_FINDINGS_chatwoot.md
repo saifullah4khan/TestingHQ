@@ -34,9 +34,9 @@ clean. The threading facts below are read from Chatwoot's own `messages` and
 - Stored, in the published run:
 
   ```
-  message 152  conversation 74  ...-ref-0-0000 (root)      05:32:51.811
-  message 153  conversation 75  ...-ref-0-0001 (reply 1)   05:32:51.882
-  message 154  conversation 76  ...-ref-0-0002 (reply 2)   05:32:51.919
+  message 152  conversation 74  ...-ref-0-0000 (root)      07:50:53.170
+  message 153  conversation 75  ...-ref-0-0001 (reply 1)   07:50:53.244
+  message 154  conversation 76  ...-ref-0-0002 (reply 2)   07:50:53.285
   ```
 
   Chatwoot parsed every header correctly: message 153's stored
@@ -44,8 +44,8 @@ clean. The threading facts below are read from Chatwoot's own `messages` and
   `source_id`. Yet each message opened a conversation of its own. In another
   run, reply 2 was stored before reply 1 (`.787` and `.812`), so it was
   processed out of the order it was sent.
-- How often: the thread was split in 5 of 7 runs at the tool's default pace,
-  which sends the three 40 to 70ms apart (the two sweep runs and five
+- How often: the thread was split in 6 of 8 runs at the tool's default pace,
+  which sends the three 40 to 70ms apart (three sweep runs and five
   repeats), and in none of 4 runs with `--rate 0.5`, the same three messages
   two seconds apart. A pair sent by
   hand with curl about 90ms apart threaded.
@@ -70,7 +70,7 @@ clean. The threading facts below are read from Chatwoot's own `messages` and
   thread opened by another address.
 - Stored: in the published run, both replies are on conversation 72, whose
   contact is `bmuller19@example.com` (the first reply opened it), and both
-  messages have `sender` contact 3, `bmuller19@example.com`, including the one
+  messages have `sender` contact 2, `bmuller19@example.com`, including the one
   whose `From` was `ivan.chen@example.net`. The real From survives only in
   `content_attributes.email.from`. In the `references` runs that threaded,
   every reply was recorded as sent by the root's sender,
