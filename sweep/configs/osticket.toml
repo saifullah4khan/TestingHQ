@@ -1,0 +1,23 @@
+# osTicket, as the sweep harness runs it: the stack in sweep/compose/osticket.yml,
+# set up by sweep/setup/osticket.sh, which writes OSTICKET_API_KEY and
+# OSTICKET_MYSQL_DSN to sweep/.env.osticket.
+#
+# Inbound is osTicket's email API: POST /api/tickets.email with the raw message
+# as the body, authenticated by an API key bound to the address the request
+# comes from. Readback is osTicket's MySQL tables, through the custom adapter in
+# examples/readback/adapters/osticket_mysql.py, which needs PyMySQL installed
+# and the repository root on PYTHONPATH (run from the root with PYTHONPATH=.).
+# See examples/readback/osticket.toml for the long explanation.
+
+[targets.osticket]
+url = "http://127.0.0.1:3200/api/tickets.email"
+format = "mime"
+
+[targets.osticket.headers]
+X-API-Key = "env:OSTICKET_API_KEY"
+
+[readback]
+kind = "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter"
+dsn = "env:OSTICKET_MYSQL_DSN"
+table_prefix = "ost_"
+timeout = 10.0

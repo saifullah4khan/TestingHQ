@@ -487,6 +487,21 @@ READBACK = Table(
         ),
     ),
     notes=(
+        "A custom adapter that needs a library TestingHQ does not ship, such as "
+        "a database driver, brings it as its own dependency: installed next to "
+        "TestingHQ, never added to TestingHQ's. It imports the library inside "
+        "the code that connects rather than at the top of its module, so a "
+        "config naming it loads and `config validate` runs without the library, "
+        "and the adapter's `preflight()` refuses a run that lacks it before "
+        "anything is sent, naming the package to install. A secret it needs, "
+        "such as a DSN, is one of its own keys written as `env:NAME`, which "
+        "reaches it unresolved; it resolves the reference with "
+        "`testinghq.core.config.resolve_env_references`, so a literal is "
+        "refused by the same rule as `[readback.headers]`. The import path must "
+        "be importable: an adapter kept in a checkout rather than installed "
+        "needs that directory on PYTHONPATH. "
+        "examples/readback/adapters/osticket_mysql.py is a worked example, "
+        "reading osTicket's MySQL tables through PyMySQL.",
         "Before anything is sent, the http adapter makes one lookup and, when "
         "listing is on, one listing request: a 401 or 403, a 404 list url, a "
         "response that is not JSON, or records with no identifier are refused "
