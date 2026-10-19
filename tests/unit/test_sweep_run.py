@@ -9,6 +9,7 @@ and the script's own exit status. Nothing opens a socket.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -21,10 +22,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPDESKS = ("chatwoot", "osticket", "zammad", "freescout", "frappe")
+#: Readback tools first, then blast and the corpus, barrage last.
 TOOL_STEPS = [
-    "config-validate", "blast-catalog", "blast-corpus", "verify", "ledger",
-    "redeliver", "loop", "steady", "barrage",
+    "config-validate", "verify", "ledger", "redeliver", "loop", "steady",
+    "blast-catalog", "blast-corpus", "barrage",
 ]
+
+#: osticket and freescout read back through PyMySQL; run.sh refuses them
+#: up front when the interpreter cannot import it.
+MYSQL_READY = importlib.util.find_spec("pymysql") is not None
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
@@ -61,6 +67,7 @@ exit "${STUB_DOCKER_EXIT:-0}"
 
 SETUP = """#!/usr/bin/env bash
 set -euo pipefail
+printf 'setup python=%s pythonpath=%s\\n' "${{PYTHON-unset}}" "${{PYTHONPATH-unset}}" >>"$STUB_LOG"
 printf 'CHATWOOT_INGRESS_AUTH="Basic dXNlcjpwYXNz"\\r\\n' >sweep/.env.{h}
 echo "URL: http://127.0.0.1:3100"
 echo "Login: admin@helpdesk.test"
@@ -99,7 +106,8 @@ def _repo(tmp_path, failing_setup=(), profiles=None):
         (sweep / "profiles" / f"{h}.{PROFILE_EXT}").write_bytes(profile.encode("utf-8"))
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, body in (("testinghq", STUB_TESTINGHQ), ("docker", STUB_DOCKER)):
+    for name, body in (("testinghq", STUB_TESTINGHQ), ("docker", STUB_DOCKER),
+                       ("curl", "#!/usr/bin/env bash\nexit 0\n")):
         stub = bin_dir / name
         stub.write_text(body, encoding="utf-8")
         stub.chmod(0o755)
@@ -109,6 +117,7 @@ def _repo(tmp_path, failing_setup=(), profiles=None):
 def _run(tmp_path, root, *args, **env_overrides):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("SWEEP_", "STUB_"))}
     env.pop("CHATWOOT_INGRESS_AUTH", None)
+    env.pop("PYTHONPATH", None)
     env.update(
         PATH=f"{tmp_path / 'bin'}{os.pathsep}{env.get('PATH', '')}",
         TESTINGHQ=str(tmp_path / "bin" / "testinghq"),
@@ -150,6 +159,7 @@ def test_a_run_records_every_step_in_order_and_a_finding_does_not_fail_it(tmp_pa
     assert summary["finished"] >= summary["started"]
     assert summary["result"] == "findings" and summary["exit_code"] == 0
     assert [s["step"] for s in summary["steps"]] == ["compose-up", "setup", *TOOL_STEPS]
+    assert "readback tools" in summary["notes"][0]
 
     steps = _steps(summary)
     assert steps["compose-up"]["command"] == "docker compose -f sweep/compose/chatwoot.yml up -d"
@@ -218,16 +228,45 @@ def test_an_expected_route_goes_to_the_tools_that_check_routing(tmp_path):
         assert "--expect-route" not in steps[tool]["command"]
 
 
+def test_setup_and_the_tools_get_python_and_the_repository_on_pythonpath(tmp_path):
+    """A custom adapter named as examples.readback.adapters.<module> imports
+    only with the repository root on the path; setup scripts call $PYTHON."""
+    root = _repo(tmp_path)
+    assert _run(tmp_path, root, "zammad").returncode == 0
+    assert f"setup python={sys.executable} pythonpath=." in _calls(tmp_path)
+
+
+def test_without_testinghq_set_the_run_uses_the_interpreters_cli(tmp_path):
+    """The default command is `$PYTHON -m testinghq.cli`; the summary records
+    the version that command reports."""
+    import testinghq
+
+    root = _repo(tmp_path, failing_setup=("zammad",))
+    env = {"TESTINGHQ": ""}
+    assert _run(tmp_path, root, "zammad", **env).returncode == 1
+    assert _summary(root, "zammad")[0]["testinghq_version"] == testinghq.__version__
+
+
+def test_a_mysql_backed_helpdesk_needs_pymysql_before_anything_starts(tmp_path):
+    if MYSQL_READY:
+        pytest.skip("PyMySQL is installed here")
+    root = _repo(tmp_path)
+    result = _run(tmp_path, root, "osticket")
+    assert result.returncode == 1
+    assert "-m pip install PyMySQL" in result.stderr
+    assert not (tmp_path / "calls.log").exists()
+
+
 def test_a_refused_tool_fails_the_run_but_every_later_tool_still_runs(tmp_path):
     root = _repo(tmp_path)
-    result = _run(tmp_path, root, "osticket", STUB_EXIT_VERIFY="1")
+    result = _run(tmp_path, root, "chatwoot", STUB_EXIT_VERIFY="1")
     assert result.returncode == 1
-    summary, _ = _summary(root, "osticket")
+    summary, _ = _summary(root, "chatwoot")
     steps = _steps(summary)
     assert summary["result"] == "error" and summary["exit_code"] == 1
     assert steps["verify"]["exit_code"] == 1
-    assert [steps[t]["exit_code"] for t in ("ledger", "redeliver", "loop", "steady", "barrage")] \
-        == [0, 0, 0, 0, 0]
+    later = ("ledger", "redeliver", "loop", "steady", "blast-catalog", "barrage")
+    assert [steps[t]["exit_code"] for t in later] == [0] * len(later)
 
 
 def test_a_failed_setup_skips_every_tool_and_fails_the_run(tmp_path):
@@ -254,21 +293,25 @@ def test_the_corpus_step_fires_the_corpus_directory_when_switched_on(tmp_path):
 
 
 def test_all_runs_the_five_in_turn_and_stops_each(tmp_path):
-    """chatwoot and zammad complete, the other three fail at setup. zammad's
-    profile sets no wait: chatwoot's exports must not leak into its run."""
-    root = _repo(tmp_path, failing_setup=("osticket", "freescout", "frappe"),
+    """chatwoot and zammad complete and frappe fails at setup. osticket and
+    freescout need PyMySQL, and without it stop before starting anything.
+    zammad's profile sets no wait: chatwoot's exports must not leak into it."""
+    root = _repo(tmp_path, failing_setup=("frappe",),
                  profiles={"zammad": "SWEEP_BARRAGE=0\n"})
     result = _run(tmp_path, root, "all")
     assert result.returncode == 1
-    assert "errors in: osticket freescout frappe" in result.stderr
+    mysql = ("osticket", "freescout")
+    failed = ["frappe"] if MYSQL_READY else ["osticket", "freescout", "frappe"]
+    assert f"errors in: {' '.join(failed)}" in result.stderr
+    started = [h for h in HELPDESKS if MYSQL_READY or h not in mysql]
     calls = _calls(tmp_path)
     ups = [line for line in calls if line.endswith(" up -d")]
     downs = [line for line in calls if line.endswith(" down")]
-    assert ups == [f"docker compose -f sweep/compose/{h}.yml up -d" for h in HELPDESKS]
+    assert ups == [f"docker compose -f sweep/compose/{h}.yml up -d" for h in started]
     assert downs == [f"docker compose -f sweep/compose/{h}.yml down" for h in HELPDESKS]
-    results = {h: _summary(root, h)[0]["result"] for h in HELPDESKS}
-    assert results == {"chatwoot": "passed", "osticket": "error", "zammad": "passed",
-                       "freescout": "error", "frappe": "error"}
+    results = {h: _summary(root, h)[0]["result"] for h in started}
+    assert results["chatwoot"] == results["zammad"] == "passed"
+    assert results["frappe"] == "error"
     chatwoot = _steps(_summary(root, "chatwoot")[0])
     zammad = _steps(_summary(root, "zammad")[0])
     assert "--max-wait 180" in chatwoot["verify"]["command"]
@@ -280,7 +323,7 @@ def test_all_leaves_every_helpdesk_running_with_sweep_keep(tmp_path):
     root = _repo(tmp_path, failing_setup=HELPDESKS)
     _run(tmp_path, root, "all", SWEEP_KEEP="1")
     calls = _calls(tmp_path)
-    assert len([line for line in calls if line.endswith(" up -d")]) == 5
+    assert len([line for line in calls if line.endswith(" up -d")]) == (5 if MYSQL_READY else 3)
     assert not any(line.endswith(" down") for line in calls)
 
 

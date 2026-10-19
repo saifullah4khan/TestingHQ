@@ -147,6 +147,7 @@ def build_summary(
     config: Optional[str],
     target: Optional[str],
     settings: Dict[str, str],
+    notes: Optional[List[str]] = None,
 ) -> Dict[str, object]:
     result = classify(steps)
     return {
@@ -159,6 +160,7 @@ def build_summary(
         "target": target,
         "settings": dict(sorted(settings.items())),
         "completed_exit_codes": list(COMPLETED_CODES),
+        "notes": list(notes or []),
         "steps": steps,
         "result": result,
         "exit_code": 1 if result == RESULT_ERROR else 0,
@@ -325,6 +327,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     summ.add_argument("--config")
     summ.add_argument("--target")
     summ.add_argument("--setting", action="append", default=[])
+    summ.add_argument("--note", action="append", default=[])
 
     wait = sub.add_parser("wait-port")
     wait.add_argument("host")
@@ -357,6 +360,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             config=args.config,
             target=args.target,
             settings=_parse_settings(args.setting),
+            notes=args.note,
         )
         args.out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8",
                             newline="\n")

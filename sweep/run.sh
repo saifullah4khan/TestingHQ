@@ -15,7 +15,7 @@
 # has the reasoning.
 #
 # Environment: PYTHON (default python3, then python), TESTINGHQ (the command
-# that runs the CLI; default testinghq on PATH, else $PYTHON -m testinghq).
+# that runs the CLI; default $PYTHON -m testinghq.cli, else testinghq on PATH).
 # The profile sweep/profiles/<helpdesk>.env sets SWEEP_MAX_WAIT,
 # SWEEP_QUIET_WINDOW, SWEEP_CORPUS, SWEEP_BARRAGE and SWEEP_HEALTH_URL, and
 # optionally SWEEP_READBACK_RATE, SWEEP_EXPECT_ROUTE (--expect-route for
@@ -68,26 +68,58 @@ usage() {
 find_python() {
   local candidate
   if [ -n "${PYTHON:-}" ]; then
+    export PYTHON
     return 0
   fi
   for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1 &&
       "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
       PYTHON=$candidate
+      export PYTHON
       return 0
     fi
   done
   die "no Python 3.10 or newer found; set PYTHON"
 }
 
+# The repository root goes on PYTHONPATH, relative, so a config's custom
+# adapter (`kind = "examples.readback.adapters.osticket_mysql:..."`) imports,
+# and so `$PYTHON -m testinghq.cli` runs this checkout's code.
+set_pythonpath() {
+  local sep
+  sep=$("$PYTHON" -c 'import os; print(os.pathsep)')
+  PYTHONPATH=".${PYTHONPATH:+$sep$PYTHONPATH}"
+  export PYTHONPATH
+}
+
 find_cli() {
   if [ -n "${TESTINGHQ:-}" ]; then
     read -r -a THQ <<<"$TESTINGHQ"
+  elif "$PYTHON" -c 'import testinghq' >/dev/null 2>&1; then
+    THQ=("$PYTHON" -m testinghq.cli)
   elif command -v testinghq >/dev/null 2>&1; then
     THQ=(testinghq)
   else
-    THQ=("$PYTHON" -m testinghq)
+    die "testinghq is not importable by $PYTHON; run pip install -e . from the repository root"
   fi
+}
+
+# require_helpdesk_tools HELPDESK: what compose, the setup scripts and the
+# readback adapters need, checked before anything starts.
+require_helpdesk_tools() {
+  local h=$1 tool
+  for tool in docker curl; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      die "$h: $tool is not on PATH; the compose stack and setup scripts need it"
+    fi
+  done
+  case $h in
+    osticket | freescout)
+      if ! "$PYTHON" -c 'import pymysql' >/dev/null 2>&1; then
+        die "$h: its readback adapter reads MySQL through PyMySQL, which $PYTHON cannot import; run: $PYTHON -m pip install PyMySQL"
+      fi
+      ;;
+  esac
 }
 
 # load_env_file FILE keep|override
@@ -252,6 +284,17 @@ fetch_corpus() {
   printf '%s\n' "$ref" >"$dest/.sweep-ref"
 }
 
+# The order is deliberate. The readback tools run first, while the store
+# holds only tagged mail of this run's earlier tools, so a listing for stray
+# records is not crowded by untagged blast and corpus mail and a slow
+# helpdesk is not still ingesting it. Blast and the corpus follow. Barrage
+# is last, because a helpdesk may still be working through its load when the
+# run ends; only report, which reads the artifacts, comes after it.
+ORDER_NOTE="readback tools (verify, ledger, redeliver, loop, steady) run first,
+while the helpdesk holds only their own tagged mail; blast, the corpus and
+barrage follow, barrage last since ingestion may lag its load; report reads
+only the artifacts"
+
 # run_tools CONFIG TARGET: every tool in order, then a report per artifact.
 run_tools() {
   local config=$1 target=$2 out=$RUN_DIR tool name
@@ -259,6 +302,21 @@ run_tools() {
   readback_args
 
   thq_step config-validate config "" config validate "$config"
+
+  for tool in verify ledger redeliver loop steady; do
+    extra_args "SWEEP_ARGS_$(upper "$tool")"
+    local route=()
+    case $tool in
+      verify | ledger | redeliver)
+        if [ -n "${SWEEP_EXPECT_ROUTE:-}" ]; then
+          route=(--expect-route "$SWEEP_EXPECT_ROUTE")
+        fi
+        ;;
+    esac
+    thq_step "$tool" "$tool" "$tool.json" "$tool" fire "${common[@]}" --send \
+      ${READBACK_ARGS[@]+"${READBACK_ARGS[@]}"} ${route[@]+"${route[@]}"} \
+      --out "$out/$tool.json" ${EXTRA[@]+"${EXTRA[@]}"}
+  done
 
   extra_args SWEEP_ARGS_BLAST
   thq_step blast-catalog blast blast-catalog.json blast fire "${common[@]}" --send --catalog \
@@ -285,21 +343,6 @@ run_tools() {
   else
     skip_step blast-corpus blast "SWEEP_CORPUS=${SWEEP_CORPUS:-0}"
   fi
-
-  for tool in verify ledger redeliver loop steady; do
-    extra_args "SWEEP_ARGS_$(upper "$tool")"
-    local route=()
-    case $tool in
-      verify | ledger | redeliver)
-        if [ -n "${SWEEP_EXPECT_ROUTE:-}" ]; then
-          route=(--expect-route "$SWEEP_EXPECT_ROUTE")
-        fi
-        ;;
-    esac
-    thq_step "$tool" "$tool" "$tool.json" "$tool" fire "${common[@]}" --send \
-      ${READBACK_ARGS[@]+"${READBACK_ARGS[@]}"} ${route[@]+"${route[@]}"} \
-      --out "$out/$tool.json" ${EXTRA[@]+"${EXTRA[@]}"}
-  done
 
   if [ "${SWEEP_BARRAGE:-0}" = 1 ]; then
     extra_args SWEEP_ARGS_BARRAGE
@@ -341,7 +384,7 @@ finish_run() {
   "$PYTHON" "$HARNESS" summary "$STEPS" --out "$RUN_DIR/summary.json" \
     --helpdesk "$RUN_NAME" --started "$STARTED" --finished "$(utc_now)" \
     --version "$version" --config "$config" --target "$target" \
-    ${settings[@]+"${settings[@]}"}
+    --note "$(printf '%s' "$ORDER_NOTE" | tr '\n' ' ')" ${settings[@]+"${settings[@]}"}
   code=$?
   set -e
   printf 'sweep: summary in %s/summary.json\n' "$RUN_DIR"
@@ -351,8 +394,8 @@ finish_run() {
 # skip_tools REASON: every tool step, recorded as blocked.
 skip_tools() {
   local reason=$1 name
-  for name in config-validate blast-catalog blast-corpus verify ledger redeliver loop \
-    steady barrage; do
+  for name in config-validate verify ledger redeliver loop steady blast-catalog \
+    blast-corpus barrage; do
     skip_step "$name" "${name%%-*}" "blocked: $reason"
   done
 }
@@ -367,6 +410,7 @@ run_helpdesk() {
       die "$h: $file is missing"
     fi
   done
+  require_helpdesk_tools "$h"
   load_env_file "$profile" keep
   start_run "$h"
 
@@ -587,6 +631,7 @@ main() {
     usage
   fi
   find_python
+  set_pythonpath
   find_cli
   case $1 in
     all) run_all ;;

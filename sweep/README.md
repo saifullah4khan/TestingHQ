@@ -2,7 +2,9 @@
 
 Runs every TestingHQ tool against five open-source helpdesks in Docker, one
 command per helpdesk. Needs Docker with Compose, bash (Git Bash on Windows),
-Python 3.10+ and `pip install -e .` from the repository root.
+curl, Python 3.10+ with `pip install -e .` from the repository root, and for
+osTicket and FreeScout, whose readback adapters read MySQL, `pip install
+PyMySQL` in the same interpreter. run.sh checks these before starting.
 
 ```
 sweep/run.sh chatwoot     # or osticket, zammad, freescout, frappe
@@ -13,11 +15,15 @@ sweep/run.sh mailpit      # no Docker: a pinned Mailpit binary and the demo pipe
 For a helpdesk `<h>` the run starts `compose/<h>.yml`, runs `setup/<h>.sh`
 (which creates the account, inbox and API token and writes `sweep/.env.<h>`),
 loads `profiles/<h>.env` and that `.env`, then fires at the target in
-`configs/<h>.toml`: `config validate`, `blast fire --catalog`, `blast fire
---corpus` over Zammad's test mail (when `SWEEP_CORPUS=1`; cloned into
-`sweep/.cache/`, never copied into the repository), `verify`, `ledger`,
-`redeliver`, `loop`, `steady`, `barrage` at 5 per second for 60 seconds (when
-`SWEEP_BARRAGE=1`), and `report --html` on every artifact.
+`configs/<h>.toml` from the repository root, with the root on `PYTHONPATH` so
+a config's custom adapter imports. The tools run in this order: `config
+validate`, `verify`, `ledger`, `redeliver`, `loop` and `steady` first, while
+the helpdesk holds only their own tagged mail; then `blast fire --catalog`,
+`blast fire --corpus` over Zammad's test mail (when `SWEEP_CORPUS=1`; cloned
+into `sweep/.cache/`, never copied into the repository), and `barrage` at 5
+per second for 60 seconds (when `SWEEP_BARRAGE=1`) last, since a helpdesk may
+still be ingesting its load when the run ends. `report --html` then renders
+every artifact and reads nothing from the helpdesk.
 
 Everything lands in `sweep/runs/<h>/<UTC timestamp>/`: each tool's JSON
 artifact, its HTML report, a log per step, and `summary.json` with every
