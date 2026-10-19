@@ -1,0 +1,16 @@
+report: wrote sweep/runs/chatwoot/20261019T052845Z/ledger.html
+tool:    ledger
+verdict: BALANCED
+seed:    0
+target:  chatwoot
+
+counts:
+  sent        50
+  passed      50
+  produced    50
+  records     50
+
+findings: 1
+  [other-runs] 15 record(s) carry another run's tag (informational, not counted as extra)
+
+exit code: 0 (derived, not recorded in the artifact)

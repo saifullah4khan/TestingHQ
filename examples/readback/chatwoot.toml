@@ -1,11 +1,12 @@
 # Readback recipe: Chatwoot
 #
-# STATUS: NOT RUN against a live Chatwoot. Written from Chatwoot's published
-# Application API documentation (Conversations: filter). Treat the field paths
-# as "what the documentation says", not as "this was seen to work".
+# STATUS: RUN against Chatwoot 4.18.0 on 2026-10-19
+#
+# Run by sweep/run.sh chatwoot against Chatwoot 4.18.0; examples/runs/chatwoot/
+# holds that run.
 #
 # Chatwoot takes inbound email through an email inbox and opens a conversation
-# per thread. This recipe looks a conversation up by label.
+# per thread. This recipe looks each message up by the tag marker in its body.
 #
 #   export CHATWOOT_API_TOKEN="..."   # Profile settings > Access token
 #   testinghq config basic-auth actionmailbox --env CHATWOOT_INGRESS_AUTH

@@ -1,0 +1,21 @@
+report: wrote sweep/runs/chatwoot/20261019T052845Z/redeliver.html
+tool:    redeliver
+verdict: DELIVERY-BUGS
+seed:    0
+target:  chatwoot
+
+counts:
+  sent        18
+  passed      2
+  failed      2
+  scenarios   4
+
+findings: 6
+  [scenario:reply-first] sender: expected ivan.chen@example.net but the system recorded bmuller19@example.com
+  [scenario:reply-first] hq-2610190530-61a8-r1st-0-0001: the reply is on ticket 72 but its original is on 73
+  [scenario:reply-first] hq-2610190530-61a8-r1st-0-0002: the reply is on ticket 72 but its original is on 73
+  [scenario:references] hq-2610190530-61a8-ref-0-0001: the reply is on ticket 75 but its original is on 74
+  [scenario:references] hq-2610190530-61a8-ref-0-0002: the reply is on ticket 76 but its original is on 75
+  [other-runs] 70 record(s) carry another run's tag (informational)
+
+exit code: 3 (derived, not recorded in the artifact)
