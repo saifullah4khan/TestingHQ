@@ -25,6 +25,12 @@ are not a substitute for authorization.
   `.invalid`, `.example`, `.localhost`). Every address in every payload is
   checked before the first request, with `email.utils.getaddresses`, so a
   multi-recipient header cannot smuggle a second address past the check.
+- **Send a real address read from a mail corpus.** `blast --corpus` reads
+  real mail, so every address in it, in any header, the body or a textual
+  attachment, is rewritten to `corpus.example.test` before the payload exists,
+  and the rewritten payload goes through the same check. A file whose
+  addresses cannot all be made synthetic is recorded as unparseable and not
+  sent. See docs/CORPUS.md.
 - **Claim a real domain's authentication.** The SendGrid `dkim` and `SPF`
   fields are fixed synthetic values naming `example.com`, and `sender_ip` is
   `192.0.2.1` (TEST-NET-1). See docs/FORMATS.md.
