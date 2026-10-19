@@ -93,6 +93,21 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   says (`set -a && . ./.env`) read the line as a command named after the
   base64 token with the variable set for that command only, so the variable
   was never set and a run naming it was refused.
+- The plan-sized `--max-wait`, the dry-run settle warning and the UNSETTLED
+  advice count every paced request a lookup makes. A readback numbered by
+  `page_param` with no `page_size_param` cannot tell a short first page from
+  a full one, so a lookup that finds its record asks for the next page too:
+  two requests a tag, where the arithmetic counted one, so the default
+  `--max-wait` was half what a run against such a recipe (Chatwoot's) needed.
+- The `mime` and `sendgrid-raw` formats send a header value holding CR or LF
+  as an RFC 2047 encoded word. The catalog's header-injection case put CRLF in
+  the subject, the stdlib refused to build the message, and `blast fire
+  --catalog` crashed on that case against every raw-message and SMTP target.
+- `blast --corpus` keeps a sender the stdlib parser misreads. A From such as
+  `"Name" <user@example.com.>`, with a trailing dot on the domain, parsed as
+  one bare word with no address, and the payload went out with an empty From
+  the original never had; the address is now found in the raw header and
+  re-addressed like any other.
 
 ## [1.0.0] - 2026-10-15
 
