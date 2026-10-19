@@ -33,6 +33,11 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   `Basic <base64 of user:password>`; `--env NAME` names the variable.
 - Every artifact records the target's `transport` under `config`. Records of
   the pipeline tools carry the transport's `error` when there is one.
+- `envelope_to` on an HTTP target in the `sendgrid` or `sendgrid-raw` format
+  replaces the envelope recipients in SendGrid's `envelope` field, for a
+  receiver that routes on the envelope, such as Chatwoot's Action Mailbox
+  ingress. The To header is left as it is; the addresses must be synthetic,
+  and any other HTTP format refuses the key.
 - `blast generate` and `blast fire` take `--corpus <dir>`: every `.eml` and
   `.box` file under the directory, sorted by name, is parsed, tagged the way
   the generated corpus is, re-addressed to the synthetic domain and fired in
