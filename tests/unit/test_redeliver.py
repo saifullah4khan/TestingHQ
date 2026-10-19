@@ -17,6 +17,8 @@ because every component was behaving correctly.
 """
 from __future__ import annotations
 
+from email.utils import parsedate_to_datetime
+
 import pytest
 
 from testinghq.core import report
@@ -142,6 +144,28 @@ def test_the_references_scenario_builds_a_growing_chain():
     assert second.email.headers["References"] == (
         f"<{root.message_id}> <{first.message_id}>"
     )
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize(
+    "name", [redeliver.SCENARIO_REPLY_FIRST, redeliver.SCENARIO_REFERENCES]
+)
+def test_a_threads_dates_follow_the_thread_whatever_the_delivery_order(name, seed):
+    """Root, first reply, second reply, in Date order, in both threaded
+    scenarios. A helpdesk that processes a fetch in Date order threads a reply
+    only if it is dated after its original, so a reply dated earlier made
+    FreeScout open a second conversation and the scenario blame it. The root
+    keeps the Date it was generated with."""
+    [scenario] = redeliver.build_scenarios(seed, COUNT, "hq", 5.0, [name])
+    in_thread_order = sorted(scenario.deliveries, key=lambda d: d.record_id)
+    dates = [
+        parsedate_to_datetime(d.email.headers["Date"]) for d in in_thread_order
+    ]
+    assert dates == sorted(dates) and len(set(dates)) == 3, [
+        d.email.headers["Date"] for d in in_thread_order
+    ]
+    generated = redeliver.build_clean_corpus(seed, COUNT)[0].headers["Date"]
+    assert in_thread_order[0].email.headers["Date"] == generated
 
 
 def test_every_message_id_redeliver_writes_is_in_angle_brackets():

@@ -130,3 +130,33 @@ def test_the_sidecar_unstuffs_dots_and_keeps_the_smtp_order(fake):
     assert fake.fetch() == 1
     [stored] = list((fake.maildir / "cur").iterdir())
     assert stored.read_bytes().endswith(b"\n\n.leading dot\n..two\n")
+
+
+@pytest.mark.parametrize("seed", [0, 7])
+def test_redeliver_threads_survive_freescouts_date_ordered_fetch(fake, tmp_path, capsys, seed):
+    """FreeScout processes one fetch in Date order, so every message of a
+    scenario is filed in Date order however it was delivered. With each
+    payload's generated Date, a reply could be dated before its original, be
+    filed first and open its own conversation, and the scenario blamed
+    FreeScout for it. Dated in thread order, both threads land whole: the
+    reply-first replies are delivered first and still filed after their root."""
+    out = tmp_path / "redeliver.json"
+    code = cli_main([
+        "redeliver", "fire", "--send", "--target", "freescout",
+        "--config", _config_for(fake, tmp_path), "--seed", str(seed),
+        "--scenario", "reply-first", "--scenario", "references", "--rate", "200",
+        "--quiet-window", "0.3", "--poll-interval", "0.05", "--out", str(out),
+    ])
+    printed = capsys.readouterr()
+    assert code == EXIT_OK, printed.out + printed.err
+
+    artifact = json.loads(out.read_text(encoding="utf-8"))
+    assert artifact["summary"]["verdict"] == "DELIVERY-SAFE"
+    assert [(s["scenario"], s["passed"], s["findings"]) for s in artifact["scenarios"]] == [
+        ("reply-first", True, []), ("references", True, []),
+    ]
+    # Two conversations of three threads each, one per scenario.
+    rows = fake.store.query(
+        "SELECT conversation_id, COUNT(*) FROM threads GROUP BY conversation_id"
+    )
+    assert sorted(count for _id, count in rows) == [3, 3]
