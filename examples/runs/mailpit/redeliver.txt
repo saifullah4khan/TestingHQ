@@ -1,4 +1,4 @@
-report: wrote sweep/runs/mailpit/20261019T031516Z/redeliver.html
+report: wrote sweep/runs/mailpit/20261019T094007Z/redeliver.html
 tool:    redeliver
 verdict: DELIVERY-SAFE
 seed:    0

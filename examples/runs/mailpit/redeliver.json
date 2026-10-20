@@ -6,7 +6,7 @@
     "tool": "redeliver",
     "seed": 0,
     "count": 3,
-    "tag_prefix": "hq-2610190315-4a65",
+    "tag_prefix": "hq-2610190940-082a",
     "target": "pipeline",
     "readback": {
       "kind": "http",
@@ -83,7 +83,7 @@
     "verdict": "DELIVERY-SAFE",
     "verdict_source": "tool",
     "readback": {
-      "elapsed_s": 3.115,
+      "elapsed_s": 3.113,
       "polls": 6,
       "stable": true,
       "unsettled": false,
@@ -112,18 +112,18 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190315-4a65-dup-0-0000",
+          "tag": "hq-2610190940-082a-dup-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190315-4a65-dup-0-0000@hq.example.test",
+          "message_id": "hq-2610190940-082a-dup-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "00Sw652ms4YKs9KvcLndKj"
+            "6ThlAxO58m1eolSKXHZ2RL"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 00Sw652ms4YKs9KvcLndKj",
+              "detail": "created as 6ThlAxO58m1eolSKXHZ2RL",
               "expected": null,
               "actual": null,
               "reason": null
@@ -171,18 +171,18 @@
           ]
         },
         {
-          "tag": "hq-2610190315-4a65-dup-0-0001",
+          "tag": "hq-2610190940-082a-dup-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190315-4a65-dup-0-0001@hq.example.test",
+          "message_id": "hq-2610190940-082a-dup-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "1RF9hsaCZ2aEpCy3UiqUOh"
+            "3bQGHzNsgiHHN8v1hRicHc"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 1RF9hsaCZ2aEpCy3UiqUOh",
+              "detail": "created as 3bQGHzNsgiHHN8v1hRicHc",
               "expected": null,
               "actual": null,
               "reason": null
@@ -230,18 +230,18 @@
           ]
         },
         {
-          "tag": "hq-2610190315-4a65-dup-0-0002",
+          "tag": "hq-2610190940-082a-dup-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190315-4a65-dup-0-0002@hq.example.test",
+          "message_id": "hq-2610190940-082a-dup-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "5gcln7GljuNRigBRdRSYXj"
+            "6FfdjYbNWp5j7muncLeCqG"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 5gcln7GljuNRigBRdRSYXj",
+              "detail": "created as 6FfdjYbNWp5j7muncLeCqG",
               "expected": null,
               "actual": null,
               "reason": null
@@ -303,18 +303,18 @@
       "strays": [],
       "messages": [
         {
-          "tag": "hq-2610190315-4a65-rty-0-0000",
+          "tag": "hq-2610190940-082a-rty-0-0000",
           "record_id": "clean-0-0000",
-          "message_id": "hq-2610190315-4a65-rty-0-0000@hq.example.test",
+          "message_id": "hq-2610190940-082a-rty-0-0000@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "7W69v1GNudb82LYNTUFpKl"
+            "1AgMRiGMj3LceYbwJ6tDcS"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 7W69v1GNudb82LYNTUFpKl",
+              "detail": "created as 1AgMRiGMj3LceYbwJ6tDcS",
               "expected": null,
               "actual": null,
               "reason": null
@@ -362,18 +362,18 @@
           ]
         },
         {
-          "tag": "hq-2610190315-4a65-rty-0-0001",
+          "tag": "hq-2610190940-082a-rty-0-0001",
           "record_id": "clean-0-0001",
-          "message_id": "hq-2610190315-4a65-rty-0-0001@hq.example.test",
+          "message_id": "hq-2610190940-082a-rty-0-0001@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "6zXADrgVEqnvOv6bjuvvtZ"
+            "4X5YCpCvrunI5bnRySGqGs"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 6zXADrgVEqnvOv6bjuvvtZ",
+              "detail": "created as 4X5YCpCvrunI5bnRySGqGs",
               "expected": null,
               "actual": null,
               "reason": null
@@ -421,18 +421,18 @@
           ]
         },
         {
-          "tag": "hq-2610190315-4a65-rty-0-0002",
+          "tag": "hq-2610190940-082a-rty-0-0002",
           "record_id": "clean-0-0002",
-          "message_id": "hq-2610190315-4a65-rty-0-0002@hq.example.test",
+          "message_id": "hq-2610190940-082a-rty-0-0002@hq.example.test",
           "replies_to": null,
           "tickets": [
-            "4jaAfQ6R17CE6ERMfstFBr"
+            "74x79a9nVmcOyw1Vp3OoKa"
           ],
           "checks": [
             {
               "check": "ticket_created",
               "status": "passed",
-              "detail": "created as 4jaAfQ6R17CE6ERMfstFBr",
+              "detail": "created as 74x79a9nVmcOyw1Vp3OoKa",
               "expected": null,
               "actual": null,
               "reason": null

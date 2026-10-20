@@ -27,7 +27,7 @@ and the pipeline are cleared before each tool.
 | [loop](loop.html) | LOOP-SAFE | 0 | 13 kinds of machine mail, no ticket and no reply for any |
 | [steady](steady.html) | STABLE | 0 | 105 variants, 0% dissent, label read from the forward's To |
 | [blast --catalog](blast-catalog.html) | FLAGGED | 3 | 25 of 26 edge cases answered 2xx; one malformed payload got no response |
-| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 8.6ms, no errors, no knee |
+| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 26ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
@@ -45,6 +45,6 @@ scenarios that count copies, and not the threading ones, which need a ticket
 store (see the recipe's field map notes).
 
 Paths in the artifacts are relative to the repository root and point at the
-run directory the sweep wrote, `sweep/runs/mailpit/20261019T031516Z/`; the
+run directory the sweep wrote, `sweep/runs/mailpit/20261019T094007Z/`; the
 loop artifact's outbound sink path was recorded absolute and was rewritten
 relative by `sweep/harness.py relativize`, as the sweep does for every run.
