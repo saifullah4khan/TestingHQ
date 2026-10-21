@@ -38,8 +38,9 @@ Bug fixes, plus the runs that turn documentation into examples:
 - A run against a staging deployment following `docs/DOGFOOD.md`, with the
   artifacts published under `examples/runs/` and linked from the README.
 - Done: the Mailpit recipe run against a local Mailpit, every tool's
-  artifact and HTML report published in `examples/runs/mailpit/` as the
-  reference for the `[readback]` HTTP kind. `sweep/run.sh mailpit` repeats it.
+  artifact and report published in `examples/runs/mailpit/` as the
+  reference for the `[readback]` HTTP kind. `sweep/run.sh mailpit` repeats it,
+  and `testinghq report --html` renders any artifact as an HTML report.
 
 ### 1.1 (about a month after 1.0)
 

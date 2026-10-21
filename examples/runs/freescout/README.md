@@ -21,17 +21,19 @@ reads what FreeScout sent from the sidecar's outbound record.
 
 | Tool | Verdict | Exit | What it shows |
 | --- | --- | --- | --- |
-| [verify](verify.html) | MISMATCHED | 3 | 20 of 20 filed in the sweep mailbox with sender, subject and body intact; 4 lost a zero-byte attachment |
-| [ledger](ledger.html) | MISPARSED | 3 | 50 sent, 50 filed exactly once, no strays; 6 lost a zero-byte attachment |
-| [redeliver](redeliver.html) | DELIVERY-SAFE | 0 | duplicates and slow retries recognised; a References chain and replies sent before their original all threaded |
-| [loop](loop.html) | LOOPS-DETECTED | 3 | 13 conversations for machine mail, reported under ticket_policy allowed; 6 auto-replies to machine mail, one of them to a bounce |
-| [steady](steady.html) | STABLE | 0 | 105 variants, every one in the sweep mailbox: FreeScout makes no other decision about a message |
-| [blast --catalog](blast-catalog.html) | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
-| [blast --corpus](blast-corpus.html) | CLEAN | 0 | 99 of Zammad's test mails accepted over SMTP |
-| [barrage](barrage.html) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 17ms, no errors, no knee |
+| [verify](verify.txt) | MISMATCHED | 3 | 20 of 20 filed in the sweep mailbox with sender, subject and body intact; 4 lost a zero-byte attachment |
+| [ledger](ledger.txt) | MISPARSED | 3 | 50 sent, 50 filed exactly once, no strays; 6 lost a zero-byte attachment |
+| [redeliver](redeliver.txt) | DELIVERY-SAFE | 0 | duplicates and slow retries recognised; a References chain and replies sent before their original all threaded |
+| [loop](loop.txt) | LOOPS-DETECTED | 3 | 13 conversations for machine mail, reported under ticket_policy allowed; 6 auto-replies to machine mail, one of them to a bounce |
+| [steady](steady.txt) | STABLE | 0 | 105 variants, every one in the sweep mailbox: FreeScout makes no other decision about a message |
+| [blast --catalog](blast-catalog.txt) | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
+| [blast --corpus](blast-corpus.txt) | CLEAN | 0 | 99 of Zammad's test mails accepted over SMTP |
+| [barrage](barrage.txt) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 17ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
+`testinghq report <artifact>.json --html <artifact>.html` renders any of them
+as a self-contained HTML report.
 
 The three FreeScout findings, with what was sent, what was stored and how to
 reproduce each, are in

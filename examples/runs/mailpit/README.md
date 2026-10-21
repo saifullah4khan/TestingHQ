@@ -21,16 +21,18 @@ and the pipeline are cleared before each tool.
 
 | Tool | Verdict | Exit | What it shows |
 | --- | --- | --- | --- |
-| [verify](verify.html) | VERIFIED | 0 | 20 of 20 found in Mailpit with sender and subject intact |
-| [ledger](ledger.html) | BALANCED | 0 | 50 sent, 50 forwarded copies, each exactly once |
-| [redeliver](redeliver.html) | DELIVERY-SAFE | 0 | a duplicate and a slow retry each left one copy |
-| [loop](loop.html) | LOOP-SAFE | 0 | 13 kinds of machine mail, no ticket and no reply for any |
-| [steady](steady.html) | STABLE | 0 | 105 variants, 0% dissent, label read from the forward's To |
-| [blast --catalog](blast-catalog.html) | FLAGGED | 3 | 25 of 26 edge cases answered 2xx; one malformed payload got no response |
-| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 26ms, no errors, no knee |
+| [verify](verify.txt) | VERIFIED | 0 | 20 of 20 found in Mailpit with sender and subject intact |
+| [ledger](ledger.txt) | BALANCED | 0 | 50 sent, 50 forwarded copies, each exactly once |
+| [redeliver](redeliver.txt) | DELIVERY-SAFE | 0 | a duplicate and a slow retry each left one copy |
+| [loop](loop.txt) | LOOP-SAFE | 0 | 13 kinds of machine mail, no ticket and no reply for any |
+| [steady](steady.txt) | STABLE | 0 | 105 variants, 0% dissent, label read from the forward's To |
+| [blast --catalog](blast-catalog.txt) | FLAGGED | 3 | 25 of 26 edge cases answered 2xx; one malformed payload got no response |
+| [barrage](barrage.txt) | STEADY | 0 | 288 requests at 5/s, p99 26ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
+`testinghq report <artifact>.json --html <artifact>.html` renders any of them
+as a self-contained HTML report.
 
 The blast finding is real: `structurally-malformed-0-0010` carries an
 `envelope` field that is not valid JSON, and the demo pipeline's handler

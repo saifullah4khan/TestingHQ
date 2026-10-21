@@ -19,17 +19,19 @@ record per message with the conversation it landed on as its ticket.
 
 | Tool | Verdict | Exit | What it shows |
 | --- | --- | --- | --- |
-| [verify](verify.html) | VERIFIED | 0 | 20 of 20 filed in inbox 1 with sender, subject and body intact; attachments NOT CHECKED (a message's attachments carry no file names) |
-| [ledger](ledger.html) | BALANCED | 0 | 50 sent, 50 filed exactly once, no strays among the tagged messages |
-| [redeliver](redeliver.html) | DELIVERY-BUGS | 3 | duplicates and slow retries are recognised; an in-order thread sent quickly is split across conversations, and a reply is recorded as sent by the conversation's contact |
-| [loop](loop.html) | LOOP-SAFE (auto-reply NOT CHECKED) | 0 | 11 conversations for machine mail, reported under ticket_policy allowed; Chatwoot sends no automatic email and the stack has no outbound sink |
-| [steady](steady.html) | STABLE | 0 | 105 variants, every one in inbox 1: Chatwoot makes no other decision about a message |
-| [blast --catalog](blast-catalog.html) | CLEAN | 0 | 26 of 26 edge cases answered 2xx |
-| [blast --corpus](blast-corpus.html) | CLEAN | 0 | 99 of Zammad's test mails, every one answered 2xx |
-| [barrage](barrage.html) | STEADY | 0 | 288 requests at 5/s, p99 26ms, no errors, no knee |
+| [verify](verify.txt) | VERIFIED | 0 | 20 of 20 filed in inbox 1 with sender, subject and body intact; attachments NOT CHECKED (a message's attachments carry no file names) |
+| [ledger](ledger.txt) | BALANCED | 0 | 50 sent, 50 filed exactly once, no strays among the tagged messages |
+| [redeliver](redeliver.txt) | DELIVERY-BUGS | 3 | duplicates and slow retries are recognised; an in-order thread sent quickly is split across conversations, and a reply is recorded as sent by the conversation's contact |
+| [loop](loop.txt) | LOOP-SAFE (auto-reply NOT CHECKED) | 0 | 11 conversations for machine mail, reported under ticket_policy allowed; Chatwoot sends no automatic email and the stack has no outbound sink |
+| [steady](steady.txt) | STABLE | 0 | 105 variants, every one in inbox 1: Chatwoot makes no other decision about a message |
+| [blast --catalog](blast-catalog.txt) | CLEAN | 0 | 26 of 26 edge cases answered 2xx |
+| [blast --corpus](blast-corpus.txt) | CLEAN | 0 | 99 of Zammad's test mails, every one answered 2xx |
+| [barrage](barrage.txt) | STEADY | 0 | 288 requests at 5/s, p99 26ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
+`testinghq report <artifact>.json --html <artifact>.html` renders any of them
+as a self-contained HTML report.
 
 The three Chatwoot findings, with what was sent, what was stored and how to
 reproduce each, are in

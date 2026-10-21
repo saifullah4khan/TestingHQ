@@ -61,7 +61,7 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   `sweep/run.sh mailpit` runs a pinned, checksum-verified Mailpit binary and
   the demo pipeline with no Docker at all.
 - `examples/runs/mailpit/`: the Mailpit recipe run against Mailpit v1.31.6
-  and the demo pipeline, every tool's artifact with its HTML report.
+  and the demo pipeline, every tool's artifact with its report text.
 - `examples/runs/osticket/`, `chatwoot/`, `zammad/`, `freescout/` and
   `frappe/`: the sweep run against osTicket 1.18.4, Chatwoot 4.18.0, Zammad
   7.2.2, FreeScout 1.8.248 and Frappe Helpdesk 1.31.0, every tool's artifact

@@ -22,17 +22,19 @@ search; loop reads Zammad's outbound mail from a Mailpit.
 
 | Tool | Verdict | Exit | What it shows |
 | --- | --- | --- | --- |
-| [verify](verify.html) | VERIFIED | 0 | 20 of 20 filed in the Users group with sender and subject intact; body and attachments NOT CHECKED (the search does not return articles) |
-| [ledger](ledger.html) | UNVERIFIED STRAYS | 3 | 50 sent, 50 filed exactly once; strays not searched, since the search cannot list every ticket by its articles |
-| [redeliver](redeliver.html) | DELIVERY-BUGS | 3 | a redelivered Message-ID opens a second ticket; replies that arrive before their original are never joined to it |
-| [loop](loop.html) | LOOPS-DETECTED | 3 | 13 tickets for machine mail, reported under ticket_policy allowed; Zammad's auto-reply went to a List-Id digest and a subject-only out-of-office |
-| [steady](steady.html) | STABLE | 0 | 105 variants, every one in Users: Zammad makes no other decision about a message |
-| [blast --catalog](blast-catalog.html) | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
-| [blast --corpus](blast-corpus.html) | CLEAN | 0 | 99 of Zammad's own test mails accepted over SMTP |
-| [barrage](barrage.html) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 25ms, no errors, no knee |
+| [verify](verify.txt) | VERIFIED | 0 | 20 of 20 filed in the Users group with sender and subject intact; body and attachments NOT CHECKED (the search does not return articles) |
+| [ledger](ledger.txt) | UNVERIFIED STRAYS | 3 | 50 sent, 50 filed exactly once; strays not searched, since the search cannot list every ticket by its articles |
+| [redeliver](redeliver.txt) | DELIVERY-BUGS | 3 | a redelivered Message-ID opens a second ticket; replies that arrive before their original are never joined to it |
+| [loop](loop.txt) | LOOPS-DETECTED | 3 | 13 tickets for machine mail, reported under ticket_policy allowed; Zammad's auto-reply went to a List-Id digest and a subject-only out-of-office |
+| [steady](steady.txt) | STABLE | 0 | 105 variants, every one in Users: Zammad makes no other decision about a message |
+| [blast --catalog](blast-catalog.txt) | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
+| [blast --corpus](blast-corpus.txt) | CLEAN | 0 | 99 of Zammad's own test mails accepted over SMTP |
+| [barrage](barrage.txt) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 25ms, no errors, no knee |
 
 [summary.json](summary.json) holds every step's command and exit code; each
 `.txt` is `testinghq report` on the artifact beside it.
+`testinghq report <artifact>.json --html <artifact>.html` renders any of them
+as a self-contained HTML report.
 
 The three Zammad findings, with what was sent, what was stored and how to
 reproduce each, are in
