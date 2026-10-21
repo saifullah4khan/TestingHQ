@@ -430,9 +430,11 @@ the findings files give the exact `docker compose exec` commands.
 
 - `handoffs/SWEEP_FINDINGS_{osticket,chatwoot,zammad,freescout,frappe}.md`:
   the findings, one file per helpdesk.
-- `examples/runs/<helpdesk>/`: each final run's JSON, HTML and report text,
-  `summary.json`, and a README with the command, version, date and a verdict
-  table.
+- `examples/runs/<helpdesk>/`: a README per run with the command, version,
+  date and a verdict table. Each run's JSON, report text, HTML and
+  `summary.json` are in `testinghq-sweep-runs-2026-10-20.tar.gz`, published
+  as a release asset on saifullah4khan/TestingHQ; `examples/runs/mailpit/`
+  keeps its JSON and report text in the repository.
 - `examples/readback/*.toml`: the recipes, with updated status lines.
 - `sweep/compose/zammad/dovecot.conf`, `sweep/compose/frappe/dovecot.conf`:
   the new mailboxes; `sweep/compose/freescout/maildir_smtp.py` is the shared

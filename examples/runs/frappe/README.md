@@ -21,19 +21,22 @@ each Communication through Frappe's REST API. The site mutes outgoing mail.
 
 | Tool | Verdict | Exit | What it shows |
 | --- | --- | --- | --- |
-| [verify](verify.txt) | MISMATCHED | 3 | 19 of 20 filed through Sweep Support with sender, subject and body intact; the one with a JPEG was never filed |
-| [ledger](ledger.txt) | UNACCOUNTED | 3 | 50 sent, 47 filed exactly once, no strays; the 3 with a JPEG were never filed |
-| [redeliver](redeliver.txt) | DELIVERY-BUGS | 3 | at seed 7: duplicates, slow retries and a References chain land on one ticket; replies sent before their original open tickets of their own |
-| [loop](loop.txt) | LOOP-SAFE (auto-reply NOT CHECKED) | 0 | 11 tickets for machine mail, reported under ticket_policy allowed; bounces and auto-generated mail dropped; outgoing mail is muted |
-| [steady](steady.txt) | STABLE | 0 | 105 variants, every one through Sweep Support: Frappe makes no other decision about a message |
-| [blast --catalog](blast-catalog.txt) | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
-| [blast --corpus](blast-corpus.txt) | CLEAN | 0 | 99 of Zammad's test mails accepted over SMTP |
-| [barrage](barrage.txt) | STEADY | 0 | 288 messages at 5/s over SMTP, p99 17ms, no errors, no knee |
+| verify | MISMATCHED | 3 | 19 of 20 filed through Sweep Support with sender, subject and body intact; the one with a JPEG was never filed |
+| ledger | UNACCOUNTED | 3 | 50 sent, 47 filed exactly once, no strays; the 3 with a JPEG were never filed |
+| redeliver | DELIVERY-BUGS | 3 | at seed 7: duplicates, slow retries and a References chain land on one ticket; replies sent before their original open tickets of their own |
+| loop | LOOP-SAFE (auto-reply NOT CHECKED) | 0 | 11 tickets for machine mail, reported under ticket_policy allowed; bounces and auto-generated mail dropped; outgoing mail is muted |
+| steady | STABLE | 0 | 105 variants, every one through Sweep Support: Frappe makes no other decision about a message |
+| blast --catalog | CLEAN | 0 | 26 of 26 edge cases accepted over SMTP |
+| blast --corpus | CLEAN | 0 | 99 of Zammad's test mails accepted over SMTP |
+| barrage | STEADY | 0 | 288 messages at 5/s over SMTP, p99 17ms, no errors, no knee |
 
-[summary.json](summary.json) holds every step's command and exit code; each
-`.txt` is `testinghq report` on the artifact beside it.
-`testinghq report <artifact>.json --html <artifact>.html` renders any of them
-as a self-contained HTML report.
+The full artifacts for this run are published as the
+`testinghq-sweep-runs-2026-10-20.tar.gz` asset on the
+[GitHub Releases page](https://github.com/saifullah4khan/TestingHQ/releases) of
+saifullah4khan/TestingHQ: every tool's JSON artifact, its `testinghq report`
+text and HTML report, and `summary.json` with every step's command and exit
+code. `testinghq report <artifact>.json --html <artifact>.html` renders any
+artifact as a self-contained HTML report.
 
 The three Frappe findings and one observation, with what was sent, what was
 stored and how to reproduce each, are in

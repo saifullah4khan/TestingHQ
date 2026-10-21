@@ -22,19 +22,22 @@ auto-responders, and turns off the staff alerts.
 
 | Tool | Verdict | Exit | What it shows |
 | --- | --- | --- | --- |
-| [verify](verify.txt) | MISMATCHED | 3 | 20 of 20 filed in the Support department with sender, subject and body intact; 4 lost a zero-byte attachment |
-| [ledger](ledger.txt) | MISPARSED | 3 | 50 sent, 50 filed exactly once, no strays; 6 lost a zero-byte attachment |
-| [redeliver](redeliver.txt) | DELIVERY-BUGS | 3 | duplicates, slow retries and a References chain thread correctly; replies sent before their original open tickets of their own |
-| [loop](loop.txt) | LOOPS-DETECTED | 3 | no ticket counts against it (ticket_policy allowed), but 5 "Support Ticket Opened" auto-responses went to list, no-reply and out-of-office senders |
-| [steady](steady.txt) | STABLE | 0 | 105 variants, every one in Support: osTicket makes no other decision about a message |
-| [blast --catalog](blast-catalog.txt) | CLEAN | 0 | 26 of 26 edge cases answered 2xx |
-| [blast --corpus](blast-corpus.txt) | FLAGGED | 3 | 95 of 99 of Zammad's test mails filed; the 4 with no usable sender answered 500 |
-| [barrage](barrage.txt) | STEADY | 0 | 288 requests at 5/s, p99 160ms, no errors, no knee |
+| verify | MISMATCHED | 3 | 20 of 20 filed in the Support department with sender, subject and body intact; 4 lost a zero-byte attachment |
+| ledger | MISPARSED | 3 | 50 sent, 50 filed exactly once, no strays; 6 lost a zero-byte attachment |
+| redeliver | DELIVERY-BUGS | 3 | duplicates, slow retries and a References chain thread correctly; replies sent before their original open tickets of their own |
+| loop | LOOPS-DETECTED | 3 | no ticket counts against it (ticket_policy allowed), but 5 "Support Ticket Opened" auto-responses went to list, no-reply and out-of-office senders |
+| steady | STABLE | 0 | 105 variants, every one in Support: osTicket makes no other decision about a message |
+| blast --catalog | CLEAN | 0 | 26 of 26 edge cases answered 2xx |
+| blast --corpus | FLAGGED | 3 | 95 of 99 of Zammad's test mails filed; the 4 with no usable sender answered 500 |
+| barrage | STEADY | 0 | 288 requests at 5/s, p99 160ms, no errors, no knee |
 
-[summary.json](summary.json) holds every step's command and exit code; each
-`.txt` is `testinghq report` on the artifact beside it.
-`testinghq report <artifact>.json --html <artifact>.html` renders any of them
-as a self-contained HTML report.
+The full artifacts for this run are published as the
+`testinghq-sweep-runs-2026-10-20.tar.gz` asset on the
+[GitHub Releases page](https://github.com/saifullah4khan/TestingHQ/releases) of
+saifullah4khan/TestingHQ: every tool's JSON artifact, its `testinghq report`
+text and HTML report, and `summary.json` with every step's command and exit
+code. `testinghq report <artifact>.json --html <artifact>.html` renders any
+artifact as a self-contained HTML report.
 
 The five osTicket findings, with what was sent, what was stored and how to
 reproduce each, are in
