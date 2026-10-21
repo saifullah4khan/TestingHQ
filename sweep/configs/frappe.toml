@@ -1,0 +1,139 @@
+# Sweep config: Frappe Helpdesk, on the pull-mail pattern.
+#
+# Messages go over SMTP into the deliver sidecar in sweep/compose/frappe.yml,
+# which writes them into the Maildir its Dovecot serves over POP3.
+# The helpdesk's Email Account "Sweep Support" (created by
+# sweep/setup/frappe.sh) pulls them over POP3 and stores each one as a
+# Communication on an HD Ticket (a new ticket, or the one it replies to), and
+# the readback finds that Communication through Frappe's REST API.
+#
+#   docker compose -f sweep/compose/frappe.yml up -d
+#   bash sweep/setup/frappe.sh            # writes FRAPPE_API_AUTH
+#   testinghq verify fire --target frappe --send --config sweep/configs/frappe.toml \
+#     --max-wait 600 --quiet-window 150
+#
+# WAITING. Mail reaches a ticket only when the scheduler pulls it: setup makes
+# the pull run every minute, the scheduler ticks once a minute, and a worker
+# then takes up to 100 messages (Frappe stops a POP3 pull at 100), oldest
+# first, as Dovecot lists them. Tickets arrive in batches
+# one to two minutes apart, and a backlog of N messages takes about N / 100
+# minutes to drain. --quiet-window has to be longer than the gap between
+# batches or a batch still on its way reads as lost; sweep/profiles/frappe.env
+# carries the values the harness uses.
+
+[targets.frappe]
+transport = "smtp"
+host = "127.0.0.1"
+port = 3525
+# The address the deliver sidecar writes into the mailbox the Email Account
+# pulls; mail for any other address would be recorded as outbound.
+envelope_to = "support@frappe.test"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The lookup is
+#
+#   GET /api/resource/Communication?fields=[...]&limit_page_length=0
+#       &filters=[["content","like","%<tag>%"],
+#                 ["reference_doctype","=","HD Ticket"],
+#                 ["sent_or_received","=","Received"]]
+#
+# Every message the Email Account takes in is stored as a Communication
+# linked to the HD Ticket it opened or joined, so a Communication is the one
+# record per message: a reply is findable by its own tag even though it opened
+# no ticket, two messages on one ticket share `reference_name`, and the stored
+# Message-ID is there to compare. The HD Ticket itself only carries the body of
+# the message that opened it.
+#
+# TestingHQ stamps the tag into the body as [testinghq:<tag>] (and keeps it out
+# of the subject on purpose), so the filter searches `content`. The other two
+# conditions keep out a message that made no ticket and anything the helpdesk
+# sent. `filters` is JSON; the adapter URL-encodes it with the rest of the
+# query. `fields` picks the columns the field map reads (Frappe returns `name`
+# alone without it), and `limit_page_length=0` lifts the default page of 20.
+#
+# The listing for stray records is every received Communication on a ticket
+# that came in through the sweep's Email Account, which leaves out the
+# "Welcome to Helpdesk" ticket a fresh install creates. Decoded, list_path is
+#
+#   /api/resource/Communication?fields=[...]&limit_page_length=0
+#       &filters=[["email_account","=","Sweep Support"],
+#                 ["reference_doctype","=","HD Ticket"],
+#                 ["sent_or_received","=","Received"]]
+#
+# It is sent as written, so it is written URL-encoded here.
+
+[readback]
+kind = "http"
+url = 'http://127.0.0.1:3500/api/resource/Communication?fields=["name","reference_name","sender","subject","content","message_id","email_account","communication_date"]&limit_page_length=0'
+tag_param = "filters"
+query = '[["content","like","%{tag}%"],["reference_doctype","=","HD Ticket"],["sent_or_received","=","Received"]]'
+items_key = "data"
+list_path = "/api/resource/Communication?fields=%5B%22name%22%2C%22reference_name%22%2C%22sender%22%2C%22subject%22%2C%22content%22%2C%22message_id%22%2C%22email_account%22%2C%22communication_date%22%5D&limit_page_length=0&filters=%5B%5B%22email_account%22%2C%22%3D%22%2C%22Sweep%20Support%22%5D%2C%5B%22reference_doctype%22%2C%22%3D%22%2C%22HD%20Ticket%22%5D%2C%5B%22sent_or_received%22%2C%22%3D%22%2C%22Received%22%5D%5D"
+timeout = 30.0
+
+# `token <api_key>:<api_secret>` for Administrator, written by the setup
+# script. Frappe answers 401 to a key it does not know and 403 to a request
+# with no key at all.
+[readback.headers]
+Authorization = "env:FRAPPE_API_AUTH"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A received Communication. `reference_name` is the HD Ticket it belongs to,
+# which is the ticket id: two messages threaded onto one ticket report the same
+# one. `sender` is the sender's address as Frappe reads it (Reply-To when the
+# message has one, From otherwise, lowercased), `subject` the subject (Frappe
+# keeps the first 140 characters), `content` the body (the HTML part when
+# there is one, sanitized), `message_id` the Message-ID without angle
+# brackets, and `email_account` the Email Account it arrived through, which is
+# the inbox.
+
+[readback.fields]
+ticket_id = "reference_name"
+from_addr = "sender"
+subject = "subject"
+body = "content"
+route = "email_account"
+message_id = "message_id"
+# `in_reply_to` on a Communication is the name of the Communication it
+# answers, not a Message-ID, and References is not kept. Attachments are File
+# records, a second request this adapter does not make. `priority` is a
+# ticket's urgency, not a classifier's label.
+in_reply_to = false
+references = false
+attachment_names = false
+tag = false
+category = false
+priority = false
+
+# ---------------------------------------------------------------------------
+# loop
+# ---------------------------------------------------------------------------
+#
+# The loop bait goes to the Email Account's own address. Frappe Helpdesk drops
+# a delivery report, a null Return-Path, X-Auto-Generated and Auto-Submitted
+# other than auto-replied before they become a ticket, and lets the rest in on
+# purpose (helpdesk/overrides/email_account.py, auto_generated_reason), so a
+# ticket for machine mail is reported, not a finding. The site mutes outgoing
+# mail, so there is no [loop.outbound] and the auto-reply check reads NOT
+# CHECKED.
+
+[loop]
+reply_address = "support@frappe.test"
+ticket_policy = "allowed"
+
+# ---------------------------------------------------------------------------
+# steady
+# ---------------------------------------------------------------------------
+#
+# Frappe Helpdesk does not classify mail by default. The one decision it makes
+# is the Email Account a ticket comes in through, so steady reads that: every
+# variant should arrive through the sweep's one account.
+
+[steady]
+label_field = "route"

@@ -1,0 +1,55 @@
+From MAILER-DAEMON  Tue Oct 14 08:12:44 2025
+Return-Path: <>
+X-Original-To: support@orchardlane-supplies.com
+Delivered-To: support@orchardlane-supplies.com
+From: Mail Delivery System <MAILER-DAEMON@mx.orchardlane-supplies.com>
+To: support@orchardlane-supplies.com
+Subject: Undelivered Mail Returned to Sender
+Date: Tue, 14 Oct 2025 08:12:44 +0200
+Message-ID: <20251014061244.9F1C2@mx.orchardlane-supplies.com>
+Auto-Submitted: auto-replied
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status;
+	boundary="dsn-4e7b"
+
+This is a MIME-encapsulated message.
+
+--dsn-4e7b
+Content-Description: Notification
+Content-Type: text/plain; charset=us-ascii
+
+I'm sorry to have to inform you that your message could not
+be delivered to one or more recipients.
+
+<w.achterberg@lindenbrook-freight.com>: host mx.lindenbrook-freight.com said:
+    550 5.1.1 <w.achterberg@lindenbrook-freight.com>: Recipient address
+    rejected: User unknown
+
+--dsn-4e7b
+Content-Description: Delivery report
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; mx.orchardlane-supplies.com
+X-Postfix-Queue-ID: 9F1C2
+X-Postfix-Sender: rfc822; support@orchardlane-supplies.com
+Arrival-Date: Tue, 14 Oct 2025 08:12:40 +0200
+
+Original-Recipient: rfc822;w.achterberg@lindenbrook-freight.com
+Final-Recipient: rfc822; w.achterberg@lindenbrook-freight.com
+Action: failed
+Status: 5.1.1
+Remote-MTA: dns; mx.lindenbrook-freight.com
+Diagnostic-Code: smtp; 550 5.1.1 <w.achterberg@lindenbrook-freight.com>:
+    Recipient address rejected: User unknown
+
+--dsn-4e7b
+Content-Description: Undelivered Message Headers
+Content-Type: text/rfc822-headers
+
+From: Orchard Lane Support <support@orchardlane-supplies.com>
+To: w.achterberg@lindenbrook-freight.com
+Subject: Your delivery slot for order 88412
+Date: Tue, 14 Oct 2025 08:12:39 +0200
+Message-ID: <slot-88412@orchardlane-supplies.com>
+
+--dsn-4e7b--

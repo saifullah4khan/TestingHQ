@@ -1,0 +1,15 @@
+report: wrote sweep/runs/mailpit/20261019T094007Z/ledger.html
+tool:    ledger
+verdict: BALANCED
+seed:    0
+target:  pipeline
+
+counts:
+  sent        50
+  passed      50
+  produced    50
+  records     50
+
+findings: 0
+
+exit code: 0 (derived, not recorded in the artifact)

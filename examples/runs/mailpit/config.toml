@@ -1,0 +1,99 @@
+# Readback recipe: Mailpit
+#
+# STATUS: RUN against Mailpit v1.31.6 on 2026-10-19
+#
+# Mailpit is an SMTP server with a REST API that catches every message sent to
+# it. Point the pipeline's outbound SMTP at it and this recipe reads back what
+# the pipeline sent: a forwarded copy, an auto-reply, a notification. That makes
+# it the [loop.outbound] sink for `testinghq loop` as well as a [readback] for a
+# pipeline whose output is email.
+#
+#   docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
+#   testinghq verify fire --target pipeline --send --config target.toml
+#
+# Or, with no Docker, `sweep/run.sh mailpit` downloads a pinned Mailpit binary,
+# serves the demo pipeline from examples/pipeline_demo.py on the target below
+# (forwarding every ticket to Mailpit), and runs every tool with this recipe.
+# That run is published in examples/runs/mailpit/.
+#
+# No credentials: Mailpit on localhost has no API auth by default. If yours is
+# behind basic auth, add [readback.headers] with an `env:` reference.
+#
+# Clear Mailpit between runs (DELETE /api/v1/messages, or the web UI), so a
+# listing for stray records starts from this run's mail only.
+
+[targets.pipeline]
+name = "pipeline"
+url = "http://127.0.0.1:8000/intake"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The lookup is GET /api/v1/search?query="<tag>". TestingHQ stamps the tag into
+# the body as [testinghq:<tag>], so a pipeline that quotes or forwards the body
+# keeps it searchable. The quotes make Mailpit match the tag as one phrase
+# instead of splitting it.
+#
+# The listing is /api/v1/messages, which Mailpit pages with start/limit rather
+# than page numbers, so the limit is raised to cover a run in one request.
+
+[readback]
+kind = "http"
+url = "http://127.0.0.1:8025/api/v1/search"
+tag_param = "query"
+query = "\"{tag}\""
+items_key = "messages"
+list_path = "/api/v1/messages?limit=5000"
+timeout = 10.0
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A Mailpit message summary. `From` is an object with `Name` and `Address`,
+# read through its address key. `To.0.Address` is where the pipeline sent the
+# message, which is the route for a pipeline that forwards by team.
+
+#
+# ticket_id is Mailpit's own message ID, so every message Mailpit holds is its
+# own record. Copies are counted exactly: a message forwarded twice is two
+# records, which is what ledger and redeliver's duplicate and slow-retry
+# scenarios look for. A mail sink has no conversation for a reply to join,
+# though, so redeliver's reply-first and references scenarios need a readback
+# that reads the pipeline's tickets rather than its outbound mail.
+
+[readback.fields]
+ticket_id = "ID"
+from_addr = "From"
+subject = "Subject"
+message_id = "MessageID"
+route = "To.0.Address"
+
+# NOT MAPPED, each for a reason:
+#
+#   body              A summary carries `Snippet`, the first characters only.
+#                     Comparing the sent body against a snippet would fail on
+#                     every message longer than it.
+#   attachment_names  A summary carries `Attachments` as a count, and a count
+#                     is not a name.
+#   in_reply_to,      Not in a summary; they need GET /api/v1/message/{ID},
+#   references        a second request this adapter does not make.
+
+# ---------------------------------------------------------------------------
+# Added by sweep/run.sh for the demo pipeline (sweep/mailpit_pipeline.py)
+# ---------------------------------------------------------------------------
+#
+# The pipeline forwards each ticket to <category>@team.example.com, so the
+# recipe's route (To.0.Address) carries its classifier's label. Its
+# acknowledgements go to a JSON Lines sink beside this file.
+
+[loop]
+reply_address = "support@example.com"
+
+[loop.outbound]
+kind = "mailbox"
+path = "outbound.jsonl"
+
+[steady]
+label_field = "route"

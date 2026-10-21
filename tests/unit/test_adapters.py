@@ -1411,3 +1411,25 @@ def test_the_skipped_field_is_reported_not_visible_by_the_checks():
     attachments = [c for c in verification.checks if c.name == "attachments"][0]
     assert attachments.passed is None
     assert attachments.reason == SKIP_NOT_VISIBLE
+
+
+def test_a_page_numbered_lookup_makes_the_requests_the_plan_counts():
+    """The planner's count of requests per lookup is what the adapter does: a
+    found record on page 1 with no page size known asks for page 2."""
+    from testinghq.pipeline.common import requests_per_lookup
+
+    client = _StubClient(_json_response([{"id": "T1"}]), _json_response([]))
+    adapter = adapters.HttpJsonAdapter(
+        "http://localhost:8000/tickets", page_param="page", client=client,
+        rate=1000.0, sleep=lambda _s: None,
+    )
+    adapter.fetch(_probe("hq-7-0003"))
+    assert len(client.requests) == requests_per_lookup(adapter) == 2
+
+    client = _StubClient(_json_response([{"id": "T1"}]))
+    adapter = adapters.HttpJsonAdapter(
+        "http://localhost:8000/tickets", page_param="page", page_size_param="per_page",
+        client=client, rate=1000.0, sleep=lambda _s: None,
+    )
+    adapter.fetch(_probe("hq-7-0003"))
+    assert len(client.requests) == requests_per_lookup(adapter) == 1

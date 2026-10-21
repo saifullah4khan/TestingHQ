@@ -1,0 +1,102 @@
+# Readback recipe: osTicket, read from its MySQL tables
+#
+# STATUS: RUN against osTicket 1.18.4 on 2026-10-19
+#
+# Written from osTicket's published source (setup/inc/streams/core/
+# install-mysql.sql, include/api.tickets.php, include/class.api.php,
+# include/class.mailparse.php) for 1.18, then run by sweep/run.sh osticket
+# against osTicket 1.18.4; examples/runs/osticket/ holds that run.
+#
+# Copy to target.toml, point the url at your osTicket, and run from the root of
+# a TestingHQ checkout (the adapter is an example file, not part of the
+# package, so the root has to be importable):
+#
+#   pip install PyMySQL
+#   export OSTICKET_API_KEY="..."
+#   export OSTICKET_MYSQL_DSN="mysql://reader:password@127.0.0.1:3306/osticket"
+#   PYTHONPATH=. testinghq verify fire --target osticket --send --config target.toml
+#
+# Never put the key or the DSN in this file: a header value or a dsn that is
+# not an `env:` reference is refused.
+
+# ---------------------------------------------------------------------------
+# Inbound
+# ---------------------------------------------------------------------------
+#
+# osTicket's API takes a whole email at POST /api/tickets.email, the raw
+# message as the request body, which is what `format = "mime"` sends. The
+# answer is 201 with the ticket number as the body. A Message-ID osTicket has
+# already seen gets the existing ticket's number and files nothing new, and a
+# reply whose In-Reply-To or References names a stored Message-ID is added to
+# that ticket's thread.
+#
+# AUTH. The key goes in an X-API-Key header. osTicket looks a key up by the key
+# AND the address the request comes from (ost_api_key.ipaddr), so a key made
+# for one address is refused (401, "source IP not authorized") from any other,
+# including from a container gateway when TestingHQ runs on the Docker host.
+# Create the key under Admin Panel > Manage > API Keys with the address
+# TestingHQ connects from and "Can Create Tickets" ticked; that address is in
+# ost_syslog.ip_address next to the 401 a request with the wrong key logs.
+# sweep/setup/osticket.sh does all of this by SQL.
+
+[targets.osticket]
+name = "osticket"
+url = "http://127.0.0.1:8080/api/tickets.email"
+format = "mime"
+
+[targets.osticket.headers]
+X-API-Key = "env:OSTICKET_API_KEY"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# osTicket has no API to read a ticket back, so the readback is a custom
+# adapter, examples/readback/adapters/osticket_mysql.py, that reads the
+# database. Its docstring lists every table and column it reads. In short:
+#
+#   lookup     a message entry (ost_thread_entry, type 'M') on a ticket thread
+#              whose body holds the [testinghq:<tag>] marker, or whose
+#              Message-ID in ost_thread_entry_email is the one derived from
+#              the tag. The tag is never in the subject. One record per entry,
+#              so a message filed twice comes back twice.
+#   ticket_id  ost_ticket.number, the number the API answered with
+#   subject    the entry's title, else ost_ticket__cdata.subject
+#   from_addr  the entry's user's default address, from ost_user_email
+#   body       the entry's body as stored. With rich text on (osTicket's
+#              default) that is the HTML part, which the body check strips
+#              of tags before comparing.
+#   attachment_names   ost_attachment on the entry
+#   route      the ticket's department, ost_department.name, for --expect-route
+#   message_id, in_reply_to, references   ost_thread_entry_email
+#
+# The listing, for stray records, is every message entry on every ticket, up
+# to list_limit. Set enumerate = false to turn it off.
+#
+# PyMySQL is the adapter's own dependency, not TestingHQ's. It is imported when
+# the adapter connects, so this file loads and `config validate` runs without
+# it; a run without it is refused before anything is sent, naming the package.
+#
+# THE DATABASE USER. Give the adapter a user that can only SELECT:
+#
+#   CREATE USER 'reader'@'%' IDENTIFIED BY '...';
+#   GRANT SELECT ON osticket.* TO 'reader'@'%';
+#
+# The connection runs with autocommit on and ends every read, because a MySQL
+# connection holding a transaction open keeps seeing the tables as they were
+# at its first read, and a poll through it would never see a new ticket.
+#
+# TIMING. The API files the ticket before it answers, so there is no index lag
+# to wait out: the default --quiet-window is enough.
+
+[readback]
+kind = "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter"
+dsn = "env:OSTICKET_MYSQL_DSN"
+# The table prefix the install used: osTicket's installer asks for one and
+# suggests ost_.
+table_prefix = "ost_"
+# Seconds to wait for the database to connect and to answer.
+timeout = 10.0
+# Most message entries one listing reads before it stops and says it is
+# partial.
+list_limit = 10000

@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -40,17 +41,45 @@ def test_the_changelog_has_a_section_for_the_version():
     assert re.search(r"^## \[Unreleased\]", text, re.MULTILINE)
 
 
-def test_the_wheel_builds_and_contains_the_package_data(tmp_path):
-    """Built from a copy of the tree, so the build leaves nothing in the repo."""
-    pytest.importorskip("setuptools", minversion="77")
+def _source_tree(tmp_path) -> Path:
+    """A copy of what the build reads, plus what a working checkout of the
+    sweep holds but must never ship: a setup script's credentials, a run's
+    artifacts, the download cache and a sidecar's state."""
     source = tmp_path / "src"
     source.mkdir()
-    for name in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+    for name in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in",
+                 "CHANGELOG.md", "CONTRIBUTING.md"):
         shutil.copy2(REPO_ROOT / name, source / name)
-    shutil.copytree(
-        REPO_ROOT / "testinghq", source / "testinghq",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
+    for tree in ("testinghq", "sweep", "docs", "examples"):
+        shutil.copytree(
+            REPO_ROOT / tree, source / tree,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "runs", ".cache", ".state",
+                                          ".env.*"),
+        )
+    # examples/runs is published; sweep/runs is not. The ignore above skipped
+    # both, so put the published one back.
+    if (REPO_ROOT / "examples" / "runs").is_dir():
+        shutil.copytree(REPO_ROOT / "examples" / "runs", source / "examples" / "runs")
+    (source / "sweep" / ".env.chatwoot").write_text("CHATWOOT_TOKEN=secret\n", encoding="utf-8")
+    run = source / "sweep" / "runs" / "chatwoot" / "20261019T000000Z"
+    run.mkdir(parents=True)
+    (run / "summary.json").write_text("{}", encoding="utf-8")
+    cache = source / "sweep" / ".cache" / "zammad" / "test" / "data" / "mail"
+    cache.mkdir(parents=True)
+    (cache / "mail001.box").write_text("From: a@example.com\n\n", encoding="utf-8")
+    state = source / "sweep" / ".state" / "freescout"
+    state.mkdir(parents=True)
+    (state / "outbound.jsonl").write_text("{}\n", encoding="utf-8")
+    return source
+
+
+def test_the_wheel_builds_and_contains_the_package_data(tmp_path):
+    """Built from a copy of the tree, so the build leaves nothing in the repo.
+    The sdist is built from the same copy: it carries the sweep harness and
+    none of a checkout's credentials, runs or cache; the wheel carries none of
+    the sweep at all."""
+    pytest.importorskip("setuptools", minversion="77")
+    source = _source_tree(tmp_path)
     out = tmp_path / "dist"
     result = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
@@ -67,4 +96,23 @@ def test_the_wheel_builds_and_contains_the_package_data(tmp_path):
         "testinghq/report_html/render.js",
     ):
         assert wanted in names, f"{wanted} is missing from the wheel"
-    assert not any(n.startswith(("tests/", "web/")) for n in names)
+    assert not any(n.startswith(("tests/", "web/", "sweep/")) for n in names)
+
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import sys, setuptools.build_meta as b; print(b.build_sdist(sys.argv[1]))",
+         str(out)],
+        cwd=source, capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    (sdist,) = out.glob("testinghq-*.tar.gz")
+    with tarfile.open(sdist) as bundle:
+        members = {name.split("/", 1)[1] for name in bundle.getnames() if "/" in name}
+    for wanted in ("sweep/run.sh", "sweep/harness.py", "sweep/README.md",
+                   "sweep/mailpit_pipeline.py", "sweep/profiles/mailpit.env",
+                   "examples/pipeline_demo.py", "examples/readback/mailpit.toml"):
+        assert wanted in members, f"{wanted} is missing from the sdist"
+    assert not any(n.startswith(("sweep/runs", "sweep/.cache", "sweep/.state", "sweep/.env.",
+                                 "tests/"))
+                   for n in members), sorted(members)
+    assert not any("__pycache__" in n for n in members)

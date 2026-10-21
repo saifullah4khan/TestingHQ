@@ -71,7 +71,7 @@ def test_every_unknown_key_in_the_file_is_named_at_once(tmp_path):
 def test_a_key_with_nothing_close_lists_the_known_keys(tmp_path):
     with pytest.raises(ConfigError) as caught:
         load_config(_write(tmp_path, TARGET + "zzz = 1\n"))
-    assert "known keys: format, name, public, url" in str(caught.value)
+    assert "known keys: envelope_from, envelope_to, format, headers, host, name, password, port, public, starttls, transport, url, username" in str(caught.value)
 
 
 @pytest.mark.parametrize(
@@ -188,7 +188,7 @@ def test_a_send_with_a_typo_key_exits_1_and_sends_nothing(tmp_path, capsys, sink
     path = _write(
         tmp_path,
         f'[targets.a]\nurl = "http://127.0.0.1:{port}/intake"\nformt = "mailgun"\n'
-        f'[readback]\nkind = "mailbox"\npath = "{tmp_path / "mail.jsonl"}"\n',
+        f'[readback]\nkind = "mailbox"\npath = "{(tmp_path / "mail.jsonl").as_posix()}"\n',
     )
     code = cli.main([tool, "fire", "--config", str(path), "--target", "a",
                      "--count", "2", "--send"])
@@ -283,7 +283,10 @@ def test_the_whitelist_is_exactly_what_the_tools_read():
     omits would be refused. Pinned by hand per table: the readback keys are
     pinned against the loader in test_config_schema.py."""
     expected = {
-        "targets": ["format", "name", "public", "url"],
+        "targets": [
+            "envelope_from", "envelope_to", "format", "headers", "host", "name",
+            "password", "port", "public", "starttls", "transport", "url", "username",
+        ],
         "loop": ["outbound", "reply_address", "ticket_policy"],
         "steady": ["intents_path", "label_field"],
         "sigcheck": ["scheme", "secret", "timestamp_window_seconds"],

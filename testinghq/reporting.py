@@ -48,7 +48,7 @@ and a consumer has no way to tell.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -117,7 +117,10 @@ class ArtifactSummary:
     `JSON_KEYS`, the frozen `report --json` shape. `mode` is the subcommand
     for a tool that has several (verify fire or check); it is shown in the
     text report and is not one of the JSON keys, so `tool` is always the
-    tool's own name, the one the artifact records.
+    tool's own name, the one the artifact records. `corpus_dir` is the
+    directory a `blast --corpus` run read, shown in the text report and,
+    like `mode`, not a JSON key: the JSON shape is frozen, and a corpus run's
+    unparseable and ignored files reach it as findings.
     """
 
     tool: str
@@ -133,6 +136,7 @@ class ArtifactSummary:
     schema_version: int = 0
     aborted: bool = False
     mode: Optional[str] = None
+    corpus_dir: Optional[str] = None
 
     def to_json(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -271,24 +275,66 @@ def _read_dry_run(artifact: Dict[str, Any], tool: str) -> Optional[ArtifactSumma
     )
 
 
+#: The outcome blast records for a `--corpus` file it could not parse.
+_UNPARSEABLE = "unparseable"
+
+
+def _corpus_findings(artifact: Dict[str, Any]) -> List[Finding]:
+    """A `blast --corpus` run's unparseable files, one finding each, and its
+    ignored files as one finding. Nothing for any other blast run."""
+    config = _config(artifact)
+    if config.get("corpus_dir") is None:
+        return []
+    findings = []
+    for record in artifact.get("records") or []:
+        if isinstance(record, dict) and record.get("outcome") == _UNPARSEABLE:
+            findings.append(Finding(
+                kind=_UNPARSEABLE,
+                detail=f"{record.get('source')}: {record.get('error')}",
+            ))
+    ignored = _int(config.get("corpus_ignored"))
+    if ignored:
+        findings.append(Finding(
+            kind="ignored",
+            detail=f"{ignored} file(s) under {config['corpus_dir']} are not "
+            ".eml or .box and were not read",
+        ))
+    return findings
+
+
+def _corpus_dir(artifact: Dict[str, Any]) -> Optional[str]:
+    value = _config(artifact).get("corpus_dir")
+    return value if isinstance(value, str) else None
+
+
 def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
     dry_run = _read_dry_run(artifact, "blast")
     if dry_run is not None:
-        return dry_run
+        return replace(
+            dry_run,
+            findings=tuple(_corpus_findings(artifact)),
+            corpus_dir=_corpus_dir(artifact),
+        )
     summary = _summary(artifact)
     records = artifact.get("records") or []
     flags = summary.get("flags") or []
     aborted = artifact.get("aborted") is True
 
+    # A corpus file that could not be parsed was never sent.
+    sent_records = [
+        r for r in records
+        if not (isinstance(r, dict) and r.get("outcome") == _UNPARSEABLE)
+    ]
     passed = sum(
-        1 for r in records
+        1 for r in sent_records
         if isinstance(r, dict) and (r.get("assertion") or {}).get("passed") is True
     )
-    failed = len(records) - passed
+    failed = len(sent_records) - passed
 
     # Each flag names its own reason, including why a request got no
     # response, so the flags are the findings.
     findings = [Finding(kind="flag", detail=str(flag)) for flag in flags]
+    findings.extend(_corpus_findings(artifact))
     if aborted:
         findings.append(
             Finding(
@@ -307,12 +353,13 @@ def _read_blast(artifact: Dict[str, Any]) -> ArtifactSummary:
         exit_code=EXIT_FINDING if (flags or aborted) else EXIT_OK,
         exit_code_source="derived",
         counts=Counts(
-            sent=len(records),
+            sent=len(sent_records),
             passed=passed,
             failed=failed,
             records=len(records),
         ),
         findings=tuple(findings),
+        corpus_dir=_corpus_dir(artifact),
         **_base(artifact, "blast"),
     )
 
@@ -434,6 +481,7 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
     mode = config.get("mode", "fire")
 
     findings = list(_skip_findings(summary.get("checks_skipped_by_reason") or {}))
+    findings += _verify_mismatches(artifact.get("records") or [])
 
     recorded = summary.get("verdict")
     if isinstance(recorded, str) and recorded:
@@ -476,6 +524,39 @@ def _read_verify(artifact: Dict[str, Any]) -> ArtifactSummary:
         mode=mode,
         **_base(artifact, "verify"),
     )
+
+
+#: Most failed verify checks listed, as verify's own report caps them; the
+#: count stays exact and a further finding says the list was cut.
+MAX_LISTED_MISMATCHES = 20
+
+
+def _verify_mismatches(records: List[Any]) -> List[Finding]:
+    """One finding per failed check, named by record, the way verify prints
+    them under "mismatches"."""
+    failed = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        verification = record.get("verification")
+        if not isinstance(verification, dict):
+            continue
+        for check in verification.get("checks") or []:
+            if isinstance(check, dict) and check.get("status") == "failed":
+                failed.append(
+                    f"{record.get('id') or record.get('tag')} {check.get('check')}: "
+                    f"{check.get('detail')}"
+                )
+    findings = [Finding(kind="mismatched", detail=d) for d in failed[:MAX_LISTED_MISMATCHES]]
+    if len(failed) > MAX_LISTED_MISMATCHES:
+        findings.append(
+            Finding(
+                kind="truncated",
+                detail=f"only the first {MAX_LISTED_MISMATCHES} of {len(failed)} "
+                       "failed checks are listed",
+            )
+        )
+    return findings
 
 
 def _read_ledger(artifact: Dict[str, Any]) -> ArtifactSummary:
@@ -1061,6 +1142,8 @@ def render(summary: ArtifactSummary) -> str:
         lines.append(f"seed:    {summary.seed}")
     if summary.target:
         lines.append(f"target:  {summary.target}")
+    if summary.corpus_dir:
+        lines.append(f"corpus:  {summary.corpus_dir}")
     if summary.dry_run:
         lines.append("dry run: yes, nothing was sent")
 

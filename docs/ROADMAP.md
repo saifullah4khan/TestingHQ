@@ -33,29 +33,48 @@ version, the changelog and the built metadata agree before it publishes.
 
 ### 1.0.x (the first weeks after the tag)
 
-Bug fixes, plus the two runs that turn documentation into examples:
+Bug fixes, plus the runs that turn documentation into examples:
 
 - A run against a staging deployment following `docs/DOGFOOD.md`, with the
   artifacts published under `examples/runs/` and linked from the README.
-- A run of the Mailpit recipe against a local Mailpit, published the same
-  way, as the reference for the `[readback]` HTTP kind.
+- Done: the Mailpit recipe run against a local Mailpit, every tool's
+  artifact and report published in `examples/runs/mailpit/` as the
+  reference for the `[readback]` HTTP kind. `sweep/run.sh mailpit` repeats it,
+  and `testinghq report --html` renders any artifact as an HTML report.
 
 ### 1.1 (about a month after 1.0)
 
-The CI story and the first integrations.
+The CI story and the first integrations. Delivered so far:
 
+- **SMTP transport**, brought forward from 1.2. A target with
+  `transport = "smtp"` is a mail server, so every tool reaches pipelines that
+  pull mail rather than receive webhooks (Zammad, FreeScout, Frappe
+  Helpdesk). The readback seam is unchanged, and an SMTP host is held to the
+  same consent flags as a public HTTP target.
+- **Target headers.** `[targets.<name>.headers]` with `env:` values, for an
+  endpoint behind Basic auth such as Chatwoot's Action Mailbox.
+- **Zammad's corpus as a Blast source.** `--corpus <dir>` on `blast fire`
+  reads `.eml` or `.box` files and fires them in the target's format, with the
+  same tagging as the generated corpus. Zammad's own `test/data/mail/` is
+  read from a clone at run time, never copied in.
+- **The helpdesk sweep.** Recipes for Chatwoot, osTicket, Zammad, FreeScout
+  and Frappe Helpdesk, MySQL adapter examples for the two without a read API,
+  and `sweep/run.sh`, which starts each in Docker, sets it up and runs every
+  tool against it in one command.
+- **Recipe runs against live installs.** Done: the Chatwoot and osTicket
+  recipes ran against their Docker Compose installs, and the Zammad,
+  FreeScout and Frappe Helpdesk recipes ran the same way. Each run's verdict
+  table is in `examples/runs/<helpdesk>/`, with the full artifacts published
+  as a release asset.
+
+Still to come in 1.1:
+
+- **Upstream reports.** Every helpdesk bug the sweep found reported to its
+  project with the reproduction command from the findings.
 - **GitHub Action.** A separate repository, `testinghq-action`, with an
   `action.yml` that takes a config path, a tool and a `fail-on` setting and
   turns the exit code convention into a workflow step. One `uses:` line is a
   far lower ask than reading the README.
-- **Chatwoot and osTicket recipes**, run against docker-compose installs.
-  Chatwoot ingests through Rails Action Mailbox (SendGrid raw mode, Mailgun
-  MIME, Postmark relay) and has a conversation search API for readback.
-  osTicket takes raw MIME at `api/tickets.email`.
-- **Zammad's corpus as a Blast source.** Zammad ships over a hundred real
-  problem emails under `test/data/mail/`. A `--corpus <dir>` option on
-  `blast fire` that reads `.eml` or `.box` files and fires them in the
-  target's format, with the same tagging as the generated corpus.
 - **Second-hop readback.** A `[readback.follow]` table that fetches one more
   URL per record (Freshdesk requester to contact email, Zendesk ticket to its
   attachments endpoint, Jira issue to its attachment field) so the field
@@ -77,10 +96,9 @@ Reaching the parts of the path a webhook cannot.
   destination allow-listed in config, `--i-understand-this-sends-real-mail`
   on top of `--send`, a five-minute floor on the interval. The five open
   questions in that issue are answered before the send path is written.
-- **An SMTP and IMAP injection transport** for pipelines that pull mail
-  rather than receive webhooks (Zammad, FreeScout, UVdesk, Peppermint). The
-  readback seam is unchanged; only the send side gains a transport, behind
-  the same consent flags as a public target.
+- **An IMAP injection transport**: APPEND straight into the folder a
+  pipeline polls, for one that reads a mailbox no SMTP server delivers to
+  (UVdesk, Peppermint). The SMTP transport covers the rest.
 - **Ownership proof for public targets.** Before the first send at a public
   host, fetch `https://<host>/.well-known/testinghq` and require it to carry
   the token from the target's config table. The same shape as domain

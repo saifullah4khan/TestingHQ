@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import getpass
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -109,6 +112,95 @@ def _add_config_parser(sub) -> None:
         help="print the effective config as TOML instead of as a report, so "
              "it can be diffed against the file it came from",
     )
+
+    basic_cmd = config_sub.add_parser(
+        "basic-auth",
+        help="print an HTTP Basic Authorization value to put in .env",
+        description=(
+            "Builds the value of an Authorization header for HTTP Basic auth, "
+            "'Basic <base64 of user:password>', for a target behind it: put "
+            "the printed line in .env and name the variable in "
+            "[targets.<name>.headers], as Authorization = \"env:NAME\". The "
+            "password is read from the terminal without echo, twice, or from "
+            "the first line of standard input when that is not a terminal. "
+            "It is never an argument, because arguments end up in shell "
+            "history and in the process list. Sends nothing."
+        ),
+        epilog=_EXIT_CODE_HELP,
+    )
+    basic_cmd.add_argument("user", help="the Basic auth user name")
+    basic_cmd.add_argument(
+        "--env",
+        default=DEFAULT_AUTH_VARIABLE,
+        metavar="NAME",
+        help="the environment variable the printed line sets (default "
+             "%(default)s)",
+    )
+
+
+#: The variable `config basic-auth` names when not told another.
+DEFAULT_AUTH_VARIABLE = "TARGET_AUTH"
+
+_VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def basic_auth_value(user: str, password: str) -> str:
+    """`Basic <base64 of user:password>`, the user and password UTF-8 encoded
+    (RFC 7617). Raises ValueError for a user name holding a colon, which the
+    scheme cannot carry: the first colon is where the password begins."""
+    if ":" in user:
+        raise ValueError(
+            f"the user name {user!r} holds a colon, which Basic auth cannot "
+            "carry: the first colon is where the password begins"
+        )
+    token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+    return f"Basic {token}"
+
+
+def _read_password(stdin=None, prompt=getpass.getpass) -> str:
+    """The password, from the terminal (asked twice, not echoed) or, when
+    standard input is not a terminal, from its first line."""
+    stdin = sys.stdin if stdin is None else stdin
+    if not stdin.isatty():
+        line = stdin.readline()
+        if not line:
+            raise ValueError("no password on standard input")
+        return line.rstrip("\r\n")
+    first = prompt("Password: ")
+    second = prompt("Password (again): ")
+    if first != second:
+        raise ValueError("the two passwords do not match")
+    return first
+
+
+def _cmd_config_basic_auth(args, stdin=None, prompt=getpass.getpass) -> int:
+    """Print `NAME=Basic <base64>` for .env, and on stderr how to use it."""
+    if not _VARIABLE_NAME.match(args.env):
+        print(
+            f"config basic-auth: {args.env!r} is not an environment variable name",
+            file=sys.stderr,
+        )
+        return EXIT_REFUSED
+    try:
+        password = _read_password(stdin, prompt)
+        if not password:
+            raise ValueError("the password is empty")
+        value = basic_auth_value(args.user, password)
+    except (ValueError, EOFError, KeyboardInterrupt) as exc:
+        reason = str(exc) or "no password given"
+        print(f"config basic-auth: {reason}", file=sys.stderr)
+        return EXIT_REFUSED
+    # Quoted, because .env.example loads .env with `set -a && . ./.env`, and
+    # unquoted the shell reads `NAME=Basic <token>` as an assignment of
+    # `Basic` followed by a command named after the token. Base64 holds no
+    # character that a double quote would let the shell expand.
+    print(f'{args.env}="{value}"')
+    print(
+        f"config basic-auth: add the line above to .env, and in the target's "
+        f"config:\n  [targets.<name>.headers]\n  Authorization = \"env:{args.env}\"",
+        file=sys.stderr,
+    )
+    return EXIT_OK
 
 
 def _cmd_config_validate(args) -> int:

@@ -499,6 +499,7 @@ public = true
 def test_validate_renders_format_public_and_host_publicness(tmp_path, fake_dns):
     targets, _readback, _notes = config_doc.validate(_write(tmp_path, TWO_TARGETS))
     assert targets["local"] == {
+        "transport": "http",
         "url": "http://127.0.0.1:8000/intake", "format": "sendgrid-raw",
         "public": False, "public_host": False,
     }

@@ -1,0 +1,15 @@
+report: wrote sweep/runs/mailpit/20261019T094007Z/barrage.html
+tool:    barrage
+verdict: STEADY (derived)
+seed:    0
+target:  pipeline
+
+counts:
+  sent        288
+  produced    288
+  records     288
+  buckets     60
+
+findings: 0
+
+exit code: 0 (derived, not recorded in the artifact)

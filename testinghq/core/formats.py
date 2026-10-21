@@ -21,7 +21,9 @@ import hashlib
 import json
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.parser import BytesParser
 from email.policy import SMTP
+from email.policy import default as default_policy
 from typing import Dict, List, Optional
 
 from ..blast.payload import InboundEmail
@@ -399,7 +401,7 @@ class MimeFormat(WireFormat):
     For a receiver that takes a raw message: an SMTP-to-HTTP bridge, a Lambda,
     osTicket's `api/tickets.email`. Built with the stdlib `email` package and
     serialized with CRLF line endings. Every multipart boundary is derived from
-    the configured one (`<boundary>`, `<boundary>-1`, ...), never random.
+    the configured one (`_nested_boundary`), never random.
     """
 
     name = "mime"
@@ -409,14 +411,19 @@ class MimeFormat(WireFormat):
 
     def message(self, payload: InboundEmail) -> EmailMessage:
         message = EmailMessage()
-        message["To"] = payload.to
-        message["From"] = payload.from_addr
-        message["Subject"] = payload.subject
+        message["To"] = _header_value(payload.to)
+        message["From"] = _header_value(payload.from_addr)
+        message["Subject"] = _header_value(payload.subject)
         message.set_content(payload.text or "", charset="utf-8")
         if payload.html:
             message.add_alternative(payload.html, subtype="html", charset="utf-8")
         for attachment in payload.attachments:
             maintype, _, subtype = attachment.content_type.partition("/")
+            if maintype.casefold() == "message" and subtype:
+                if message.get_content_type() != "multipart/mixed":
+                    message.make_mixed()
+                message.attach(_message_part(attachment))
+                continue
             message.add_attachment(
                 attachment.content,
                 maintype=maintype or "application",
@@ -426,11 +433,15 @@ class MimeFormat(WireFormat):
         for name, value in payload.headers.items():
             if name.casefold() in _NOT_COPIED_HEADERS:
                 continue
-            message[name] = value
+            message[name] = _header_value(value)
 
-        multiparts = [part for part in message.walk() if part.is_multipart()]
+        # Only real multiparts get a boundary: an embedded message or a
+        # delivery report is "multipart" to `is_multipart()` too.
+        multiparts = [
+            part for part in message.walk() if part.get_content_maintype() == "multipart"
+        ]
         for depth, part in enumerate(multiparts):
-            part.set_boundary(self._boundary if depth == 0 else f"{self._boundary}-{depth}")
+            part.set_boundary(self._boundary if depth == 0 else _nested_boundary(self._boundary, depth))
         return message
 
     def message_bytes(self, payload: InboundEmail) -> bytes:
@@ -438,6 +449,56 @@ class MimeFormat(WireFormat):
 
     def encode(self, payload: InboundEmail) -> EncodedBody:
         return EncodedBody(body=self.message_bytes(payload), content_type="message/rfc822")
+
+
+def _nested_boundary(boundary: str, depth: int) -> str:
+    """The boundary of the multipart `depth` levels inside the outermost one:
+    `boundary` with its last six characters replaced by six of a hash of it
+    and the depth. The same length and a different ending, so no boundary is
+    a prefix of another, or inside one. RFC 2046 keeps a delimiter out of the
+    parts it encloses, and parsers are stricter still: `<boundary>-1` put the
+    outer delimiter at the start of every inner one, and FreeScout's parser,
+    which splits on the bare boundary string wherever it appears, also split
+    `1_<boundary>`."""
+    stem = boundary[:-6] if len(boundary) > 6 else ""
+    seed = f"{boundary}:{depth}"
+    while True:
+        candidate = stem + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:6]
+        if candidate not in boundary and boundary not in candidate:
+            return candidate
+        seed += ":"
+
+
+def _header_value(value: str) -> str:
+    """A header value a raw message can carry.
+
+    A line break cannot appear inside a header: the stdlib refuses one, since
+    on the wire it would end the header and start another. A value holding CR
+    or LF, like the catalog's header-injection subject, is sent as an RFC 2047
+    encoded word instead, which keeps it one header and hands a decoding
+    receiver the line break it must not act on."""
+    if "\r" not in value and "\n" not in value:
+        return value
+    return "=?utf-8?b?" + base64.b64encode(value.encode("utf-8")).decode("ascii") + "?="
+
+
+def _message_part(attachment) -> EmailMessage:
+    """A `message/*` attachment as a parsed part.
+
+    `add_attachment` would store the bytes as an opaque base64 payload, which
+    RFC 2046 forbids for `message/*` and which the stdlib generator cannot
+    write at all for `message/delivery-status`, whose payload must be the list
+    of per-message and per-recipient field blocks. Parsing the bytes under the
+    part's own content type gives the generator the structure it expects: the
+    embedded message for `message/rfc822`, the field blocks for a delivery
+    report, and the field block for a disposition or feedback report."""
+    head = f"Content-Type: {attachment.content_type}\r\n\r\n".encode("ascii", "replace")
+    part = BytesParser(policy=default_policy).parsebytes(head + bytes(attachment.content))
+    if attachment.filename:
+        part.add_header("Content-Disposition", "attachment", filename=attachment.filename)
+    else:
+        part.add_header("Content-Disposition", "attachment")
+    return part
 
 
 #: Headers the MIME format sets from the payload's own fields, plus the ones

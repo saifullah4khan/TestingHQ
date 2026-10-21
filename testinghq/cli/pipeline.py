@@ -298,7 +298,8 @@ def _print_settle_warning(args, readback, tags: int, *also) -> None:
     resolved, readback, tags = chosen
     print(resolved.describe())
     warning = settle_time_warning(
-        tags, adapter_rate(readback), args.quiet_window, resolved.seconds
+        tags, adapter_rate(readback), args.quiet_window, resolved.seconds,
+        requests_per_tag=resolved.requests_per_tag,
     )
     if warning:
         print(warning)

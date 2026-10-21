@@ -1,0 +1,100 @@
+# Readback recipe: FreeScout
+#
+# STATUS: RUN against FreeScout 1.8.248 on 2026-10-19
+#
+# Written from FreeScout 1.8.248's database migrations (database/migrations)
+# and its mail fetcher (app/Console/Commands/FetchEmails.php), then run by
+# sweep/run.sh freescout against FreeScout 1.8.248; examples/runs/freescout/
+# holds that run.
+#
+# FreeScout takes mail by fetching a mailbox over IMAP or POP3, and its REST
+# API is a paid module. So this recipe sends the way FreeScout's mail arrives
+# (SMTP, into the mail server that holds the mailbox FreeScout fetches) and
+# reads back from FreeScout's database, through the custom adapter in
+# examples/readback/adapters/freescout_mysql.py.
+#
+#   pip install PyMySQL                       # the adapter's own dependency
+#   export FREESCOUT_MYSQL_DSN="mysql://reader:password@127.0.0.1:3306/freescout"
+#   PYTHONPATH=. testinghq verify fire --target freescout --send \
+#       --config target.toml --max-wait 300 --quiet-window 90
+#
+# Run it from the repository root with the root on PYTHONPATH, so
+# `examples.readback.adapters` is importable. Elsewhere, copy the adapter next
+# to your config, put that directory on PYTHONPATH and change `kind` to the
+# module's name there.
+#
+# Use a database user that can only SELECT from conversations, threads,
+# mailboxes and attachments. The adapter never writes.
+#
+# FreeScout fetches on a schedule, every minute by default, so --quiet-window
+# has to be longer than one fetch interval plus the time one fetch takes, or a
+# message still sitting in the mailbox is reported lost.
+#
+# sweep/compose/freescout.yml is a complete local stack for this recipe:
+# FreeScout, MariaDB, a Dovecot mailbox and an SMTP server delivering into
+# it, set up by sweep/setup/freescout.sh.
+
+[targets.freescout]
+transport = "smtp"
+# The mail server holding the mailbox FreeScout fetches. A public host needs
+# --allow-public-target.
+host = "127.0.0.1"
+port = 25
+# Deliver every message to the fetched mailbox, whatever its To header says.
+# Use your mailbox's address; it must be a reserved test domain or localhost.
+envelope_to = "support@freescout.test"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The adapter looks a tag up in `threads`: the X-TestingHQ-Tag line in the
+# raw `headers` FreeScout keeps, or the [testinghq:<tag>] marker in `body`.
+# Each thread carrying the tag is one record, joined to its conversation and
+# mailbox. Listing every thread is a plain SELECT, so stray detection is on.
+#
+# `dsn` must be an env: reference; a literal is refused, because a DSN holds
+# a password. `mailbox` keeps the readback to one mailbox's conversations;
+# leave it out to read every mailbox. `table_prefix` is FreeScout's
+# DB_TABLE_PREFIX, for an install that sets one.
+
+[readback]
+kind = "examples.readback.adapters.freescout_mysql:FreescoutMysqlAdapter"
+dsn = "env:FREESCOUT_MYSQL_DSN"
+mailbox = "support@freescout.test"
+# table_prefix = ""
+timeout = 10.0
+
+# ---------------------------------------------------------------------------
+# What each field is read from
+# ---------------------------------------------------------------------------
+#
+#   ticket_id         conversations.number, the "#123" FreeScout shows. A
+#                     reply FreeScout threads into an existing conversation
+#                     carries that conversation's number.
+#   from_addr         threads.from. FreeScout takes the sender from Reply-To
+#                     when a message has one, and from From otherwise.
+#   subject           conversations.subject, the subject of the message that
+#                     opened the conversation, read for that message only. A
+#                     reply threaded into a conversation has no subject of its
+#                     own in FreeScout, so for a reply it is NOT CHECKED.
+#   body              threads.body. FreeScout stores HTML: the HTML part when
+#                     there is one, the text part escaped with line breaks as
+#                     <br /> otherwise. The body check strips tags first.
+#   attachment_names  attachments.file_name for the thread.
+#   route             mailboxes.email of the conversation's mailbox. Check it
+#                     with --expect-route support@freescout.test.
+#   message_id        threads.message_id. FreeScout skips a Message-ID it has
+#                     stored before, which is what redelivery tests.
+#
+# A field can be switched off with [readback.fields], for example
+# `attachment_names = false`; it is then reported NOT CHECKED.
+#
+# NOT MAPPED, each for a reason:
+#
+#   in_reply_to,      FreeScout records threading as which conversation a
+#   references        thread belongs to, not as fields. The raw header block
+#                     holds the headers as sent, so reading them back would
+#                     compare the message with itself.
+#   category,         FreeScout has no classifier.
+#   priority

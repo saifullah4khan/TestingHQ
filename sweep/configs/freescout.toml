@@ -1,0 +1,50 @@
+# The sweep's FreeScout target, for the stack in sweep/compose/freescout.yml.
+#
+# FreeScout has no inbound webhook and no free API. Mail reaches it through a
+# mailbox it fetches over IMAP, and what it made of the mail is read back from
+# its database:
+#
+#   testinghq --SMTP--> deliver (127.0.0.1:3425) --Maildir--> dovecot
+#   freescout --IMAP, every minute--> dovecot
+#   readback  --SQL--> FreeScout's MariaDB (127.0.0.1:3406)
+#
+# sweep/setup/freescout.sh writes FREESCOUT_MYSQL_DSN to sweep/.env.freescout.
+# The readback adapter is examples/readback/adapters/freescout_mysql.py, which
+# needs PyMySQL (pip install PyMySQL) and is imported by its module path from
+# the repository root, so run from there with PYTHONPATH=. set.
+
+[targets.freescout]
+transport = "smtp"
+host = "127.0.0.1"
+port = 3425
+# Every message goes to the one mailbox FreeScout fetches, whatever its To
+# header says. The deliver sidecar writes this address into the Maildir.
+envelope_to = "support@freescout.test"
+
+[readback]
+kind = "examples.readback.adapters.freescout_mysql:FreescoutMysqlAdapter"
+dsn = "env:FREESCOUT_MYSQL_DSN"
+mailbox = "support@freescout.test"
+timeout = 10.0
+
+[loop]
+# The mailbox's own address: the loop bait is an auto-responder message sent
+# to it, and FreeScout must not answer it.
+reply_address = "support@freescout.test"
+# FreeScout opens a conversation for every message it fetches, an
+# auto-responder's included, and only holds back its own auto-reply to it
+# (app/Listeners/SendAutoReply.php). The conversation is reported, not a
+# finding; an auto-reply to the bait is a finding.
+ticket_policy = "allowed"
+
+[loop.outbound]
+# What FreeScout sent: the deliver sidecar records every message for an
+# address other than the mailbox's here, in the mailbox readback shape.
+kind = "mailbox"
+path = "../.state/freescout/outbound.jsonl"
+
+[steady]
+# FreeScout does not classify mail. The one decision it makes is the mailbox
+# a conversation lands in, so steady reads that: every variant should land in
+# the sweep mailbox.
+label_field = "route"

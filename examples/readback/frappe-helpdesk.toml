@@ -1,0 +1,136 @@
+# Readback recipe: Frappe Helpdesk
+#
+# STATUS: RUN against Frappe Helpdesk 1.31.0 on 2026-10-19
+#
+# Written from the Frappe Framework REST API documentation (/api/resource,
+# token auth), the Communication doctype and the frappe/helpdesk HD Ticket
+# doctype, then run by sweep/run.sh frappe against Frappe Helpdesk 1.31.0;
+# examples/runs/frappe/ holds that run.
+#
+# Frappe Helpdesk takes email by pulling it: an Email Account with incoming
+# enabled polls a mailbox over POP3 or IMAP on the scheduler, and with Append To
+# = HD Ticket stores each new message as a Communication on a ticket: a new
+# one, or the one the message replies to. So TestingHQ sends over SMTP to the
+# mail server that mailbox lives on, and reads the Communication back through
+# the REST API. The mail server has to list the mailbox in the order mail
+# arrived, because Frappe pulls in list order: Mailpit's POP3 server lists
+# newest first, which files a thread sent together reply before original, so
+# use a real mail server, or a delivery sidecar and Dovecot as
+# sweep/compose/frappe.yml does.
+#
+#   export FRAPPE_API_AUTH="token <api_key>:<api_secret>"
+#   testinghq verify fire --target helpdesk --send --config target.toml \
+#     --max-wait 900 --quiet-window 240
+#
+# AUTH. Generate an API key and secret for a user who can read HD Tickets and
+# their Communications
+# (User > Settings > API Access > Generate Keys, or
+# `bench --site <site> execute frappe.core.doctype.user.user.generate_keys
+# --args "['Administrator']"`). The header value is "token <key>:<secret>".
+# Never put it in this file: a [readback.headers] value that is not an `env:`
+# reference is refused.
+#
+# WAITING. Frappe pulls mail every ten minutes by default (the Scheduled Job
+# Type email_account.pull). Either raise --quiet-window and --max-wait past
+# that, or set that job's cron to "* * * * *" and use the values above, which
+# leave room for the scheduler tick and the worker.
+
+[targets.helpdesk]
+transport = "smtp"
+host = "127.0.0.1"
+port = 1025
+# The address the Email Account collects, on the mail server it pulls from; a
+# synthetic one is all a test should send to.
+envelope_to = "support@helpdesk.test"
+
+# ---------------------------------------------------------------------------
+# Readback
+# ---------------------------------------------------------------------------
+#
+# The lookup is
+#
+#   GET /api/resource/Communication?fields=[...]&limit_page_length=0
+#       &filters=[["content","like","%<tag>%"],
+#                 ["reference_doctype","=","HD Ticket"],
+#                 ["sent_or_received","=","Received"]]
+#
+# A Communication is the one record per message. A reply opens no ticket but
+# is still found by its own tag, two messages on one ticket share
+# `reference_name`, and the Message-ID is kept. HD Ticket.description only
+# holds the body of the message that opened the ticket.
+#
+# TestingHQ stamps the tag into the body as [testinghq:<tag>], not into the
+# subject, so the filter searches `content`. The other two conditions keep out
+# a message that made no ticket and anything the helpdesk sent. `fields` names
+# the columns the field map reads (Frappe returns `name` alone without it), and
+# `limit_page_length=0` lifts the default page of 20.
+#
+# The listing for stray records is every received Communication on a ticket
+# that came in through the Email Account, so tickets opened in the portal or
+# the agent UI are not reported as strays. Decoded, list_path is
+#
+#   /api/resource/Communication?fields=[...]&limit_page_length=0
+#       &filters=[["email_account","=","Support"],
+#                 ["reference_doctype","=","HD Ticket"],
+#                 ["sent_or_received","=","Received"]]
+#
+# with "Support" the Email Account's name; change it to yours. list_path is
+# sent as written, so keep it URL-encoded.
+#
+# Bench serves on port 8000; behind nginx, use the site's own address. A site
+# on Frappe Cloud is a public host: add allow_public_hosts = true, or pass
+# --allow-public-readback per run.
+
+[readback]
+kind = "http"
+url = 'http://127.0.0.1:8000/api/resource/Communication?fields=["name","reference_name","sender","subject","content","message_id","email_account","communication_date"]&limit_page_length=0'
+tag_param = "filters"
+query = '[["content","like","%{tag}%"],["reference_doctype","=","HD Ticket"],["sent_or_received","=","Received"]]'
+items_key = "data"
+list_path = "/api/resource/Communication?fields=%5B%22name%22%2C%22reference_name%22%2C%22sender%22%2C%22subject%22%2C%22content%22%2C%22message_id%22%2C%22email_account%22%2C%22communication_date%22%5D&limit_page_length=0&filters=%5B%5B%22email_account%22%2C%22%3D%22%2C%22Support%22%5D%2C%5B%22reference_doctype%22%2C%22%3D%22%2C%22HD%20Ticket%22%5D%2C%5B%22sent_or_received%22%2C%22%3D%22%2C%22Received%22%5D%5D"
+timeout = 30.0
+
+[readback.headers]
+Authorization = "env:FRAPPE_API_AUTH"
+
+# ---------------------------------------------------------------------------
+# Field map
+# ---------------------------------------------------------------------------
+#
+# A received Communication. `reference_name` is the HD Ticket it belongs to,
+# and so the ticket id. `sender` is the address as Frappe reads it: Reply-To
+# when the message has one (and it is not one of the site's own incoming
+# accounts), From otherwise, lowercased. `subject` keeps the first 140
+# characters, so a longer subject fails the subject check. `content` is the
+# body, the HTML part when the message has one, sanitized. `email_account` is
+# the Email Account the message came in through, which is the inbox.
+
+[readback.fields]
+ticket_id = "reference_name"
+from_addr = "sender"
+subject = "subject"
+body = "content"
+route = "email_account"
+message_id = "message_id"
+in_reply_to = false
+references = false
+attachment_names = false
+tag = false
+category = false
+priority = false
+
+# NOT MAPPED, each for a reason:
+#
+#   in_reply_to       A Communication's `in_reply_to` is the name of the
+#                     Communication it answers, not a Message-ID.
+#   references        Not kept on the Communication.
+#   attachment_names  Attachments are File records attached to the
+#                     Communication (/api/resource/File, filtered on
+#                     attached_to_name), a second request this adapter does
+#                     not make.
+#   tag               The lookup already found the record by the tag.
+#   priority          An HD Ticket's priority is its urgency (Low, Medium,
+#                     High, Urgent), not a classifier's label; reading it as
+#                     one would make a steady run measure the wrong thing.
+#   category          `ticket_type` on the ticket is the nearest field, set by
+#                     an agent or an assignment rule, not by the message.

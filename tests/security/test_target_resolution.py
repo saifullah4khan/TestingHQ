@@ -95,7 +95,7 @@ def test_a_public_name_is_allowed_with_the_flag(tmp_path, dns):
     )
     assert resolved.public is True
     assert resolved.artifact_config() == {
-        "format": "sendgrid", "allow_public_target": True,
+        "format": "sendgrid", "allow_public_target": True, "transport": "http",
     }
 
 

@@ -622,3 +622,20 @@ def test_every_ticket_lookup_a_404_is_readback_failed_not_loop_safe():
     assert read.verdict == "READBACK FAILED"
     assert read.exit_code == EXIT_FINDING
     assert [f.kind for f in read.findings] == ["readback-failed"]
+
+
+def test_the_bounce_is_sent_with_a_null_reverse_path():
+    """A real DSN arrives with MAIL FROM:<>, and the mail server writes that as
+    the Return-Path the helpdesk reads. Sent with its From as the envelope
+    sender, the bounce reached FreeScout with Return-Path: <MAILER-DAEMON@...>
+    on top of its own `<>`, so it was not the shape the case claims to test."""
+    from testinghq.core.transport import SmtpEndpoint, smtp_envelope
+
+    [bounce] = [m for m in tool.build_machine_corpus(3, tool.DEFAULT_COUNT, "hq")
+                if m.kind == "bounce-dsn"]
+    assert bounce.email.envelope.from_addr == ""
+    endpoint = SmtpEndpoint(host="127.0.0.1", port=25)
+    assert smtp_envelope(bounce.email, endpoint)[0] == ""
+    ordinary = [m for m in tool.build_machine_corpus(3, tool.DEFAULT_COUNT, "hq")
+                if m.kind == "precedence-bulk"][0]
+    assert ordinary.email.envelope.from_addr == "newsletter@example.com"

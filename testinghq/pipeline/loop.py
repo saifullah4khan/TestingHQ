@@ -234,6 +234,11 @@ def _message(
     attachments: Tuple[Attachment, ...] = (),
 ) -> InboundEmail:
     envelope_from = from_addr.split("<")[-1].strip("> ")
+    # A message whose Return-Path is empty is a bounce, and a bounce is sent
+    # with a null reverse-path (MAIL FROM:<>), which the receiving server
+    # writes as the Return-Path the pipeline reads.
+    if any(name.casefold() == "return-path" and value.strip() == "<>" for name, value in headers):
+        envelope_from = ""
     return InboundEmail(
         to=to,
         from_addr=from_addr,
@@ -1031,7 +1036,7 @@ def execute(
             printer(f"refused: {exc}")
             return EXIT_REFUSED
 
-        sent += send_all(build_items([precursor]), target.url, rate, client=client,
+        sent += send_all(build_items([precursor]), target, rate, client=client,
                          sleep=sleep, clock=clock, wire_format=wire)
         if outbound_adapter is not None:
             reply = _find_reply(
@@ -1048,7 +1053,7 @@ def execute(
         require_synthetic([bait.email])
 
         judged = [*corpus, bait]
-        sent += send_all(build_items(judged), target.url, rate, client=client,
+        sent += send_all(build_items(judged), target, rate, client=client,
                          sleep=sleep, clock=clock, wire_format=wire)
         outcome = read_back_all(adapter, [m.probe() for m in [precursor, *judged]], **poll)
         outbound_by_tag = None

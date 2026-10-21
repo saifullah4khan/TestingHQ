@@ -1,7 +1,6 @@
 # Readback recipe: Mailpit
 #
-# STATUS: NOT RUN against a live Mailpit. Written from Mailpit's published API
-# documentation (/api/v1/search, /api/v1/messages).
+# STATUS: RUN against Mailpit v1.31.6 on 2026-10-19
 #
 # Mailpit is an SMTP server with a REST API that catches every message sent to
 # it. Point the pipeline's outbound SMTP at it and this recipe reads back what
@@ -11,6 +10,11 @@
 #
 #   docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
 #   testinghq verify fire --target pipeline --send --config target.toml
+#
+# Or, with no Docker, `sweep/run.sh mailpit` downloads a pinned Mailpit binary,
+# serves the demo pipeline from examples/pipeline_demo.py on the target below
+# (forwarding every ticket to Mailpit), and runs every tool with this recipe.
+# That run is published in examples/runs/mailpit/.
 #
 # No credentials: Mailpit on localhost has no API auth by default. If yours is
 # behind basic auth, add [readback.headers] with an `env:` reference.
@@ -50,6 +54,14 @@ timeout = 10.0
 # A Mailpit message summary. `From` is an object with `Name` and `Address`,
 # read through its address key. `To.0.Address` is where the pipeline sent the
 # message, which is the route for a pipeline that forwards by team.
+
+#
+# ticket_id is Mailpit's own message ID, so every message Mailpit holds is its
+# own record. Copies are counted exactly: a message forwarded twice is two
+# records, which is what ledger and redeliver's duplicate and slow-retry
+# scenarios look for. A mail sink has no conversation for a reply to join,
+# though, so redeliver's reply-first and references scenarios need a readback
+# that reads the pipeline's tickets rather than its outbound mail.
 
 [readback.fields]
 ticket_id = "ID"

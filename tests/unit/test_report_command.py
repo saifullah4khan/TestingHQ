@@ -296,6 +296,30 @@ def test_a_finding_is_flat_so_a_consumer_never_special_cases_one():
         assert json.loads(json.dumps({"kind": finding.kind, "detail": finding.detail}))
 
 
+def test_a_mismatched_verify_lists_what_mismatched():
+    """verify prints every failed check, and the report of its artifact said
+    MISMATCHED with nothing listed but the skips: a reader of the report could
+    not tell which message failed, or why."""
+    artifact = verify_artifact(sent=2, found=2, verified=1, failed=1)
+    artifact["summary"]["verdict"] = "MISMATCHED"
+    artifact["records"] = [
+        {"id": "clean-5-0000", "tag": "hq-5-0000",
+         "verification": {"passed": True, "checks": [
+             {"check": "sender", "status": "passed", "detail": "ok"}]}},
+        {"id": "clean-5-0001", "tag": "hq-5-0001",
+         "verification": {"passed": False, "checks": [
+             {"check": "sender", "status": "passed", "detail": "ok"},
+             {"check": "attachments", "status": "failed",
+              "detail": "the system stored 0 attachment(s): missing ['a.csv']"}]}},
+    ]
+    summary = summarize(artifact)
+    assert summary.verdict == "MISMATCHED"
+    assert [(f.kind, f.detail) for f in summary.findings] == [
+        ("mismatched", "clean-5-0001 attachments: the system stored 0 "
+                       "attachment(s): missing ['a.csv']"),
+    ]
+
+
 def test_a_clean_run_and_a_flagged_run_say_different_things():
     clean = summarize(blast_artifact(flags=[]))
     flagged = summarize(blast_artifact(flags=["clean-1-0001 did not 2xx"]))
