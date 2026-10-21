@@ -61,12 +61,16 @@ The CI story and the first integrations. Delivered so far:
   and Frappe Helpdesk, MySQL adapter examples for the two without a read API,
   and `sweep/run.sh`, which starts each in Docker, sets it up and runs every
   tool against it in one command.
+- **Recipe runs against live installs.** Done: the Chatwoot and osTicket
+  recipes ran against their Docker Compose installs, and the Zammad,
+  FreeScout and Frappe Helpdesk recipes ran the same way. Each run's verdict
+  table is in `examples/runs/<helpdesk>/`, with the full artifacts published
+  as a release asset.
 
 Still to come in 1.1:
 
-- **Published helpdesk runs.** The sweep run against each of the five,
-  artifacts under `examples/runs/<helpdesk>/`, and every helpdesk bug it
-  finds reported upstream with its reproduction command.
+- **Upstream reports.** Every helpdesk bug the sweep found reported to its
+  project with the reproduction command from the findings.
 - **GitHub Action.** A separate repository, `testinghq-action`, with an
   `action.yml` that takes a config path, a tool and a `fail-on` setting and
   turns the exit code convention into a workflow step. One `uses:` line is a
