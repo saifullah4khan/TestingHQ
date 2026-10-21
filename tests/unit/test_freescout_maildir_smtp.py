@@ -41,7 +41,8 @@ def test_a_delivery_lands_whole_in_new_under_a_maildir_name(tmp_path):
     assert path.name.endswith(".deliver")
     assert list((maildir / "tmp").iterdir()) == []
     assert (maildir / "cur").is_dir()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name == "posix":  # Windows keeps no POSIX mode bits to check
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     stored = path.read_bytes()
     assert b"\r\n" not in stored
@@ -63,6 +64,16 @@ def test_two_deliveries_in_the_same_microsecond_get_different_names(tmp_path):
     assert len(names) == 3
 
 
+def test_names_within_one_second_sort_in_delivery_order():
+    """A helpdesk imports a fetch in the order the mailbox lists it, so the
+    names have to sort the way the mail arrived. Unpadded, 5.034706 was
+    'M34706', which sorts after 'M250000' from earlier in the same second."""
+    early = maildir_smtp.unique_name(clock=lambda: 5.25, hostname="h")
+    late = maildir_smtp.unique_name(clock=lambda: 5.034706 + 0.5, hostname="h")
+    earlier_still = maildir_smtp.unique_name(clock=lambda: 5.034706, hostname="h")
+    assert sorted([late, early, earlier_still]) == [earlier_still, early, late]
+
+
 def test_a_host_name_is_escaped_the_way_maildir_names_need():
     name = maildir_smtp.unique_name(clock=lambda: 5.0, hostname="a/b:c")
     assert name.endswith(".a\\057b\\072c")
@@ -70,7 +81,10 @@ def test_a_host_name_is_escaped_the_way_maildir_names_need():
 
 def test_the_maildir_is_handed_to_the_mail_user(tmp_path, monkeypatch):
     owned = {}
-    monkeypatch.setattr(os, "chown", lambda path, uid, gid: owned.__setitem__(Path(path), (uid, gid)))
+    # raising=False: Windows has no os.chown to replace, and the sidecar
+    # runs on Linux, so the test supplies one.
+    monkeypatch.setattr(os, "chown", lambda path, uid, gid: owned.__setitem__(Path(path), (uid, gid)),
+                        raising=False)
     maildir = tmp_path / "support" / "Maildir"
     path = maildir_smtp.maildir_deliver(
         maildir, MESSAGE, envelope_from="a@hq.example.test",

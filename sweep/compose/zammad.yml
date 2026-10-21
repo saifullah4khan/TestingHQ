@@ -1,4 +1,4 @@
-# Zammad for the TestingHQ sweep, with two Mailpit sidecars.
+# Zammad for the TestingHQ sweep, with its own mail path.
 #
 # Based on zammad/zammad-docker-compose (docker-compose.yml at b51cba1,
 # Zammad 7.2.2), with these changes:
@@ -8,18 +8,20 @@
 #   - no backup service.
 #   - every image pinned to an exact tag, every published port on 127.0.0.1,
 #     in the 3300-3399 range the sweep gives Zammad.
-#   - zammad-mail-in: the mailbox TestingHQ sends into over SMTP and the
-#     email channel fetches over POP3. zammad-mail-out: where the channel's
-#     outbound SMTP goes, so Zammad's own auto-replies never land in the
-#     mailbox it fetches from. sweep/PULL_MAIL.md explains the pattern.
+#   - zammad-deliver: the SMTP server TestingHQ sends into, writing each
+#     message into a Maildir (sweep/compose/freescout/maildir_smtp.py, the
+#     FreeScout stack's sidecar). zammad-mail-in: Dovecot serving that
+#     Maildir over POP3, which the email channel fetches. zammad-mail-out: a
+#     Mailpit where the channel's outbound SMTP goes, so Zammad's own
+#     auto-replies never land in the mailbox it fetches from.
+#     sweep/PULL_MAIL.md explains the pattern.
 #
 #   docker compose -f sweep/compose/zammad.yml up -d
 #   bash sweep/setup/zammad.sh
 #
 #   http://127.0.0.1:3380   Zammad
-#   127.0.0.1:3325          SMTP into zammad-mail-in (the sweep's target)
+#   127.0.0.1:3325          SMTP into zammad-deliver (the sweep's target)
 #   127.0.0.1:3310          POP3 of zammad-mail-in (what the channel fetches)
-#   http://127.0.0.1:3385   zammad-mail-in web UI and API
 #   http://127.0.0.1:3386   zammad-mail-out web UI and API (Zammad's replies)
 #
 # The POP3 credential is local to this stack; sweep/setup/zammad.sh uses the
@@ -153,21 +155,48 @@ services:
     <<: *zammad-service
     command: ["zammad-websocket"]
 
-  # SMTP in (1025), POP3 out (1110), web UI and API (8025). The POP3 server
-  # only starts with a credential configured. No message cap: the channel
-  # deletes what it fetches, and a cap would drop mail before the next fetch
-  # under barrage.
+  # The channel's mailbox: Dovecot serving one Maildir over POP3 on 1110.
+  # Not Mailpit: Mailpit's POP3 server lists newest first, and Zammad imports
+  # a fetch in list order, so mail that arrived together was imported in
+  # reverse and a thread filed reply before original.
   zammad-mail-in:
-    image: axllent/mailpit:v1.31.4
+    image: docker.io/dovecot/dovecot:2.3.21.1
     restart: unless-stopped
-    environment:
-      MP_POP3_AUTH: "zammad:thq-sweep-pop3"
-      MP_MAX_MESSAGES: "0"
-      MP_LABEL: "zammad inbound"
+    volumes:
+      - ./zammad/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - zammad-mail:/srv/mail
     ports:
-      - "127.0.0.1:3325:1025"
       - "127.0.0.1:3310:1110"
-      - "127.0.0.1:3385:8025"
+
+  # SMTP in: writes each message for support@zammad.test into the Maildir
+  # zammad-mail-in serves, in the order it arrived. Root, so it can create the
+  # Maildir and hand every file to uid 1000, the user Dovecot reads it as.
+  zammad-deliver:
+    image: docker.io/library/python:3.13.16-alpine3.24
+    restart: unless-stopped
+    user: "0:0"
+    command:
+      - python
+      - -u
+      - /app/maildir_smtp.py
+      - --port
+      - "25"
+      - --maildir
+      - /srv/mail/zammad/Maildir
+      - --address
+      - support@zammad.test
+      - --uid
+      - "1000"
+      - --gid
+      - "1000"
+      - --sink
+      - /sink/outbound.jsonl
+    volumes:
+      - ./freescout/maildir_smtp.py:/app/maildir_smtp.py:ro
+      - zammad-mail:/srv/mail
+      - ../.state/zammad:/sink
+    ports:
+      - "127.0.0.1:3325:25"
 
   # Takes the channel's outbound mail (auto-replies, notifications) and keeps
   # it readable over the Mailpit API, away from the mailbox the channel reads.
@@ -205,4 +234,6 @@ volumes:
   redis-data:
     driver: local
   zammad-storage:
+    driver: local
+  zammad-mail:
     driver: local

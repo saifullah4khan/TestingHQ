@@ -6,7 +6,7 @@
     "tool": "verify",
     "seed": 0,
     "count": 20,
-    "tag_prefix": "hq-2610190315-8e0e",
+    "tag_prefix": "hq-2610190940-558f",
     "target": "pipeline",
     "readback": {
       "kind": "http",
@@ -85,7 +85,7 @@
     },
     "unsettled": false,
     "readback": {
-      "elapsed_s": 3.037,
+      "elapsed_s": 3.059,
       "polls": 4,
       "stable": true,
       "unsettled": false,
@@ -106,9 +106,9 @@
     {
       "id": "clean-0-0000",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0000",
-      "message_id": "hq-2610190315-8e0e-0-0000@hq.example.test",
-      "payload_sha256": "d77ec7405f303ba308a3ea9e6cd3b134b96c5c30c5fc4e8c55af54dcc6c61538",
+      "tag": "hq-2610190940-558f-0-0000",
+      "message_id": "hq-2610190940-558f-0-0000@hq.example.test",
+      "payload_sha256": "b726eef535cc7acc67bc4f1d0edb757f065793bd9bf3db8c18accba6779111b5",
       "intended": {
         "sender": "grace.brown@internal.localhost",
         "subject": "Onboarding - action needed",
@@ -123,7 +123,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 41.41379599968786,
+        "latency_ms": 35.551599983591586,
         "body_snippet": "{\"ticket\": \"T00001\"}"
       },
       "assertion": {
@@ -133,13 +133,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "0BafDCsiKxS3jQokkKffdT",
+          "ticket_id": "5QQbEGJMrkjBO3R2674Wgf",
           "from_addr": "grace.brown@internal.localhost",
           "subject": "Onboarding - action needed",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0000@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0000@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -156,14 +156,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0000",
-        "tag": "hq-2610190315-8e0e-0-0000",
+        "tag": "hq-2610190940-558f-0-0000",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 0BafDCsiKxS3jQokkKffdT",
+            "detail": "created as 5QQbEGJMrkjBO3R2674Wgf",
             "expected": null,
             "actual": null,
             "reason": null
@@ -214,9 +214,9 @@
     {
       "id": "clean-0-0001",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0001",
-      "message_id": "hq-2610190315-8e0e-0-0001@hq.example.test",
-      "payload_sha256": "b1140a4a7c33e8cbea5c9116a0067edc09fb4cee64516525436cc5c7f7101b56",
+      "tag": "hq-2610190940-558f-0-0001",
+      "message_id": "hq-2610190940-558f-0-0001@hq.example.test",
+      "payload_sha256": "a966ccd735cb11f2693da05940db4e1580c7ba0e00b080a8f6e20c63bec11f47",
       "intended": {
         "sender": "bmuller19@example.com",
         "subject": "Update on the Z\u00fcrich office move",
@@ -229,7 +229,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.4840629997888755,
+        "latency_ms": 26.546600012807176,
         "body_snippet": "{\"ticket\": \"T00002\"}"
       },
       "assertion": {
@@ -239,13 +239,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "2tQ94Z79dPWCEgXrRVa2Tm",
+          "ticket_id": "34wCMRpiYOYSDKTvuUwQW8",
           "from_addr": "bmuller19@example.com",
           "subject": "Update on the Z\u00fcrich office move",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0001@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0001@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -262,14 +262,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0001",
-        "tag": "hq-2610190315-8e0e-0-0001",
+        "tag": "hq-2610190940-558f-0-0001",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 2tQ94Z79dPWCEgXrRVa2Tm",
+            "detail": "created as 34wCMRpiYOYSDKTvuUwQW8",
             "expected": null,
             "actual": null,
             "reason": null
@@ -320,9 +320,9 @@
     {
       "id": "clean-0-0002",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0002",
-      "message_id": "hq-2610190315-8e0e-0-0002@hq.example.test",
-      "payload_sha256": "5edeb8ad6642f1dc6bb36fb5cd239358496e080175ba4f4ef9c04f4e6950f026",
+      "tag": "hq-2610190940-558f-0-0002",
+      "message_id": "hq-2610190940-558f-0-0002@hq.example.test",
+      "payload_sha256": "dccb3d517cb5accb91c616f1da9766c49f4a60985fe12ccf3a74b39895c8a4ef",
       "intended": {
         "sender": "ivan.chen@example.net",
         "subject": "The renewal",
@@ -335,7 +335,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.20580200029508,
+        "latency_ms": 17.2383000026457,
         "body_snippet": "{\"ticket\": \"T00003\"}"
       },
       "assertion": {
@@ -345,13 +345,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "3yZ5vTEHG0O66u3AH1NgB5",
+          "ticket_id": "3YJd0gbM6fjEUoFGxGnEtO",
           "from_addr": "ivan.chen@example.net",
           "subject": "The renewal",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0002@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0002@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -368,14 +368,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0002",
-        "tag": "hq-2610190315-8e0e-0-0002",
+        "tag": "hq-2610190940-558f-0-0002",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 3yZ5vTEHG0O66u3AH1NgB5",
+            "detail": "created as 3YJd0gbM6fjEUoFGxGnEtO",
             "expected": null,
             "actual": null,
             "reason": null
@@ -426,9 +426,9 @@
     {
       "id": "clean-0-0003",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0003",
-      "message_id": "hq-2610190315-8e0e-0-0003@hq.example.test",
-      "payload_sha256": "a21d3a0f63d9a7eca3ba41b77b64988ee4a05a85c836e4ec4679a04893e379ba",
+      "tag": "hq-2610190940-558f-0-0003",
+      "message_id": "hq-2610190940-558f-0-0003@hq.example.test",
+      "payload_sha256": "b60345b93e0198c2d13423c5aff8bb3174c0c02109eaf570eda7b94d27d412a2",
       "intended": {
         "sender": "heidis24@example.net",
         "subject": "Re: the contract",
@@ -443,7 +443,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.434182000200963,
+        "latency_ms": 4.675400006817654,
         "body_snippet": "{\"ticket\": \"T00004\"}"
       },
       "assertion": {
@@ -453,13 +453,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "6AFpU2RwP4UDvDew9SzpE2",
+          "ticket_id": "2RQUnUe9ltqGzzd6gEIALt",
           "from_addr": "heidis24@example.net",
           "subject": "Re: the contract",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0003@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0003@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -476,14 +476,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0003",
-        "tag": "hq-2610190315-8e0e-0-0003",
+        "tag": "hq-2610190940-558f-0-0003",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 6AFpU2RwP4UDvDew9SzpE2",
+            "detail": "created as 2RQUnUe9ltqGzzd6gEIALt",
             "expected": null,
             "actual": null,
             "reason": null
@@ -534,9 +534,9 @@
     {
       "id": "clean-0-0004",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0004",
-      "message_id": "hq-2610190315-8e0e-0-0004@hq.example.test",
-      "payload_sha256": "bf54ad6d419efa944e01cefb030dd453ee1c3380a74dec2668d4acb618f03ce7",
+      "tag": "hq-2610190940-558f-0-0004",
+      "message_id": "hq-2610190940-558f-0-0004@hq.example.test",
+      "payload_sha256": "faf0b68ded588ee8de28c8a5bce92b63fa5aac09d73c187d8aaad3e29e204b7e",
       "intended": {
         "sender": "bjones@example.edu",
         "subject": "Quick question about onboarding",
@@ -549,7 +549,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.75472199984506,
+        "latency_ms": 39.94839999359101,
         "body_snippet": "{\"ticket\": \"T00005\"}"
       },
       "assertion": {
@@ -559,13 +559,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "4S6O2hChqRLlh9RZiylkXm",
+          "ticket_id": "27rLEpfPzMzrCYHFEVNL5O",
           "from_addr": "bjones@example.edu",
           "subject": "Quick question about onboarding",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0004@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0004@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -582,14 +582,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0004",
-        "tag": "hq-2610190315-8e0e-0-0004",
+        "tag": "hq-2610190940-558f-0-0004",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 4S6O2hChqRLlh9RZiylkXm",
+            "detail": "created as 27rLEpfPzMzrCYHFEVNL5O",
             "expected": null,
             "actual": null,
             "reason": null
@@ -640,9 +640,9 @@
     {
       "id": "clean-0-0005",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0005",
-      "message_id": "hq-2610190315-8e0e-0-0005@hq.example.test",
-      "payload_sha256": "23c84a767bbc710f57d50182dc62bf3dfd427e4ea25930ca5f13288fe2f5b17b",
+      "tag": "hq-2610190940-558f-0-0005",
+      "message_id": "hq-2610190940-558f-0-0005@hq.example.test",
+      "payload_sha256": "22725e48eb2e3d11a53dabac8575d6868220cf8564c44ed1da14533ffe45d80a",
       "intended": {
         "sender": "flee@internal.localhost",
         "subject": "Re: the quarterly report",
@@ -658,7 +658,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 15.063957999700506,
+        "latency_ms": 17.996599985053763,
         "body_snippet": "{\"ticket\": \"T00006\"}"
       },
       "assertion": {
@@ -668,13 +668,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "7GBn1X63B2duCY5VjvHVkB",
+          "ticket_id": "4wUsNS9uQ0rbrol1umiLJH",
           "from_addr": "flee@internal.localhost",
           "subject": "Re: the quarterly report",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0005@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0005@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -691,14 +691,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0005",
-        "tag": "hq-2610190315-8e0e-0-0005",
+        "tag": "hq-2610190940-558f-0-0005",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 7GBn1X63B2duCY5VjvHVkB",
+            "detail": "created as 4wUsNS9uQ0rbrol1umiLJH",
             "expected": null,
             "actual": null,
             "reason": null
@@ -749,9 +749,9 @@
     {
       "id": "clean-0-0006",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0006",
-      "message_id": "hq-2610190315-8e0e-0-0006@hq.example.test",
-      "payload_sha256": "5328600e5c762d052e77ceeb869385121f28ba4e0205f313995419c65049d867",
+      "tag": "hq-2610190940-558f-0-0006",
+      "message_id": "hq-2610190940-558f-0-0006@hq.example.test",
+      "payload_sha256": "dfd81524a21aa7e29d0e503742b62ae732043486822f7af3cf5af6496e459603",
       "intended": {
         "sender": "grace.jones@example.org",
         "subject": "Your order",
@@ -764,7 +764,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.30365100025665,
+        "latency_ms": 5.017899995436892,
         "body_snippet": "{\"ticket\": \"T00007\"}"
       },
       "assertion": {
@@ -774,13 +774,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "70BWuosL5Wd9aiyQuq7rLZ",
+          "ticket_id": "3tvDbDQZQd4sEQ7zkMCR8x",
           "from_addr": "grace.jones@example.org",
           "subject": "Your order",
           "body": null,
           "attachment_names": [],
           "route": "shipping@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0006@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0006@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -797,14 +797,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0006",
-        "tag": "hq-2610190315-8e0e-0-0006",
+        "tag": "hq-2610190940-558f-0-0006",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 70BWuosL5Wd9aiyQuq7rLZ",
+            "detail": "created as 3tvDbDQZQd4sEQ7zkMCR8x",
             "expected": null,
             "actual": null,
             "reason": null
@@ -855,9 +855,9 @@
     {
       "id": "clean-0-0007",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0007",
-      "message_id": "hq-2610190315-8e0e-0-0007@hq.example.test",
-      "payload_sha256": "01cc78167176f566a225fc4102a1f1ff36b32fa5f118b9cd03d868381b09ee98",
+      "tag": "hq-2610190940-558f-0-0007",
+      "message_id": "hq-2610190940-558f-0-0007@hq.example.test",
+      "payload_sha256": "cb8c1cf35614b1ad84a526115a91559f12b1e5e8be1057b878fe3e61e316a824",
       "intended": {
         "sender": "carol_brown@widgets.example",
         "subject": "Following up on the support ticket",
@@ -873,7 +873,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.89623400007622,
+        "latency_ms": 5.337799986591563,
         "body_snippet": "{\"ticket\": \"T00008\"}"
       },
       "assertion": {
@@ -883,13 +883,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "7HGGuKkjnFQ5yCeXnrY7MC",
+          "ticket_id": "7QcVPtvdyj55IAhxfFepdu",
           "from_addr": "carol_brown@widgets.example",
           "subject": "Following up on the support ticket",
           "body": null,
           "attachment_names": [],
           "route": "shipping@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0007@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0007@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -906,14 +906,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0007",
-        "tag": "hq-2610190315-8e0e-0-0007",
+        "tag": "hq-2610190940-558f-0-0007",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 7HGGuKkjnFQ5yCeXnrY7MC",
+            "detail": "created as 7QcVPtvdyj55IAhxfFepdu",
             "expected": null,
             "actual": null,
             "reason": null
@@ -964,9 +964,9 @@
     {
       "id": "clean-0-0008",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0008",
-      "message_id": "hq-2610190315-8e0e-0-0008@hq.example.test",
-      "payload_sha256": "97a5d148f10999b2e7712c115d6c9fb8e36eaea54595cf381459d3d57ade2ef1",
+      "tag": "hq-2610190940-558f-0-0008",
+      "message_id": "hq-2610190940-558f-0-0008@hq.example.test",
+      "payload_sha256": "63b8f2b14e195ff9d985eaaf31b9fda26b52da670191031c7d7a79272e5a7eb8",
       "intended": {
         "sender": "emuller@example.net",
         "subject": "Quick question about the invoice",
@@ -979,7 +979,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.882320000386244,
+        "latency_ms": 21.572399971773848,
         "body_snippet": "{\"ticket\": \"T00009\"}"
       },
       "assertion": {
@@ -989,13 +989,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "6U5LVEF4pcISQ5AU9TKvNY",
+          "ticket_id": "2akOioTbpED1MMfqugdD6P",
           "from_addr": "emuller@example.net",
           "subject": "Quick question about the invoice",
           "body": null,
           "attachment_names": [],
           "route": "billing@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0008@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0008@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1012,14 +1012,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0008",
-        "tag": "hq-2610190315-8e0e-0-0008",
+        "tag": "hq-2610190940-558f-0-0008",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 6U5LVEF4pcISQ5AU9TKvNY",
+            "detail": "created as 2akOioTbpED1MMfqugdD6P",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1070,9 +1070,9 @@
     {
       "id": "clean-0-0009",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0009",
-      "message_id": "hq-2610190315-8e0e-0-0009@hq.example.test",
-      "payload_sha256": "7b25badce97a9069d2f5dc9e0339b5df84062200d961ccb91d9164dbc3c506ce",
+      "tag": "hq-2610190940-558f-0-0009",
+      "message_id": "hq-2610190940-558f-0-0009@hq.example.test",
+      "payload_sha256": "d8bdff6a59d7b2ab7beeb05ba35a71c189a8cede06b0cd9a9df5b9c39b42ba20",
       "intended": {
         "sender": "grace_chen@example.org",
         "subject": "The renewal - action needed",
@@ -1085,7 +1085,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.558110999980272,
+        "latency_ms": 38.07619999861345,
         "body_snippet": "{\"ticket\": \"T00010\"}"
       },
       "assertion": {
@@ -1095,13 +1095,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "0BzqrRFgl8bZlUsSX8HfGP",
+          "ticket_id": "0JeIOJ0RIwMzIjJQO9gy3e",
           "from_addr": "grace_chen@example.org",
           "subject": "The renewal - action needed",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0009@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0009@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1118,14 +1118,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0009",
-        "tag": "hq-2610190315-8e0e-0-0009",
+        "tag": "hq-2610190940-558f-0-0009",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 0BzqrRFgl8bZlUsSX8HfGP",
+            "detail": "created as 0JeIOJ0RIwMzIjJQO9gy3e",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1176,9 +1176,9 @@
     {
       "id": "clean-0-0010",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0010",
-      "message_id": "hq-2610190315-8e0e-0-0010@hq.example.test",
-      "payload_sha256": "84d21e438be1fda023eb7af60eeb00d29d3fe6387f225fc46570d32055a94c3b",
+      "tag": "hq-2610190940-558f-0-0010",
+      "message_id": "hq-2610190940-558f-0-0010@hq.example.test",
+      "payload_sha256": "1bf5545e4aa82ff4649fe1c1a491fb04891889b2bdc2d4b1f4cef7f2bcab94e0",
       "intended": {
         "sender": "frank.garcia@example.com",
         "subject": "The shipment - action needed",
@@ -1193,7 +1193,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.28957600015201,
+        "latency_ms": 5.169399984879419,
         "body_snippet": "{\"ticket\": \"T00011\"}"
       },
       "assertion": {
@@ -1203,13 +1203,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "1yxiIDbdUZkjhT375G38mi",
+          "ticket_id": "6NHODq9VR6SPHt2hcSvKPu",
           "from_addr": "frank.garcia@example.com",
           "subject": "The shipment - action needed",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0010@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0010@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1226,14 +1226,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0010",
-        "tag": "hq-2610190315-8e0e-0-0010",
+        "tag": "hq-2610190940-558f-0-0010",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 1yxiIDbdUZkjhT375G38mi",
+            "detail": "created as 6NHODq9VR6SPHt2hcSvKPu",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1284,9 +1284,9 @@
     {
       "id": "clean-0-0011",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0011",
-      "message_id": "hq-2610190315-8e0e-0-0011@hq.example.test",
-      "payload_sha256": "117e528e4e4bf31367f1e67ad9c9aab5682d209b35a6841299aacfa1bb97eddf",
+      "tag": "hq-2610190940-558f-0-0011",
+      "message_id": "hq-2610190940-558f-0-0011@hq.example.test",
+      "payload_sha256": "04ea71e480576543623010c7c36ebb5098aa0711e1729e74c0c034114dded64c",
       "intended": {
         "sender": "bob_brown15@corp.example.invalid",
         "subject": "Update on the shipment",
@@ -1299,7 +1299,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.074055000179214,
+        "latency_ms": 28.30040000844747,
         "body_snippet": "{\"ticket\": \"T00012\"}"
       },
       "assertion": {
@@ -1309,13 +1309,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "3To0IECx3imU6pQmkvTdbN",
+          "ticket_id": "3XxNq8oWrE1VQi49gwfKSu",
           "from_addr": "bob_brown15@corp.example.invalid",
           "subject": "Update on the shipment",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0011@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0011@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1332,14 +1332,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0011",
-        "tag": "hq-2610190315-8e0e-0-0011",
+        "tag": "hq-2610190940-558f-0-0011",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 3To0IECx3imU6pQmkvTdbN",
+            "detail": "created as 3XxNq8oWrE1VQi49gwfKSu",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1390,9 +1390,9 @@
     {
       "id": "clean-0-0012",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0012",
-      "message_id": "hq-2610190315-8e0e-0-0012@hq.example.test",
-      "payload_sha256": "82d15da0cb3f87b8b5a5304cb71da14ca0ac018fdac1f4589bb233d23929199b",
+      "tag": "hq-2610190940-558f-0-0012",
+      "message_id": "hq-2610190940-558f-0-0012@hq.example.test",
+      "payload_sha256": "61a5b2cdacfda7b19904c7d4df9dd3cdad09933c78617a4b34b3552eedd27d1b",
       "intended": {
         "sender": "fmuller@example.com",
         "subject": "Re: the contract",
@@ -1407,7 +1407,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 10.622051000154897,
+        "latency_ms": 27.697600016836077,
         "body_snippet": "{\"ticket\": \"T00013\"}"
       },
       "assertion": {
@@ -1417,13 +1417,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "52LgDhciQkYL57RhWk4vm5",
+          "ticket_id": "6RFPtLzfQScNBUJg9Jas7t",
           "from_addr": "fmuller@example.com",
           "subject": "Re: the contract",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0012@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0012@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1440,14 +1440,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0012",
-        "tag": "hq-2610190315-8e0e-0-0012",
+        "tag": "hq-2610190940-558f-0-0012",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 52LgDhciQkYL57RhWk4vm5",
+            "detail": "created as 6RFPtLzfQScNBUJg9Jas7t",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1498,9 +1498,9 @@
     {
       "id": "clean-0-0013",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0013",
-      "message_id": "hq-2610190315-8e0e-0-0013@hq.example.test",
-      "payload_sha256": "bb8497557a1d4c44a63fce14867edf05ae7d394a846120e2bdaafa2af5fabe44",
+      "tag": "hq-2610190940-558f-0-0013",
+      "message_id": "hq-2610190940-558f-0-0013@hq.example.test",
+      "payload_sha256": "2c97002ff3189a26b426bfef15cc5d8052c39764f5f1f3739c935fef184b6357",
       "intended": {
         "sender": "judy@corp.example.invalid",
         "subject": "Re: the quarterly report",
@@ -1513,7 +1513,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.434421999732876,
+        "latency_ms": 28.827000001911074,
         "body_snippet": "{\"ticket\": \"T00014\"}"
       },
       "assertion": {
@@ -1523,13 +1523,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "7OtoXVutUEqveIRMK5wkh0",
+          "ticket_id": "74TV5PbtgeIHJWbRk1Z0Lt",
           "from_addr": "judy@corp.example.invalid",
           "subject": "Re: the quarterly report",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0013@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0013@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1546,14 +1546,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0013",
-        "tag": "hq-2610190315-8e0e-0-0013",
+        "tag": "hq-2610190940-558f-0-0013",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 7OtoXVutUEqveIRMK5wkh0",
+            "detail": "created as 74TV5PbtgeIHJWbRk1Z0Lt",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1604,9 +1604,9 @@
     {
       "id": "clean-0-0014",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0014",
-      "message_id": "hq-2610190315-8e0e-0-0014@hq.example.test",
-      "payload_sha256": "7d0d880a6846e4ecb0b058d895dd650ee139ecac501c08cbd171828b49fd7037",
+      "tag": "hq-2610190940-558f-0-0014",
+      "message_id": "hq-2610190940-558f-0-0014@hq.example.test",
+      "payload_sha256": "2090991852e66a8122c53ebdfce624f2b68fc1f3a37c453917d80e582ee695cc",
       "intended": {
         "sender": "aliceb@example.org",
         "subject": "Re: your order",
@@ -1622,7 +1622,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 10.47787600009542,
+        "latency_ms": 31.142799998633564,
         "body_snippet": "{\"ticket\": \"T00015\"}"
       },
       "assertion": {
@@ -1632,13 +1632,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "6A80jCiUZSqo2KGbdxiKWU",
+          "ticket_id": "3A32OUIqi2hSVIw64qZ86f",
           "from_addr": "aliceb@example.org",
           "subject": "Re: your order",
           "body": null,
           "attachment_names": [],
           "route": "shipping@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0014@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0014@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1655,14 +1655,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0014",
-        "tag": "hq-2610190315-8e0e-0-0014",
+        "tag": "hq-2610190940-558f-0-0014",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 6A80jCiUZSqo2KGbdxiKWU",
+            "detail": "created as 3A32OUIqi2hSVIw64qZ86f",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1713,9 +1713,9 @@
     {
       "id": "clean-0-0015",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0015",
-      "message_id": "hq-2610190315-8e0e-0-0015@hq.example.test",
-      "payload_sha256": "e691690ff6b6462801735db01541e7daf36cb874771d15d9efda6b4cc8e35c04",
+      "tag": "hq-2610190940-558f-0-0015",
+      "message_id": "hq-2610190940-558f-0-0015@hq.example.test",
+      "payload_sha256": "639d271f38368fa5fb41c8055bae61df5e6469ca1a73f9b32817e2f73b60d9b2",
       "intended": {
         "sender": "grace_jones12@example.net",
         "subject": "Update on the quarterly report",
@@ -1730,7 +1730,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.916311000120913,
+        "latency_ms": 16.08569998643361,
         "body_snippet": "{\"ticket\": \"T00016\"}"
       },
       "assertion": {
@@ -1740,13 +1740,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "5y7LkK8ILEGPYVQ44DPNDk",
+          "ticket_id": "4eZbrQyXV66Cj0Wi84JxTY",
           "from_addr": "grace_jones12@example.net",
           "subject": "Update on the quarterly report",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0015@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0015@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1763,14 +1763,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0015",
-        "tag": "hq-2610190315-8e0e-0-0015",
+        "tag": "hq-2610190940-558f-0-0015",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 5y7LkK8ILEGPYVQ44DPNDk",
+            "detail": "created as 4eZbrQyXV66Cj0Wi84JxTY",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1821,9 +1821,9 @@
     {
       "id": "clean-0-0016",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0016",
-      "message_id": "hq-2610190315-8e0e-0-0016@hq.example.test",
-      "payload_sha256": "5fc6111bd8837f7682502302b25a490c774cad70105f58977047fa233ca8f866",
+      "tag": "hq-2610190940-558f-0-0016",
+      "message_id": "hq-2610190940-558f-0-0016@hq.example.test",
+      "payload_sha256": "944ef4321f24d31a7b6f6091db5b8107790d9e6f8f1497979d3b29e173eab853",
       "intended": {
         "sender": "jnguyen@example.org",
         "subject": "Update on the quarterly report",
@@ -1838,7 +1838,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.476933000110876,
+        "latency_ms": 5.55900001199916,
         "body_snippet": "{\"ticket\": \"T00017\"}"
       },
       "assertion": {
@@ -1848,13 +1848,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "4OYoutWvmRRTWWaSTw1N2i",
+          "ticket_id": "4G8VdCplxQ4qH1etNhxZCJ",
           "from_addr": "jnguyen@example.org",
           "subject": "Update on the quarterly report",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0016@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0016@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1871,14 +1871,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0016",
-        "tag": "hq-2610190315-8e0e-0-0016",
+        "tag": "hq-2610190940-558f-0-0016",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 4OYoutWvmRRTWWaSTw1N2i",
+            "detail": "created as 4G8VdCplxQ4qH1etNhxZCJ",
             "expected": null,
             "actual": null,
             "reason": null
@@ -1929,9 +1929,9 @@
     {
       "id": "clean-0-0017",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0017",
-      "message_id": "hq-2610190315-8e0e-0-0017@hq.example.test",
-      "payload_sha256": "98246350b5c652ecb20fa1b7e5e8188f908e91923cf64a6d8d74dbf647260980",
+      "tag": "hq-2610190940-558f-0-0017",
+      "message_id": "hq-2610190940-558f-0-0017@hq.example.test",
+      "payload_sha256": "75ba5a270b2ab6a2dee9633180a0ebc50c3b2d5d540ef055f60b4a2e0139e3a8",
       "intended": {
         "sender": "oscar_nguyen@widgets.example",
         "subject": "Update on your order",
@@ -1944,7 +1944,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.526600999881339,
+        "latency_ms": 19.042700005229563,
         "body_snippet": "{\"ticket\": \"T00018\"}"
       },
       "assertion": {
@@ -1954,13 +1954,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "3bkYG4rZRRuThstPqV9var",
+          "ticket_id": "7Ff1JO0Yt0XjUIakb6tcPe",
           "from_addr": "oscar_nguyen@widgets.example",
           "subject": "Update on your order",
           "body": null,
           "attachment_names": [],
           "route": "shipping@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0017@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0017@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -1977,14 +1977,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0017",
-        "tag": "hq-2610190315-8e0e-0-0017",
+        "tag": "hq-2610190940-558f-0-0017",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 3bkYG4rZRRuThstPqV9var",
+            "detail": "created as 7Ff1JO0Yt0XjUIakb6tcPe",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2035,9 +2035,9 @@
     {
       "id": "clean-0-0018",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0018",
-      "message_id": "hq-2610190315-8e0e-0-0018@hq.example.test",
-      "payload_sha256": "5a842f8e78ba307acac03c302f64c85636055dc79fbd948cf76cfb557be5c0de",
+      "tag": "hq-2610190940-558f-0-0018",
+      "message_id": "hq-2610190940-558f-0-0018@hq.example.test",
+      "payload_sha256": "b54d101b8a8232266043b4938760c23896843f2471cb2cc641196fb7edd453af",
       "intended": {
         "sender": "bobm@mail.example.test",
         "subject": "Quick question about the caf\u00e9 booking",
@@ -2050,7 +2050,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.303408000097988,
+        "latency_ms": 35.86050000740215,
         "body_snippet": "{\"ticket\": \"T00019\"}"
       },
       "assertion": {
@@ -2060,13 +2060,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "27vI6A2G20u6BHCVeyXrUL",
+          "ticket_id": "5dLw9zRWBHHGHYN6tjmA12",
           "from_addr": "bobm@mail.example.test",
           "subject": "Quick question about the caf\u00e9 booking",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0018@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0018@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -2083,14 +2083,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0018",
-        "tag": "hq-2610190315-8e0e-0-0018",
+        "tag": "hq-2610190940-558f-0-0018",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 27vI6A2G20u6BHCVeyXrUL",
+            "detail": "created as 5dLw9zRWBHHGHYN6tjmA12",
             "expected": null,
             "actual": null,
             "reason": null
@@ -2141,9 +2141,9 @@
     {
       "id": "clean-0-0019",
       "category": "clean",
-      "tag": "hq-2610190315-8e0e-0-0019",
-      "message_id": "hq-2610190315-8e0e-0-0019@hq.example.test",
-      "payload_sha256": "0b9215680a90eecf9fbe3a07886b03090cef4af133282ab47a22f6911c8c5d66",
+      "tag": "hq-2610190940-558f-0-0019",
+      "message_id": "hq-2610190940-558f-0-0019@hq.example.test",
+      "payload_sha256": "b8b540a50704ef04442b1c035bbd006fda49c4726f1d4bb700e6068538acd5ef",
       "intended": {
         "sender": "frank.jones@example.edu",
         "subject": "Following up on the schedule",
@@ -2156,7 +2156,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.886533000146301,
+        "latency_ms": 4.590199998347089,
         "body_snippet": "{\"ticket\": \"T00020\"}"
       },
       "assertion": {
@@ -2166,13 +2166,13 @@
       "readback": [
         {
           "exists": true,
-          "ticket_id": "424JLFBXJcfurM2yH0ceQ3",
+          "ticket_id": "05jgW92oBXTJNs83BaAdQD",
           "from_addr": "frank.jones@example.edu",
           "subject": "Following up on the schedule",
           "body": null,
           "attachment_names": [],
           "route": "general@team.example.com",
-          "message_id": "hq-2610190315-8e0e-0-0019@hq.example.test",
+          "message_id": "hq-2610190940-558f-0-0019@hq.example.test",
           "in_reply_to": null,
           "references": [],
           "tag": null,
@@ -2189,14 +2189,14 @@
       ],
       "verification": {
         "record_id": "clean-0-0019",
-        "tag": "hq-2610190315-8e0e-0-0019",
+        "tag": "hq-2610190940-558f-0-0019",
         "found": true,
         "passed": true,
         "checks": [
           {
             "check": "ticket_created",
             "status": "passed",
-            "detail": "created as 424JLFBXJcfurM2yH0ceQ3",
+            "detail": "created as 05jgW92oBXTJNs83BaAdQD",
             "expected": null,
             "actual": null,
             "reason": null

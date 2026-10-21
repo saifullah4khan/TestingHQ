@@ -12,7 +12,7 @@
 #   3. creates an API key and secret for Administrator, unless the one already
 #      in sweep/.env.frappe still works
 #   4. creates or updates the Email Account "Sweep Support": POP3 from the
-#      Mailpit sidecar, append_to = HD Ticket, so every pulled message opens a
+#      Dovecot sidecar, append_to = HD Ticket, so every pulled message opens a
 #      ticket (or joins the one it replies to)
 #   5. makes the mail pull run every minute instead of every ten
 #   6. writes FRAPPE_API_AUTH to sweep/.env.frappe
@@ -26,11 +26,11 @@ BASE_URL="${FRAPPE_URL:-http://127.0.0.1:3500}"
 ENV_FILE="sweep/.env.frappe"
 TIMEOUT="${FRAPPE_SETUP_TIMEOUT:-1800}"
 
-# The Email Account. The POP3 pair must match MP_POP3_AUTH in the compose file.
+# The Email Account. The POP3 password must match sweep/compose/frappe/dovecot.conf.
 ACCOUNT_NAME="Sweep Support"
 ACCOUNT_PATH="Sweep%20Support"
 ACCOUNT_EMAIL="support@frappe.test"
-POP3_HOST="mailpit"
+POP3_HOST="mail-in"
 POP3_PORT="1110"
 POP3_USER="helpdesk"
 POP3_PASSWORD="helpdesk-pop3"
@@ -113,7 +113,7 @@ api() {
 
 existing_auth() {
   [[ -f "$ENV_FILE" ]] || return 0
-  sed -n 's/^FRAPPE_API_AUTH=//p' "$ENV_FILE" | tail -n 1
+  sed -n 's/^FRAPPE_API_AUTH=//p' "$ENV_FILE" | tail -n 1 | sed 's/^"\(.*\)"$/\1/'
 }
 
 AUTH="$(existing_auth)"
@@ -182,7 +182,7 @@ else
 fi
 if [[ "$STATUS" != "200" ]]; then
   say "saving the Email Account failed ($STATUS). Frappe checks the POP3 login on save, so"
-  say "check that the mailpit service is up and MP_POP3_AUTH matches. Response:"
+  say "check that the mail-in service is up and its password matches. Response:"
   printf '%s\n' "$RESPONSE" | head -c 2000 >&2
   echo >&2
   exit 1
@@ -214,7 +214,10 @@ set_env_key() {
   if [[ -f "$ENV_FILE" ]]; then
     grep -v "^$key=" "$ENV_FILE" >"$tmp" || true
   fi
-  printf '%s=%s\n' "$key" "$value" >>"$tmp"
+  # Quoted: the value is "token <key>:<secret>", and unquoted, `set -a; .`
+  # reads it as an assignment of token followed by a command. run.sh's
+  # loader strips the quotes.
+  printf '%s="%s"\n' "$key" "$value" >>"$tmp"
   mv "$tmp" "$ENV_FILE"
 }
 
@@ -223,4 +226,4 @@ say "wrote FRAPPE_API_AUTH to $ENV_FILE"
 
 echo "URL: $BASE_URL/helpdesk"
 echo "Login: Administrator / admin"
-echo "Add to .env: FRAPPE_API_AUTH=$AUTH"
+echo "Add to .env: FRAPPE_API_AUTH=\"$AUTH\""

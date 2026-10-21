@@ -7,6 +7,7 @@ process environment or on DNS (every host is loopback, reserved or faked).
 """
 from __future__ import annotations
 
+import shlex
 import socket
 
 import pytest
@@ -424,7 +425,7 @@ def test_basic_auth_prints_the_env_line_from_a_piped_password(capsys):
     assert code == EXIT_OK
     out, err = capsys.readouterr()
     # base64("actionmailbox:p@ss word")
-    assert out == "CHATWOOT_INGRESS_AUTH=Basic YWN0aW9ubWFpbGJveDpwQHNzIHdvcmQ=\n"
+    assert out == 'CHATWOOT_INGRESS_AUTH="Basic YWN0aW9ubWFpbGJveDpwQHNzIHdvcmQ="\n'
     assert 'Authorization = "env:CHATWOOT_INGRESS_AUTH"' in err
 
 
@@ -438,7 +439,16 @@ def test_basic_auth_asks_a_terminal_twice_without_echo(capsys):
     code = _basic_auth(["config", "basic-auth", "u"], stdin=_Tty(), prompt=prompt)
     assert code == EXIT_OK
     assert len(prompts) == 2
-    assert capsys.readouterr().out == "TARGET_AUTH=Basic dTpwdw==\n"
+    assert capsys.readouterr().out == 'TARGET_AUTH="Basic dTpwdw=="\n'
+
+
+def test_basic_auth_line_is_one_assignment_when_the_shell_loads_it(capsys):
+    """.env.example loads .env with `set -a && . ./.env`. Unquoted, the space
+    in `Basic <token>` splits the line into an assignment of `Basic` and a
+    command named after the token, so the shell must see one word."""
+    assert _basic_auth(["config", "basic-auth", "u"], stdin=_Pipe("pw\n")) == EXIT_OK
+    line = capsys.readouterr().out.strip()
+    assert shlex.split(line) == ["TARGET_AUTH=Basic dTpwdw=="]
 
 
 def test_basic_auth_refuses_two_different_passwords(capsys):

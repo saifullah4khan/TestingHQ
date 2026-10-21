@@ -35,34 +35,37 @@ envelope_to = "desk@inbound.chatwoot.test"
 Authorization = "env:CHATWOOT_INGRESS_AUTH"
 
 # ---------------------------------------------------------------------------
-# Readback: the conversation list, searched for the tag marker
+# Readback: message search, by the tag marker
 # ---------------------------------------------------------------------------
 #
-#   GET /api/v1/accounts/1/conversations?status=all&q=[testinghq:<tag>]
+#   GET /api/v1/accounts/1/search/messages?q=[testinghq:<tag>]
 #
-# With `q`, Chatwoot returns the conversations holding an incoming or outgoing
-# message whose content contains it, ignoring `status`. The content of an
-# email message is its whole text body, so the [testinghq:<tag>] marker every
+# Chatwoot's message search matches a message whose content contains `q`
+# (an ILIKE, newest first, messages from the last three months). The content
+# of an email message is its text body, so the [testinghq:<tag>] marker every
 # TestingHQ message carries is in it, and the closing bracket keeps one tag
-# from matching a longer one. Without `q`, `status=all` lists every
-# conversation, which is what lets ledger look for strays.
+# from matching a longer one. The answer is one record per message, so a
+# reply Chatwoot threads into an earlier conversation reads back as itself,
+# with the conversation it landed on as its ticket. The conversation list
+# answers per conversation instead, and every message of a thread read back
+# as the thread's first sender and latest message.
 #
-# The response is {"data": {"meta": ..., "payload": [...]}}, 25 to a page.
-# Account 1 is the account the setup creates on a fresh stack.
+# The response is {"payload": {"messages": [...]}}, 15 to a page, paged with
+# `page`. The listing, for stray records, is a search for `testinghq:`: every
+# message any TestingHQ run sent, and not the activity messages Chatwoot adds
+# itself. A record the pipeline made with no marker at all is not listed.
 #
-# The sweep's automation rule labels each new conversation in the inbox
-# `testinghq`. A rule adds a fixed label, never one taken from the message, so
-# the lookup is by the marker and the label marks the sweep's conversations in
-# the dashboard.
+# Account 1 is the first account on an instance; use yours.
 
 [readback]
 kind = "http"
-url = "http://127.0.0.1:3100/api/v1/accounts/1/conversations?status=all"
+url = "http://127.0.0.1:3100/api/v1/accounts/1/search/messages"
 method = "GET"
 tag_param = "q"
 query = "[testinghq:{tag}]"
-items_key = "data.payload"
+items_key = "payload.messages"
 page_param = "page"
+list_path = "/api/v1/accounts/1/search/messages?q=testinghq:"
 enumerate = true
 max_pages = 100
 timeout = 15.0
@@ -74,28 +77,20 @@ api_access_token = "env:CHATWOOT_API_TOKEN"
 # Field map
 # ---------------------------------------------------------------------------
 #
-# A conversation as Chatwoot renders it. The sender is the contact in
-# `meta.sender`, made from Reply-To when there is one and From otherwise. The
-# subject of an email conversation is kept in
-# `additional_attributes.mail_subject`. `messages` holds only the latest
-# message, which is the activity message the label rule leaves, so the email
-# is read from `last_non_activity_message`, whose `content_attributes.email`
-# keeps the threading headers without their angle brackets.
-#
-# A reply Chatwoot threads into an earlier conversation is found as that
-# conversation, so for every message in a thread the sender, body and
-# threading fields read back are the thread's latest message's. Which ticket
-# each message landed on is exact.
+# A message as the search renders it. `sender` is the contact Chatwoot
+# recorded the message as coming from, and `content_attributes.email` keeps
+# the parsed email: its subject and its threading headers without their angle
+# brackets. `conversation_id` is the ticket, and `inbox_id` the route.
 
 [readback.fields]
-ticket_id = "id"
-from_addr = "meta.sender.email"
-subject = "additional_attributes.mail_subject"
-body = "last_non_activity_message.content"
+ticket_id = "conversation_id"
+from_addr = "sender.email"
+subject = "content_attributes.email.subject"
+body = "content"
 route = "inbox_id"
-message_id = "last_non_activity_message.content_attributes.email.message_id"
-in_reply_to = "last_non_activity_message.content_attributes.email.in_reply_to"
-references = "last_non_activity_message.content_attributes.email.references"
+message_id = "content_attributes.email.message_id"
+in_reply_to = "content_attributes.email.in_reply_to"
+references = "content_attributes.email.references"
 
 # NOT MAPPED: attachment_names. An attachment carries a url and a file type,
 # not the original file name.
@@ -110,6 +105,12 @@ references = "last_non_activity_message.content_attributes.email.references"
 
 [loop]
 reply_address = "desk@inbound.chatwoot.test"
+# Chatwoot opens a conversation for every message an email inbox takes, an
+# auto-reply or a bounce included, marks one it recognises as automatic
+# (additional_attributes.auto_reply, from Auto-Submitted or X-Autoreply) so
+# automations skip it, and sends no automatic email of its own. The
+# conversation is reported, not a finding.
+ticket_policy = "allowed"
 
 # ---------------------------------------------------------------------------
 # steady

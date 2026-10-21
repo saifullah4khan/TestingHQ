@@ -291,6 +291,20 @@ def test_a_group_to_and_a_null_return_path_fall_back_to_cc_and_stay_null():
     )
 
 
+def test_a_sender_the_parser_misreads_is_still_rewritten_not_dropped(tmp_path):
+    """A domain with a trailing dot makes the stdlib read the whole From as one
+    bare word with no domain. The sender was there, so the payload must not
+    go out with an empty From that the original never had."""
+    (tmp_path / "x.eml").write_bytes(
+        b'From: "Clement.Si" <Claudia.Shu@yahoo.com.>\n'
+        b"To: abuse@domain.com\nSubject: hello\n\nbody\n"
+    )
+    email = mailcorpus.MailCorpusPlan(str(tmp_path)).entries[0].email
+    synthetic = mailcorpus.rewrite_address("Claudia.Shu@yahoo.com")
+    assert email.from_addr == synthetic
+    assert email.ground_truth.from_addr == synthetic
+
+
 def test_a_file_with_no_recipient_gets_the_default_one(tmp_path):
     (tmp_path / "x.eml").write_bytes(b"Subject: hello\n\nno addresses at all\n")
     email = mailcorpus.MailCorpusPlan(str(tmp_path)).entries[0].email

@@ -21,7 +21,14 @@ import pytest
 from testinghq.cli.main import main as cli_main
 from testinghq.core.exit_codes import EXIT_OK
 
-pytestmark = pytest.mark.allow_network
+pytestmark = [
+    pytest.mark.allow_network,
+    # The fake fetches the way Dovecot does, moving each message into cur/
+    # under a name ending ':2,S', which Windows cannot hold. The sidecar and
+    # the fetch run on Linux in the real stack.
+    pytest.mark.skipif(sys.platform == "win32",
+                       reason="a fetched Maildir name ends ':2,S', which Windows cannot hold"),
+]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_CONFIG = REPO_ROOT / "sweep" / "configs" / "freescout.toml"

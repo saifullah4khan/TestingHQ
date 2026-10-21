@@ -221,12 +221,23 @@ def _quote_name(name: str) -> str:
     return name
 
 
-def _header_addresses(header: Any) -> List[Tuple[str, str]]:
-    """(display name, address) pairs in one parsed address header."""
+def _header_addresses(header: Any, raw: str = "") -> List[Tuple[str, str]]:
+    """(display name, address) pairs in one parsed address header. `raw` is
+    the header as the file had it, read when the parsers find no address."""
     try:
         parsed = [(a.display_name, a.addr_spec) for a in header.addresses]
     except Exception:  # an unparseable header falls back to the lenient parser
         parsed = getaddresses([_one_line(header)])
+    if not any("@" in (address or "") for _name, address in parsed):
+        # Both parsers can lose an address that is plainly there: a domain
+        # with a trailing dot (`<a@example.com.>`) makes the whole header one
+        # bare word with no domain. Dropping it would send a message with no
+        # sender the original had, so take what looks like an address. The
+        # parsed header's text has already lost it, so read the raw one.
+        source = _one_line(raw or header)
+        found = [_split_lead(m.group(0))[1] for m in ADDRESS_PATTERN.finditer(source)]
+        if found:
+            parsed = [("", address) for address in found]
     return parsed
 
 
@@ -240,12 +251,13 @@ class _Addresses:
     encoded: str
 
 
-def _rewrite_address_header(values: Sequence[Any]) -> _Addresses:
+def _rewrite_address_header(values: Sequence[Any], raw: Sequence[str] = ()) -> _Addresses:
     bare: List[str] = []
     display: List[str] = []
     encoded: List[str] = []
-    for value in values:
-        for name, address in _header_addresses(value):
+    for index, value in enumerate(values):
+        source = raw[index] if index < len(raw) else ""
+        for name, address in _header_addresses(value, source):
             address = _clean((address or "").strip())
             if "@" not in address:
                 continue
@@ -360,7 +372,8 @@ def parse_message(data: bytes) -> InboundEmail:
     for key, name in _ADDRESS_HEADER_NAMES.items():
         values = message.get_all(name)
         if values:
-            rewritten[key] = _rewrite_address_header(values)
+            raw = [str(v) for n, v in message.raw_items() if n.casefold() == key]
+            rewritten[key] = _rewrite_address_header(values, raw)
 
     headers = _copied_headers(message)
     for key, name in _ADDRESS_HEADER_NAMES.items():

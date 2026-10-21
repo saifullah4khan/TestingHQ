@@ -1,11 +1,12 @@
 # Readback recipe: Chatwoot
 #
-# STATUS: NOT RUN against a live Chatwoot. Written from Chatwoot's published
-# Application API documentation (Conversations: filter). Treat the field paths
-# as "what the documentation says", not as "this was seen to work".
+# STATUS: RUN against Chatwoot 4.18.0 on 2026-10-19
+#
+# Run by sweep/run.sh chatwoot against Chatwoot 4.18.0; examples/runs/chatwoot/
+# holds that run.
 #
 # Chatwoot takes inbound email through an email inbox and opens a conversation
-# per thread. This recipe looks a conversation up by label.
+# per thread. This recipe looks each message up by the tag marker in its body.
 #
 #   export CHATWOOT_API_TOKEN="..."   # Profile settings > Access token
 #   testinghq config basic-auth actionmailbox --env CHATWOOT_INGRESS_AUTH
@@ -36,26 +37,27 @@ envelope_to = "support@chatwoot.test"
 Authorization = "env:CHATWOOT_INGRESS_AUTH"
 
 # ---------------------------------------------------------------------------
-# Readback
+# Readback: message search, by the tag marker
 # ---------------------------------------------------------------------------
 #
-# The lookup is a POST to the conversation filter endpoint, asking for
-# conversations labelled with the tag:
+#   GET /api/v1/accounts/1/search/messages?q=[testinghq:<tag>]
 #
-#   POST /api/v1/accounts/<account_id>/conversations/filter
-#   {"payload": [{"attribute_key": "labels", "filter_operator": "equal_to",
-#                 "values": ["<tag>"], "query_operator": null}]}
+# Chatwoot's message search matches a message whose content contains `q`
+# (an ILIKE, newest first, messages from the last three months). The content
+# of an email message is its text body, so the [testinghq:<tag>] marker every
+# TestingHQ message carries is in it, and the closing bracket keeps one tag
+# from matching a longer one. The answer is one record per message, so a
+# reply Chatwoot threads into an earlier conversation reads back as itself,
+# with the conversation it landed on as its ticket. The conversation list
+# answers per conversation instead, and every message of a thread read back
+# as the thread's first sender and latest message.
 #
-# That needs the tag on the conversation as a label, put there by whatever sits
-# in front of Chatwoot: a Chatwoot automation rule adds a fixed label, not one
-# taken from the message. Chatwoot labels allow lowercase letters, digits,
-# hyphens and underscores, which every TestingHQ tag is made of. With nothing
-# in front, look the conversation up by the [testinghq:<tag>] body marker
-# instead, through the conversation list's `q` search, as
-# sweep/configs/chatwoot.toml does.
+# The response is {"payload": {"messages": [...]}}, 15 to a page, paged with
+# `page`. The listing, for stray records, is a search for `testinghq:`: every
+# message any TestingHQ run sent, and not the activity messages Chatwoot adds
+# itself. A record the pipeline made with no marker at all is not listed.
 #
-# Results come under `payload`, 25 to a page, paged with `page`. A POST search
-# cannot list every conversation, so stray detection is off.
+# Account 1 is the first account on an instance; use yours.
 #
 # A Chatwoot on localhost or a private address needs nothing more. A hosted one
 # is a public host: add allow_public_hosts = true, or pass
@@ -63,12 +65,15 @@ Authorization = "env:CHATWOOT_INGRESS_AUTH"
 
 [readback]
 kind = "http"
-url = "http://127.0.0.1:3000/api/v1/accounts/1/conversations/filter"
-method = "POST"
-body = '{"payload": [{"attribute_key": "labels", "filter_operator": "equal_to", "values": ["{tag}"], "query_operator": null}]}'
-items_key = "payload"
+url = "http://127.0.0.1:3000/api/v1/accounts/1/search/messages"
+method = "GET"
+tag_param = "q"
+query = "[testinghq:{tag}]"
+items_key = "payload.messages"
 page_param = "page"
-enumerate = false
+list_path = "/api/v1/accounts/1/search/messages?q=testinghq:"
+enumerate = true
+max_pages = 100
 timeout = 15.0
 
 [readback.headers]
@@ -78,25 +83,25 @@ api_access_token = "env:CHATWOOT_API_TOKEN"
 # Field map
 # ---------------------------------------------------------------------------
 #
-# A conversation in a filter result. The sender is the contact in
-# `meta.sender`; the subject of an email conversation is kept in
-# `additional_attributes.mail_subject`; `messages` carries the latest message,
-# which for a conversation TestingHQ just opened is the incoming email.
+# A message as the search renders it. `sender` is the contact Chatwoot
+# recorded the message as coming from, and `content_attributes.email` keeps
+# the parsed email: its subject and its threading headers without their angle
+# brackets. `conversation_id` is the ticket, and `inbox_id` the route.
 
 [readback.fields]
-ticket_id = "id"
-from_addr = "meta.sender.email"
-subject = "additional_attributes.mail_subject"
-body = "messages.0.content"
+ticket_id = "conversation_id"
+from_addr = "sender.email"
+subject = "content_attributes.email.subject"
+body = "content"
 route = "inbox_id"
+message_id = "content_attributes.email.message_id"
+in_reply_to = "content_attributes.email.in_reply_to"
+references = "content_attributes.email.references"
 
 # NOT MAPPED, each for a reason:
 #
 #   attachment_names  A message's attachments carry urls, not the original
 #                     file names, so a name check would compare different
 #                     things.
-#   message_id,       Chatwoot keeps the email headers on the message's content
-#   in_reply_to,      attributes, which differ by version; map them once you
-#   references        have seen your own instance's response.
-#   tag               `labels` is a list, and the filter already found the
-#                     conversation by the tag.
+#   tag               Not a field of its own: the search found the message by
+#                     the marker in its content.

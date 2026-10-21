@@ -17,13 +17,23 @@
 #      If nothing was logged, the compose network's gateway is used;
 #   3. creates an API key bound to that address with "Can Create Tickets", by
 #      SQL into ost_api_key, and checks a request with it is not refused;
-#   4. creates a SELECT-only database user for the readback adapter;
-#   5. writes OSTICKET_API_KEY and OSTICKET_MYSQL_DSN to sweep/.env.osticket.
+#   4. turns on the outbound mail loop reads back: the SMTP account the
+#      image seeds for the mail-out sidecar (it is created inactive, and
+#      osTicket then falls back to sendmail, which has nowhere to go), and
+#      the new-ticket and new-message auto-responders (off on a fresh
+#      install), so osTicket answers ordinary mail and loop can see whether
+#      it also answers machine mail. The new-ticket and new-message alerts
+#      to staff are turned off: they quote the message, tag and all, so loop
+#      read each one as a reply to the sender, and they go to staff, not
+#      back to the sender, so they cannot make a loop;
+#   5. creates a SELECT-only database user for the readback adapter;
+#   6. writes OSTICKET_API_KEY and OSTICKET_MYSQL_DSN to sweep/.env.osticket.
 set -euo pipefail
 
-# Git Bash on Windows rewrites arguments that look like paths; nothing here is
-# a host path.
-export MSYS_NO_PATHCONV=1
+# Git Bash on Windows rewrites arguments that look like paths, and nothing
+# passed to docker here is a host path, so docker runs with that turned off.
+# Only docker: curl needs the rewrite, which is what turns its `-o /dev/null`
+# into NUL, and without it every request fails with curl error 23.
 
 COMPOSE_FILE="sweep/compose/osticket.yml"
 PROFILE="sweep/profiles/osticket.env"
@@ -45,6 +55,10 @@ fi
 
 # shellcheck source=sweep/profiles/osticket.env
 . "$PROFILE"
+
+docker() {
+  MSYS_NO_PATHCONV=1 command docker "$@"
+}
 
 compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
@@ -134,7 +148,23 @@ if [ "$status" = "401" ]; then
   exit 1
 fi
 
-# 4. The readback's database user.
+# 4. Outbound mail and the auto-responders.
+sql "UPDATE ${PREFIX}email_account SET active = 1, updated = NOW()
+  WHERE type = 'smtp' AND email_id = (SELECT value FROM ${PREFIX}config
+    WHERE namespace = 'core' AND \`key\` = 'default_email_id');
+UPDATE ${PREFIX}config SET value = '1', updated = NOW()
+  WHERE namespace = 'core'
+    AND \`key\` IN ('ticket_autoresponder', 'message_autoresponder');
+UPDATE ${PREFIX}config SET value = '0', updated = NOW()
+  WHERE namespace = 'core'
+    AND \`key\` IN ('ticket_alert_active', 'message_alert_active');" >/dev/null
+smtp_on="$(sql "SELECT COUNT(*) FROM ${PREFIX}email_account WHERE type = 'smtp' AND active = 1")"
+if [ "$smtp_on" = "0" ]; then
+  echo "osticket setup: no active SMTP account for the default email; osTicket's replies will not reach mail-out" >&2
+  exit 1
+fi
+
+# 5. The readback's database user.
 dsn="$(env_value OSTICKET_MYSQL_DSN)"
 reader_pw="$(printf '%s' "$dsn" | sed -n "s#^mysql://$READER:\([0-9a-f]\{32\}\)@.*#\1#p")"
 if [ -z "$reader_pw" ]; then
@@ -148,7 +178,7 @@ compose exec -T db mariadb -h 127.0.0.1 -u"$READER" -p"$reader_pw" -N -B "$DB_NA
   -e "SELECT COUNT(*) FROM ${PREFIX}ticket" >/dev/null
 dsn="mysql://$READER:$reader_pw@127.0.0.1:$DB_PORT_ON_HOST/$DB_NAME"
 
-# 5. sweep/.env.osticket, keeping any line that is not ours.
+# 6. sweep/.env.osticket, keeping any line that is not ours.
 tmp="$ENV_FILE.tmp"
 {
   if [ -f "$ENV_FILE" ]; then

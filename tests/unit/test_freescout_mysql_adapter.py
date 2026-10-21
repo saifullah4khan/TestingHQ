@@ -371,6 +371,8 @@ def test_a_message_id_seen_before_is_skipped_unless_the_date_differs_too(store):
     assert len(_adapter(store).fetch(_probe("hq-10-0000"))) == 2
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="a fetched Maildir name ends ':2,S', which Windows cannot hold")
 def test_one_fetch_is_stored_in_date_order(store, tmp_path):
     maildir = tmp_path / "Maildir"
     for sub in ("cur", "new", "tmp"):

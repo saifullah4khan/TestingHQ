@@ -21,3 +21,37 @@ kind = "examples.readback.adapters.osticket_mysql:OsTicketMysqlAdapter"
 dsn = "env:OSTICKET_MYSQL_DSN"
 table_prefix = "ost_"
 timeout = 10.0
+
+[loop]
+# The helpdesk's own address, which the loop bait is sent to.
+reply_address = "support@helpdesk.test"
+# osTicket opens a ticket for every message it takes, an auto-reply or a
+# bounce included, and holds back only its own auto-response and alerts for
+# those (Ticket::create in include/class.ticket.php skips the autorespond
+# for mailflags bounce and auto-reply). The ticket is reported, not a
+# finding; an auto-response to machine mail is a finding.
+ticket_policy = "allowed"
+
+[loop.outbound]
+# Every mail osTicket sent, from the mail-out sidecar's Mailpit API, the
+# same lookup as examples/readback/mailpit.toml.
+kind = "http"
+url = "http://127.0.0.1:3286/api/v1/search"
+tag_param = "query"
+query = "\"{tag}\""
+items_key = "messages"
+list_path = "/api/v1/messages?limit=5000"
+timeout = 10.0
+
+[loop.outbound.fields]
+ticket_id = "ID"
+from_addr = "From"
+subject = "Subject"
+message_id = "MessageID"
+route = "To.0.Address"
+
+[steady]
+# osTicket does not classify mail. The one decision it makes about a message
+# is the department it files it under, so steady reads that: every variant
+# should land in the same one.
+label_field = "route"

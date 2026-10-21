@@ -210,7 +210,9 @@ class OsTicketStore:
                     f"SELECT id FROM {PREFIX}thread WHERE object_type = 'T' AND object_id = ?",
                     (ticket_id,),
                 ).fetchone()[0]
-                self._entry(db, thread_id, user_id, name, subject, body, body_format,
+                # osTicket 1.18.4 stores no title on a reply it threads onto
+                # a ticket: the reply's subject is only in its stored headers.
+                self._entry(db, thread_id, user_id, name, None, body, body_format,
                             mid, headers, attachments)
                 return number
             return self._create_ticket(db, sender, name, subject, body, body_format,

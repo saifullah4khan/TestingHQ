@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import sys
 import tarfile
 from pathlib import Path
 
@@ -147,7 +148,8 @@ def test_extract_unpacks_a_tarball_and_keeps_the_binary_executable(tmp_path):
     harness.extract(archive, tmp_path / "bin")
     binary = tmp_path / "bin" / "mailpit"
     assert binary.read_bytes() == b"#!/bin/sh\n"
-    assert binary.stat().st_mode & 0o100
+    if sys.platform != "win32":  # Windows has no execute bit to keep
+        assert binary.stat().st_mode & 0o100
 
 
 def test_extract_refuses_a_member_that_escapes_the_destination(tmp_path):

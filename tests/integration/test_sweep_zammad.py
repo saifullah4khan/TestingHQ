@@ -51,10 +51,12 @@ zammad_fake = _load_fake()
 
 
 def _pointed_at(recipe: Path, fake, tmp_path: Path) -> str:
-    """The recipe with its SMTP port and API origin replaced by the fake's."""
+    """The recipe with its SMTP port and API origin replaced by the fake's.
+    Only Zammad's own API: the sweep config's [loop.outbound] reads the
+    mail-out sidecar's Mailpit, which the fake does not serve."""
     text = recipe.read_text(encoding="utf-8")
     text, ports = re.subn(r"(?m)^port = \d+$", f"port = {fake.smtp_port}", text)
-    text, urls = re.subn(r"http://127\.0\.0\.1:\d+/", f"{fake.url}/", text)
+    text, urls = re.subn(r"http://127\.0\.0\.1:\d+/(?=api/v1/tickets)", f"{fake.url}/", text)
     assert ports == 1 and urls == 1, (recipe, ports, urls)
     path = tmp_path / recipe.name
     path.write_text(text, encoding="utf-8")

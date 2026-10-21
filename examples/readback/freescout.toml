@@ -1,8 +1,11 @@
 # Readback recipe: FreeScout
 #
-# STATUS: Written from FreeScout 1.8.248's database migrations
-# (database/migrations) and its mail fetcher
-# (app/Console/Commands/FetchEmails.php).
+# STATUS: RUN against FreeScout 1.8.248 on 2026-10-19
+#
+# Written from FreeScout 1.8.248's database migrations (database/migrations)
+# and its mail fetcher (app/Console/Commands/FetchEmails.php), then run by
+# sweep/run.sh freescout against FreeScout 1.8.248; examples/runs/freescout/
+# holds that run.
 #
 # FreeScout takes mail by fetching a mailbox over IMAP or POP3, and its REST
 # API is a paid module. So this recipe sends the way FreeScout's mail arrives

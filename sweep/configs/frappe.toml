@@ -1,6 +1,7 @@
 # Sweep config: Frappe Helpdesk, on the pull-mail pattern.
 #
-# Messages go over SMTP into the Mailpit sidecar in sweep/compose/frappe.yml.
+# Messages go over SMTP into the deliver sidecar in sweep/compose/frappe.yml,
+# which writes them into the Maildir its Dovecot serves over POP3.
 # The helpdesk's Email Account "Sweep Support" (created by
 # sweep/setup/frappe.sh) pulls them over POP3 and stores each one as a
 # Communication on an HD Ticket (a new ticket, or the one it replies to), and
@@ -13,8 +14,8 @@
 #
 # WAITING. Mail reaches a ticket only when the scheduler pulls it: setup makes
 # the pull run every minute, the scheduler ticks once a minute, and a worker
-# then takes up to 100 messages (Frappe stops a POP3 pull at 100, and Mailpit's
-# POP3 lists at most 100 per session, newest first). Tickets arrive in batches
+# then takes up to 100 messages (Frappe stops a POP3 pull at 100), oldest
+# first, as Dovecot lists them. Tickets arrive in batches
 # one to two minutes apart, and a backlog of N messages takes about N / 100
 # minutes to drain. --quiet-window has to be longer than the gap between
 # batches or a batch still on its way reads as lost; sweep/profiles/frappe.env
@@ -24,8 +25,8 @@
 transport = "smtp"
 host = "127.0.0.1"
 port = 3525
-# Mailpit keeps whatever it is sent, and the Email Account takes everything
-# in the mailbox, so the recipient only has to be synthetic.
+# The address the deliver sidecar writes into the mailbox the Email Account
+# pulls; mail for any other address would be recorded as outbound.
 envelope_to = "support@frappe.test"
 
 # ---------------------------------------------------------------------------
@@ -109,3 +110,30 @@ attachment_names = false
 tag = false
 category = false
 priority = false
+
+# ---------------------------------------------------------------------------
+# loop
+# ---------------------------------------------------------------------------
+#
+# The loop bait goes to the Email Account's own address. Frappe Helpdesk drops
+# a delivery report, a null Return-Path, X-Auto-Generated and Auto-Submitted
+# other than auto-replied before they become a ticket, and lets the rest in on
+# purpose (helpdesk/overrides/email_account.py, auto_generated_reason), so a
+# ticket for machine mail is reported, not a finding. The site mutes outgoing
+# mail, so there is no [loop.outbound] and the auto-reply check reads NOT
+# CHECKED.
+
+[loop]
+reply_address = "support@frappe.test"
+ticket_policy = "allowed"
+
+# ---------------------------------------------------------------------------
+# steady
+# ---------------------------------------------------------------------------
+#
+# Frappe Helpdesk does not classify mail by default. The one decision it makes
+# is the Email Account a ticket comes in through, so steady reads that: every
+# variant should arrive through the sweep's one account.
+
+[steady]
+label_field = "route"

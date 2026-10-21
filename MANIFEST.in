@@ -13,7 +13,7 @@ include README.md
 
 recursive-include docs *.md
 recursive-include examples *.toml *.py *.md
-recursive-include examples/runs *.json *.html
+recursive-include examples/runs *.json *.txt
 
 # The helpdesk sweep (sweep/README.md). It drives Docker from a checkout, so it
 # is source only: in the sdist, never in the wheel. The credentials a setup

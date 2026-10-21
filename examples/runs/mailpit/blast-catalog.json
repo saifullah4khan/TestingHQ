@@ -82,7 +82,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 33.20419800002128,
+        "latency_ms": 27.570300007937476,
         "body_snippet": "{\"ticket\": \"T00001\"}",
         "error": null,
         "error_kind": null
@@ -105,7 +105,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.728832999669976,
+        "latency_ms": 29.899599991040304,
         "body_snippet": "{\"ticket\": \"T00002\"}",
         "error": null,
         "error_kind": null
@@ -128,7 +128,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 5.9364549997553695,
+        "latency_ms": 30.556200013961643,
         "body_snippet": "{\"ticket\": \"T00003\"}",
         "error": null,
         "error_kind": null
@@ -151,7 +151,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 5.846351000400318,
+        "latency_ms": 17.16289998148568,
         "body_snippet": "{\"ticket\": \"T00004\"}",
         "error": null,
         "error_kind": null
@@ -174,7 +174,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.568677999894135,
+        "latency_ms": 15.206400013994426,
         "body_snippet": "{\"ticket\": \"T00005\"}",
         "error": null,
         "error_kind": null
@@ -197,7 +197,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 29.225463999864587,
+        "latency_ms": 43.7757000036072,
         "body_snippet": "{\"ticket\": \"T00006\"}",
         "error": null,
         "error_kind": null
@@ -220,7 +220,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 3.7273339999046584,
+        "latency_ms": 11.5698000008706,
         "body_snippet": "{\"ticket\": \"T00007\"}",
         "error": null,
         "error_kind": null
@@ -243,7 +243,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.560610999666096,
+        "latency_ms": 41.80819998146035,
         "body_snippet": "{\"ticket\": \"T00008\"}",
         "error": null,
         "error_kind": null
@@ -266,7 +266,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.915782999840303,
+        "latency_ms": 26.527500012889504,
         "body_snippet": "{\"ticket\": \"T00009\"}",
         "error": null,
         "error_kind": null
@@ -289,7 +289,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.86299200015128,
+        "latency_ms": 41.85430001234636,
         "body_snippet": "{\"ticket\": \"T00010\"}",
         "error": null,
         "error_kind": null
@@ -312,7 +312,7 @@
       },
       "response": {
         "status": null,
-        "latency_ms": 15.482110999982979,
+        "latency_ms": 38.26279999339022,
         "body_snippet": "",
         "error": "Remote end closed connection without response",
         "error_kind": "other"
@@ -337,7 +337,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 10.024914000041463,
+        "latency_ms": 5.039199983002618,
         "body_snippet": "{\"ticket\": \"T00012\"}",
         "error": null,
         "error_kind": null
@@ -360,7 +360,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.041746999675524,
+        "latency_ms": 13.832600001478568,
         "body_snippet": "{\"ticket\": \"T00013\"}",
         "error": null,
         "error_kind": null
@@ -383,7 +383,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.115456999803428,
+        "latency_ms": 27.760099997976795,
         "body_snippet": "{\"ticket\": \"T00014\"}",
         "error": null,
         "error_kind": null
@@ -406,7 +406,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.248111000080826,
+        "latency_ms": 28.47069999552332,
         "body_snippet": "{\"ticket\": \"T00015\"}",
         "error": null,
         "error_kind": null
@@ -429,7 +429,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 1315.623202000097,
+        "latency_ms": 701.9819999986794,
         "body_snippet": "{\"ticket\": \"T00016\"}",
         "error": null,
         "error_kind": null
@@ -452,7 +452,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.008234999626438,
+        "latency_ms": 36.88600001623854,
         "body_snippet": "{\"ticket\": \"T00017\"}",
         "error": null,
         "error_kind": null
@@ -475,7 +475,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 5.797390000225278,
+        "latency_ms": 30.889000016031787,
         "body_snippet": "{\"ticket\": \"T00018\"}",
         "error": null,
         "error_kind": null
@@ -498,7 +498,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 5.38040599985834,
+        "latency_ms": 30.318799981614575,
         "body_snippet": "{\"ticket\": \"T00019\"}",
         "error": null,
         "error_kind": null
@@ -521,7 +521,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.155218999741919,
+        "latency_ms": 30.917099997168407,
         "body_snippet": "{\"ticket\": \"T00020\"}",
         "error": null,
         "error_kind": null
@@ -544,7 +544,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 5.098789999919973,
+        "latency_ms": 17.06380001269281,
         "body_snippet": "{\"ticket\": \"T00021\"}",
         "error": null,
         "error_kind": null
@@ -567,7 +567,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.862488000024314,
+        "latency_ms": 16.729399998439476,
         "body_snippet": "{\"ticket\": \"T00022\"}",
         "error": null,
         "error_kind": null
@@ -590,7 +590,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.469057999969664,
+        "latency_ms": 32.15399998589419,
         "body_snippet": "{\"ticket\": \"T00023\"}",
         "error": null,
         "error_kind": null
@@ -613,7 +613,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 6.364516999838088,
+        "latency_ms": 32.184199983021244,
         "body_snippet": "{\"ticket\": \"T00024\"}",
         "error": null,
         "error_kind": null
@@ -636,7 +636,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 7.451584000136791,
+        "latency_ms": 32.760300004156306,
         "body_snippet": "{\"ticket\": \"T00025\"}",
         "error": null,
         "error_kind": null
@@ -659,7 +659,7 @@
       },
       "response": {
         "status": 200,
-        "latency_ms": 8.628022999801033,
+        "latency_ms": 5.074800021247938,
         "body_snippet": "{\"ticket\": \"T00026\"}",
         "error": null,
         "error_kind": null

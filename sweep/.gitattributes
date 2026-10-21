@@ -3,3 +3,7 @@
 *.sh text eol=lf
 *.env text eol=lf
 *.yml text eol=lf
+# The Dovecot configs are read by a Linux daemon in a container, from a
+# bind mount of the checkout. Dovecot happens to accept CRLF, but nothing
+# should depend on that.
+*.conf text eol=lf

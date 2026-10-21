@@ -20,8 +20,11 @@
 #      one and its API cannot set it), with a second rails runner.
 #   5. Writes CHATWOOT_INGRESS_AUTH, CHATWOOT_API_TOKEN, CHATWOOT_ADMIN_EMAIL,
 #      CHATWOOT_ADMIN_PASSWORD and CHATWOOT_INBOX_ID to sweep/.env.chatwoot,
-#      leaving every other line of it alone. Values are written as they are,
-#      unquoted: read them literally rather than sourcing the file.
+#      leaving every other line of it alone. CHATWOOT_INGRESS_AUTH holds a
+#      space, so it is written in double quotes, as `testinghq config
+#      basic-auth` prints it, and `set -a; . sweep/.env.chatwoot` reads it as
+#      one value; run.sh's loader strips the quotes. The rest have no space
+#      and are written as they are.
 #
 # CHATWOOT_INGRESS_AUTH is "Basic <base64 of actionmailbox:password>" for the
 # RAILS_INBOUND_EMAIL_PASSWORD the rails container runs with, the value
@@ -264,7 +267,7 @@ code="$(status_of -X POST -H "Authorization: $INGRESS_AUTH" \
 # 5. sweep/.env.chatwoot ----------------------------------------------------
 
 write_keys "$ENV_FILE" \
-  "CHATWOOT_INGRESS_AUTH=$INGRESS_AUTH" \
+  "CHATWOOT_INGRESS_AUTH=\"$INGRESS_AUTH\"" \
   "CHATWOOT_API_TOKEN=$TOKEN" \
   "CHATWOOT_ADMIN_EMAIL=$ADMIN_EMAIL" \
   "CHATWOOT_ADMIN_PASSWORD=$ADMIN_PASSWORD" \
@@ -275,4 +278,4 @@ log "the readback also needs CHATWOOT_API_TOKEN=$TOKEN, which is in $ENV_FILE"
 
 echo "URL: $CHATWOOT_URL"
 echo "Login: $ADMIN_EMAIL / $ADMIN_PASSWORD"
-echo "Add to .env: CHATWOOT_INGRESS_AUTH=$INGRESS_AUTH"
+echo "Add to .env: CHATWOOT_INGRESS_AUTH=\"$INGRESS_AUTH\""

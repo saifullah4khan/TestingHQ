@@ -1,4 +1,4 @@
-report: wrote sweep/runs/mailpit/20261019T031516Z/steady.html
+report: wrote sweep/runs/mailpit/20261019T094007Z/steady.html
 tool:    steady
 verdict: STABLE
 seed:    0

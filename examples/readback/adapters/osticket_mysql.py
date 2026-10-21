@@ -39,8 +39,10 @@ is the duplicate the ledger and redeliver tools count.
 WHAT EACH FIELD IS.
 
     ticket_id     ost_ticket.number
-    subject       the entry's title (osTicket stores the message subject
-                  there), else ost_ticket__cdata.subject
+    subject       the entry's title (osTicket stores the subject of the
+                  message that opened a ticket there), else the Subject in
+                  the entry's stored headers (a threaded reply has no
+                  title), else ost_ticket__cdata.subject
     from_addr     the address of the entry's user, else of the ticket's user
     body          the entry's body, as stored: HTML when osTicket's rich text
                   setting is on (the default), which the body check strips
@@ -69,6 +71,7 @@ run this adapter against a SQLite copy of the same tables.
 """
 from __future__ import annotations
 
+import email.header
 import email.parser
 import email.policy
 import re
@@ -392,10 +395,6 @@ class OsTicketMysqlAdapter:
         fields = ["ticket_id", "body"]
         values: Dict[str, Any] = {"ticket_id": _text(number), "body": _text(body)}
 
-        subject = _text(title) or _text(ticket_subject)
-        if subject is not None:
-            fields.append("subject")
-            values["subject"] = subject
         if _text(address):
             fields.append("from_addr")
             values["from_addr"] = _text(address)
@@ -418,6 +417,7 @@ class OsTicketMysqlAdapter:
         values["attachment_names"] = tuple(names)
 
         headers_text = None
+        header_subject = None
         mail = self._query(
             f"SELECT mid, headers FROM {self._t('thread_entry_email')} "
             "WHERE thread_entry_id = {p} ORDER BY id",
@@ -432,6 +432,10 @@ class OsTicketMysqlAdapter:
                 parsed = email.parser.HeaderParser(policy=email.policy.compat32).parsestr(
                     headers_text
                 )
+                if parsed.get("Subject") is not None:
+                    header_subject = str(
+                        email.header.make_header(email.header.decode_header(parsed["Subject"]))
+                    )
                 fields += ["in_reply_to", "references"]
                 in_reply_to = parsed.get("In-Reply-To")
                 values["in_reply_to"] = (
@@ -440,6 +444,14 @@ class OsTicketMysqlAdapter:
                 values["references"] = tuple(
                     token.strip("<>") for token in str(parsed.get("References") or "").split()
                 )
+
+        # The ticket's subject is the original message's, so it is the last
+        # resort: a reply osTicket threads onto a ticket has no title, and its
+        # own subject is only in its stored headers.
+        subject = _text(title) or header_subject or _text(ticket_subject)
+        if subject is not None:
+            fields.append("subject")
+            values["subject"] = subject
 
         tag = harvest_tag(headers_text, _text(body))
         if tag:

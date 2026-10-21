@@ -52,8 +52,12 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
     exit 1
 fi
 
+# Git Bash on Windows rewrites an argument that looks like a path before a
+# native program sees it, so `-w /www/html` reached docker as a Windows path
+# and the exec failed. Nothing passed to docker here is a host path, so docker
+# runs with the rewrite off; curl keeps it, for its -o /dev/null.
 compose() {
-    docker compose -f "${COMPOSE_FILE}" "$@"
+    MSYS_NO_PATHCONV=1 docker compose -f "${COMPOSE_FILE}" "$@"
 }
 
 # Artisan and PHP inside the FreeScout container, as the web server's user so

@@ -32,7 +32,12 @@ TOOL_STEPS = [
 #: up front when the interpreter cannot import it.
 MYSQL_READY = importlib.util.find_spec("pymysql") is not None
 
-pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+#: The bash first on PATH. Not the bare name: on Windows, CreateProcess looks
+#: in System32 before PATH, so "bash" starts WSL's, which cannot read the
+#: Windows paths these tests hand it.
+BASH = shutil.which("bash")
+
+pytestmark = pytest.mark.skipif(BASH is None, reason="needs bash")
 
 STUB_TESTINGHQ = r"""#!/usr/bin/env bash
 printf 'testinghq %s\n' "$*" >>"$STUB_LOG"
@@ -54,7 +59,10 @@ if [ "$tool" = report ]; then
   exit 0
 fi
 if [ -n "$out" ]; then
-  printf '{"tool": "%s", "sink": "%s/sweep/runs/sink.jsonl"}' "$tool" "$PWD" >"$out"
+  # The directory as the tool would record it: native, which under Git Bash
+  # is what `pwd -W` prints, not the MSYS spelling in $PWD.
+  here=$(pwd -W 2>/dev/null || pwd)
+  printf '{"tool": "%s", "sink": "%s/sweep/runs/sink.jsonl"}' "$tool" "$here" >"$out"
 fi
 var="STUB_EXIT_$(printf '%s' "$tool" | tr '[:lower:]' '[:upper:]')"
 exit "${!var:-0}"
@@ -126,7 +134,7 @@ def _run(tmp_path, root, *args, **env_overrides):
     )
     env.update(env_overrides)
     return subprocess.run(
-        ["bash", str(root / "sweep" / "run.sh"), *args],
+        [BASH, str(root / "sweep" / "run.sh"), *args],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
     )
 

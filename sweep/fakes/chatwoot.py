@@ -26,7 +26,7 @@ Inbound, as Action Mailbox's SendGrid ingress and Chatwoot's mailboxes do it:
 
 Readback, with the `api_access_token` header (401 without it):
 
-- `GET /api/v1/accounts/1/conversations?q=...` (the recipe's lookup): the
+- `GET /api/v1/accounts/1/conversations?q=...`: the
   conversations with an incoming or outgoing message whose content contains
   `q`, as `{"data": {"meta": ..., "payload": [...]}}`. Without `q`, filtered
   by `status` (default `open`, `all` for every one), which is how the recipe
@@ -35,6 +35,9 @@ Readback, with the `api_access_token` header (401 without it):
   `status` or `mail_subject`, as `{"meta": ..., "payload": [...]}`.
 - `GET /api/v1/accounts/1/conversations/search?q=...`, in the slimmer search
   shape.
+- `GET /api/v1/accounts/1/search/messages?q=...` (the recipe's lookup and
+  listing): every incoming or outgoing message whose content contains `q`,
+  newest first, as `{"payload": {"messages": [...]}}`, 15 to a page.
 - `GET /api` and `GET /health`, for whatever waits on the instance.
 
 Each conversation is rendered as api/v1/conversations/partials/_conversation
@@ -84,6 +87,8 @@ DEFAULT_LABEL = "testinghq"
 ACCOUNT_ID = 1
 INBOX_ID = 1
 PAGE_SIZE = 25
+#: Message search pages by 15 (SearchService#filter_messages).
+SEARCH_PAGE_SIZE = 15
 VERSION = "4.18.0"
 
 MESSAGE_INCOMING = 0
@@ -419,6 +424,16 @@ def _message_json(message: Message, conversation: Conversation) -> Dict[str, Any
     return data
 
 
+def _search_message_json(message: Message, conversation: Conversation) -> Dict[str, Any]:
+    """One message as GET /search/messages renders it (SearchService
+    filter_messages): the message's own fields and its sender, which for an
+    incoming email is the conversation's contact, whoever wrote it."""
+    full = _message_json(message, conversation)
+    keys = ("id", "content", "inbox_id", "conversation_id", "message_type", "created_at",
+            "private", "status", "source_id", "content_type", "content_attributes", "sender")
+    return {key: full[key] for key in keys if key in full}
+
+
 def _unread(conversation: Conversation) -> int:
     return sum(1 for m in conversation.messages if m.message_type == MESSAGE_INCOMING)
 
@@ -631,6 +646,14 @@ class _Handler(BaseHTTPRequestHandler):
                 body = {"data": {"meta": _meta(chosen),
                                  "payload": [conversation_json(c) for c in _page(chosen, page)]}}
                 return self._send(200, body)
+            if rest == "/search/messages":
+                q = (query.get("q") or [""])[0]
+                found = [(m, c) for c in conversations for m in c.messages if _matches(m, q)]
+                found.sort(key=lambda pair: (pair[0].created_at, pair[0].id), reverse=True)
+                start = (max(page, 1) - 1) * SEARCH_PAGE_SIZE
+                return self._send(200, {"payload": {"messages": [
+                    _search_message_json(m, c) for m, c in found[start:start + SEARCH_PAGE_SIZE]
+                ]}})
             if rest == "/conversations/search":
                 q = (query.get("q") or [""])[0]
                 chosen = [c for c in conversations if any(_matches(m, q) for m in c.messages)]

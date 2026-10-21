@@ -61,7 +61,14 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   `sweep/run.sh mailpit` runs a pinned, checksum-verified Mailpit binary and
   the demo pipeline with no Docker at all.
 - `examples/runs/mailpit/`: the Mailpit recipe run against Mailpit v1.31.6
-  and the demo pipeline, every tool's artifact with its HTML report.
+  and the demo pipeline, every tool's artifact with its report text.
+- `examples/runs/osticket/`, `chatwoot/`, `zammad/`, `freescout/` and
+  `frappe/`: the sweep run against osTicket 1.18.4, Chatwoot 4.18.0, Zammad
+  7.2.2, FreeScout 1.8.248 and Frappe Helpdesk 1.31.0: each README holds the
+  command, versions and verdict table, and the status line of each recipe
+  says so.
+- The full helpdesk run artifacts are published as the release asset
+  `testinghq-sweep-runs-2026-10-20.tar.gz`, with a sha256 `MANIFEST.txt`.
 
 ### Changed
 
@@ -74,6 +81,22 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
 - The Mailpit recipe says which `redeliver` scenarios a mail sink can answer:
   the duplicate ones, which count copies, and not the threading ones, which
   need a ticket store.
+
+- The osTicket recipe reads a threaded reply's subject from its stored
+  headers: osTicket keeps no title on a reply, and the ticket's subject is
+  the original's. The Chatwoot recipe looks each message up through
+  Chatwoot's message search, one record per message, instead of the
+  conversation list, which answered every message of a thread with the
+  thread's first sender and latest headers. The Zammad and Frappe Helpdesk
+  recipes no longer suggest Mailpit as the mail server: its POP3 server lists
+  newest first, and both helpdesks import a fetch in list order.
+- `sweep/`: Zammad and Frappe Helpdesk take inbound mail through the delivery
+  sidecar and Dovecot, which keep arrival order, instead of Mailpit.
+  osTicket runs on `hlhd/osticket:v1.18.4` (the `tiredofit/osticket` image is
+  gone) with MariaDB 11.4, and has a Mailpit for its outbound mail. Every
+  config has a `[steady]` label field, and osTicket, Chatwoot, Zammad and
+  Frappe a `[loop]` table; the setup scripts quote the credentials they
+  write and run docker without Git Bash's path rewriting.
 
 ### Fixed
 
@@ -88,6 +111,44 @@ From 1.0.0 on, a change to a flag, an exit code, a config key or the
   dated before its original, and a helpdesk that processes a mail fetch in
   Date order, as FreeScout does, filed it first on a conversation of its own
   and was reported for a broken thread it did not cause.
+- `config basic-auth` prints the value in double quotes,
+  `NAME="Basic <base64>"`. Unquoted, loading `.env` the way `.env.example`
+  says (`set -a && . ./.env`) read the line as a command named after the
+  base64 token with the variable set for that command only, so the variable
+  was never set and a run naming it was refused.
+- The plan-sized `--max-wait`, the dry-run settle warning and the UNSETTLED
+  advice count every paced request a lookup makes. A readback numbered by
+  `page_param` with no `page_size_param` cannot tell a short first page from
+  a full one, so a lookup that finds its record asks for the next page too:
+  two requests a tag, where the arithmetic counted one, so the default
+  `--max-wait` was half what a run against such a recipe (Chatwoot's) needed.
+- The `mime` and `sendgrid-raw` formats send a header value holding CR or LF
+  as an RFC 2047 encoded word. The catalog's header-injection case put CRLF in
+  the subject, the stdlib refused to build the message, and `blast fire
+  --catalog` crashed on that case against every raw-message and SMTP target.
+- `blast --corpus` keeps a sender the stdlib parser misreads. A From such as
+  `"Name" <user@example.com.>`, with a trailing dot on the domain, parsed as
+  one bare word with no address, and the payload went out with an empty From
+  the original never had; the address is now found in the raw header and
+  re-addressed like any other.
+- The `mime` format derives a nested multipart boundary from the outer one by
+  replacing its last six characters with six of a hash, instead of appending
+  `-<depth>`. With the old names every inner delimiter line began with the
+  outer delimiter, which RFC 2046 rules out, and FreeScout 1.8, whose parser
+  splits on the boundary string wherever it appears, split each message with
+  attachments at the inner boundary: it stored the MIME headers and undecoded
+  text as the body and a stray scrap as an attachment. No boundary is now a
+  prefix of another or inside one.
+  The bytes of every `mime` message with attachments change; they are still
+  the same from run to run.
+- `loop` sends its bounce with a null envelope sender, as a delivery status
+  notification is sent. It used to go out with `MAIL FROM:<MAILER-DAEMON@...>`,
+  which the receiving server wrote as the Return-Path above the message's own
+  `<>`, so over SMTP the case did not have the shape it claims to test.
+- `report` on a verify artifact lists every failed check as a `mismatched`
+  finding, named by record, as verify prints them (the first 20, then a
+  `truncated` finding). It used to say MISMATCHED with only the skipped
+  checks listed, so the report could not say which message failed or why.
 
 ## [1.0.0] - 2026-10-15
 
